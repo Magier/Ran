@@ -10,6 +10,7 @@ import type { components, paths, operations } from './gen_types';
 export type Graph = components['schemas']['Graph'];
 export type Node = components['schemas']['Node'];
 export type Edge = components['schemas']['Edge'];
+export type BinaryPresence = components['schemas']['BinaryPresence'];
 export type CampaignState = components['schemas']['CampaignState'];
 export type BootstrapOperation = components['schemas']['BootstrapOperation'];
 export type AttackFlow = components['schemas']['AttackFlow'];

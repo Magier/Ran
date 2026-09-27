@@ -377,8 +377,8 @@ pub enum OutputTransformKind {
 
 /// Whether a binary is known to exist on a system and, if so, where.
 ///
-/// Serialized as a plain string so the frontend can display it directly:
-/// `Present(path)` → `"path"`, `Absent` → `""`, `Unknown` → `null`.
+/// Serialized as an object with an explicit `status` so API clients cannot
+/// mistake a probed, absent binary for one that is present.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BinaryPresence {
     /// No attempt has been made to discover this binary.
@@ -390,22 +390,131 @@ pub enum BinaryPresence {
 
 impl serde::Serialize for BinaryPresence {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
         match self {
-            BinaryPresence::Present(path) => s.serialize_str(path),
-            BinaryPresence::Absent => s.serialize_str(""),
-            BinaryPresence::Unknown => s.serialize_none(),
+            BinaryPresence::Present(path) if path.is_empty() => {
+                Err(<S::Error as serde::ser::Error>::custom(
+                    "binary presence with status 'present' requires a non-empty path",
+                ))
+            }
+            BinaryPresence::Present(path) => {
+                let mut state = s.serialize_struct("BinaryPresence", 2)?;
+                state.serialize_field("status", "present")?;
+                state.serialize_field("path", path)?;
+                state.end()
+            }
+            BinaryPresence::Absent => {
+                let mut state = s.serialize_struct("BinaryPresence", 1)?;
+                state.serialize_field("status", "absent")?;
+                state.end()
+            }
+            BinaryPresence::Unknown => {
+                let mut state = s.serialize_struct("BinaryPresence", 1)?;
+                state.serialize_field("status", "unknown")?;
+                state.end()
+            }
         }
     }
 }
 
 impl<'de> serde::Deserialize<'de> for BinaryPresence {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let opt: Option<String> = Option::deserialize(d)?;
-        Ok(match opt {
-            None => BinaryPresence::Unknown,
-            Some(s) if s.is_empty() => BinaryPresence::Absent,
-            Some(path) => BinaryPresence::Present(path),
-        })
+        use serde::de::Error as _;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Status {
+            Present,
+            Absent,
+            Unknown,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum WireFormat {
+            Explicit {
+                status: Status,
+                #[serde(default)]
+                path: Option<String>,
+            },
+            // Accept the former string/null representation when reading old
+            // snapshots. New payloads are always serialized explicitly.
+            Legacy(Option<String>),
+        }
+
+        match WireFormat::deserialize(d)? {
+            WireFormat::Explicit {
+                status: Status::Present,
+                path: Some(path),
+            } if !path.is_empty() => Ok(BinaryPresence::Present(path)),
+            WireFormat::Explicit {
+                status: Status::Present,
+                ..
+            } => Err(D::Error::custom(
+                "binary presence with status 'present' requires a non-empty path",
+            )),
+            WireFormat::Explicit {
+                status: Status::Absent,
+                path: None,
+            } => Ok(BinaryPresence::Absent),
+            WireFormat::Explicit {
+                status: Status::Unknown,
+                path: None,
+            } => Ok(BinaryPresence::Unknown),
+            WireFormat::Explicit { .. } => Err(D::Error::custom(
+                "binary presence path is only valid when status is 'present'",
+            )),
+            WireFormat::Legacy(None) => Ok(BinaryPresence::Unknown),
+            WireFormat::Legacy(Some(path)) if path.is_empty() => Ok(BinaryPresence::Absent),
+            WireFormat::Legacy(Some(path)) => Ok(BinaryPresence::Present(path)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod binary_presence_tests {
+    use super::BinaryPresence;
+
+    #[test]
+    fn serializes_all_states_explicitly() {
+        assert_eq!(
+            serde_json::to_value(BinaryPresence::Present("/bin/ls".into())).unwrap(),
+            serde_json::json!({"status": "present", "path": "/bin/ls"})
+        );
+        assert_eq!(
+            serde_json::to_value(BinaryPresence::Absent).unwrap(),
+            serde_json::json!({"status": "absent"})
+        );
+        assert_eq!(
+            serde_json::to_value(BinaryPresence::Unknown).unwrap(),
+            serde_json::json!({"status": "unknown"})
+        );
+    }
+
+    #[test]
+    fn deserializes_legacy_states_for_snapshot_compatibility() {
+        assert_eq!(
+            serde_json::from_value::<BinaryPresence>(serde_json::json!("/bin/ls")).unwrap(),
+            BinaryPresence::Present("/bin/ls".into())
+        );
+        assert_eq!(
+            serde_json::from_value::<BinaryPresence>(serde_json::json!("")).unwrap(),
+            BinaryPresence::Absent
+        );
+        assert_eq!(
+            serde_json::from_value::<BinaryPresence>(serde_json::Value::Null).unwrap(),
+            BinaryPresence::Unknown
+        );
+    }
+
+    #[test]
+    fn rejects_empty_paths_in_the_explicit_format() {
+        assert!(serde_json::to_value(BinaryPresence::Present(String::new())).is_err());
+        assert!(serde_json::from_value::<BinaryPresence>(
+            serde_json::json!({"status": "present", "path": ""})
+        )
+        .is_err());
     }
 }
 
