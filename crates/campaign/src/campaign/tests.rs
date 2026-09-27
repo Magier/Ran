@@ -4332,57 +4332,116 @@ fn repository_armory() -> Armory {
 }
 
 #[test]
-fn search_kubeconfig_files_uses_configurable_busybox_compatible_exclusions() {
+fn pod_and_node_kubeconfig_searches_are_bounded_and_configurable() {
     let armory = repository_armory();
-    let ttp = armory
-        .get_ttp("search-kubeconfig-files")
-        .expect("Search kubeconfig files TTP");
-    let excluded_dirs = ttp
-        .params
-        .iter()
-        .find(|param| param.name == "EXCLUDED_DIRS")
-        .expect("configurable directory exclusion parameter");
-    let mount_path = ttp
-        .params
-        .iter()
-        .find(|param| param.name == "MOUNT_PATH")
-        .expect("optional search root parameter");
-    assert!(!mount_path.required);
-    assert_eq!(mount_path.default, "/");
-    assert_eq!(excluded_dirs.param_type, "stringList");
-    assert_eq!(excluded_dirs.default, r#"["proc","sys","dev"]"#);
+    let cases = [
+        (
+            "search-pod-kubeconfig-files",
+            "System",
+            "/",
+            r#"["root/.kube","etc/kubernetes"]"#,
+            r#"["proc","sys","dev"]"#,
+        ),
+        (
+            "search-node-kubeconfig-files",
+            "Node",
+            "${SRC.MOUNT_PATH}",
+            r#"["etc/kubernetes","var/lib/kubelet","root/.kube","etc/rancher","etc/k0s","var/lib/k0s/pki","var/snap/microk8s/current/credentials"]"#,
+            r#"["proc","sys","dev","var/lib/kubelet/pods","var/lib/kubelet/plugins","var/lib/kubelet/plugins_registry","var/lib/kubelet/device-plugins"]"#,
+        ),
+    ];
 
-    let mut args: HashMap<_, _> = ttp
+    for (action_id, target_kind, mount_default, path_defaults, exclusion_defaults) in cases {
+        let ttp = armory.get_ttp(action_id).expect("kubeconfig search TTP");
+        assert_eq!(
+            ttp.requires.get("kind").and_then(serde_json::Value::as_str),
+            Some(target_kind)
+        );
+
+        let mount_path = ttp
+            .params
+            .iter()
+            .find(|param| param.name == "MOUNT_PATH")
+            .expect("optional search root parameter");
+        let search_paths = ttp
+            .params
+            .iter()
+            .find(|param| param.name == "SEARCH_PATHS")
+            .expect("configurable Kubernetes search paths");
+        let excluded_dirs = ttp
+            .params
+            .iter()
+            .find(|param| param.name == "EXCLUDED_DIRS")
+            .expect("configurable directory exclusion parameter");
+        assert!(!mount_path.required);
+        assert_eq!(mount_path.default, mount_default);
+        assert_eq!(search_paths.param_type, "stringList");
+        assert_eq!(search_paths.default, path_defaults);
+        assert_eq!(excluded_dirs.param_type, "stringList");
+        assert_eq!(excluded_dirs.default, exclusion_defaults);
+
+        let args: HashMap<_, _> = ttp
+            .params
+            .iter()
+            .map(|param| (param.name.clone(), param.default.clone()))
+            .collect();
+        let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
+        assert!(!command.contains("find \"$root\""));
+        assert!(command.contains("runner=\"\""));
+        assert!(command.contains("runner=\"timeout -k 1s 6s\""));
+        assert!(command.contains("runner=\"busybox timeout -k 1s 6s\""));
+        assert!(command.contains(
+            "else echo \"kubeconfig search skipped: timeout is unavailable\" >&2; exit 0;"
+        ));
+        assert!(command.contains("$runner find \"$search_root\" -maxdepth 4"));
+        assert!(!command.contains("--exclude-dir"));
+        for pattern in [
+            "-name config",
+            "-name '*.conf'",
+            "-name '*.config'",
+            "-name '*kubeconfig*'",
+            "-name '*.yaml'",
+            "-name '*.yml'",
+        ] {
+            assert!(
+                command.contains(pattern),
+                "{action_id} should filter candidate files by {pattern}: {command}"
+            );
+        }
+        assert!(command.ends_with("-exec grep -swIl -e '${PATTERN}' {} \\; || true; done"));
+        let syntax = std::process::Command::new("sh")
+            .args(["-n", "-c", &command])
+            .status()
+            .expect("POSIX shell should be available to validate procedure syntax");
+        assert!(syntax.success(), "invalid shell syntax for {action_id}");
+    }
+
+    let pod_ttp = armory
+        .get_ttp("search-pod-kubeconfig-files")
+        .expect("pod kubeconfig search TTP");
+    let mut args: HashMap<_, _> = pod_ttp
         .params
         .iter()
         .map(|param| (param.name.clone(), param.default.clone()))
         .collect();
-    let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
-
-    assert!(command.starts_with(
-        "root=/; [ -n \"$root\" ] || root=/; prefix=$(dirname \"$root/.\"); [ \"$prefix\" = / ] && prefix=\"\"; find \"$root\" "
-    ));
-    assert!(!command.contains("--exclude-dir"));
-    for directory in ["proc", "sys", "dev"] {
-        assert!(
-            command.contains(&format!("-type d -path \"$prefix/{directory}\" -prune -o")),
-            "default exclusion should be rendered for {directory}: {command}"
-        );
-    }
-    assert!(command.ends_with("-type f -exec grep -swIl -e '${PATTERN}' {} \\;"));
-
     args.insert("MOUNT_PATH".to_string(), String::new());
-    let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
+    let command = crate::grounding::resolve_template(&pod_ttp.procedures[0].command, &args);
     assert!(
         command.starts_with("root=''; [ -n \"$root\" ] || root=/;"),
         "an empty search root must fall back to the local filesystem root: {command}"
     );
 
     args.insert(
+        "SEARCH_PATHS".to_string(),
+        r#"["custom/kubernetes"]"#.to_string(),
+    );
+    args.insert(
         "EXCLUDED_DIRS".to_string(),
         r#"["tmp","cache"]"#.to_string(),
     );
-    let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
+    let command = crate::grounding::resolve_template(&pod_ttp.procedures[0].command, &args);
+    assert!(command.contains("\"$prefix\"/custom/kubernetes"));
+    assert!(!command.contains("\"$prefix\"/etc/kubernetes"));
     assert!(command.contains("-type d -path \"$prefix/tmp\" -prune -o"));
     assert!(command.contains("-type d -path \"$prefix/cache\" -prune -o"));
     assert!(!command.contains("$prefix/proc"));
