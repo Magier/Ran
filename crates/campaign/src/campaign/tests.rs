@@ -2225,7 +2225,7 @@ fn kubectl_usage_error_in_output_with_exit_zero_fails_action() {
 }
 
 #[test]
-fn grounded_http_tool_failure_overrides_stale_known_present_binary() {
+fn generic_missing_tool_failure_preserves_known_absolute_binary_path() {
     use ran_domain::BinaryPresence;
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
     let mut pod = Pod::new("demo", "default");
@@ -2242,14 +2242,74 @@ fn grounded_http_tool_failure_overrides_stale_known_present_binary() {
 
     campaign.on_ttp_executed(&cmd, &event).unwrap();
 
-    // A command-not-found result is newer direct evidence than an earlier
-    // inventory result and must disable this procedure until installation is
-    // observed again.
+    // A generic exit-code report does not identify the path that failed. It
+    // cannot disprove the known absolute path.
     let sys = campaign.get_system_entity(&target_id).unwrap();
     assert_eq!(
         sys.entity().system().has_binary("wget"),
-        BinaryPresence::Absent,
-        "command-not-found should override stale Present evidence"
+        BinaryPresence::Present("/usr/bin/wget".to_string()),
+        "ambiguous missing-tool evidence must preserve a known absolute path"
+    );
+}
+
+#[test]
+fn bare_name_failure_preserves_known_nonstandard_binary_path() {
+    use ran_domain::BinaryPresence;
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let mut pod = Pod::new("demo", "default");
+    pod.system.set_binary("kubectl", "/tmp/kubectl");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let mut cmd = nmap_exec_ttp(&target_id);
+    cmd.procedure = Procedure::new(
+        "bash",
+        r#"bash -c "kubectl -n agent-system get serviceaccounts -o yaml""#,
+    );
+    let event = TtpExecuted {
+        id: "evt-1".to_string(),
+        success: false,
+        exit_code: 127,
+        results: vec!["bash: kubectl: command not found".to_string()],
+        fail_reason: String::new(),
+        session_connected: None,
+    };
+
+    campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    let sys = campaign.get_system_entity(&target_id).unwrap();
+    assert_eq!(
+        sys.entity().system().has_binary("kubectl"),
+        BinaryPresence::Present("/tmp/kubectl".to_string())
+    );
+}
+
+#[test]
+fn exact_known_path_failure_marks_binary_absent() {
+    use ran_domain::BinaryPresence;
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let mut pod = Pod::new("demo", "default");
+    pod.system.set_binary("kubectl", "/tmp/kubectl");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let mut cmd = nmap_exec_ttp(&target_id);
+    cmd.procedure = Procedure::new("shell", "/tmp/kubectl get pods");
+    let event = TtpExecuted {
+        id: "evt-1".to_string(),
+        success: false,
+        exit_code: 127,
+        results: vec!["/bin/sh: /tmp/kubectl: not found".to_string()],
+        fail_reason: String::new(),
+        session_connected: None,
+    };
+
+    campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    let sys = campaign.get_system_entity(&target_id).unwrap();
+    assert_eq!(
+        sys.entity().system().has_binary("kubectl"),
+        BinaryPresence::Absent
     );
 }
 
@@ -2521,6 +2581,48 @@ fn prepare_action_grounds_binary_against_target_for_direct_path() {
         exec.procedure.command.starts_with("/tmp/kubectl"),
         "kubectl should be resolved to /tmp/kubectl, got: {}",
         exec.procedure.command
+    );
+}
+
+#[test]
+fn execute_in_shell_grounds_binary_inside_bash_c_script() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut target = Pod::new("victim", "agent-system");
+    target.system.set_binary("kubectl", "/tmp/kubectl");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let armory_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+    let armory = Armory::load_from_dir(armory_path).expect("repository armory should load");
+    let mut request = ExecuteActionRequest {
+        action_id: "execute-in-shell".to_string(),
+        target_id,
+        exec_system_id: None,
+        auth_identity_id: None,
+        procedure_id: None,
+        args: HashMap::from([
+            (
+                "COMMAND".to_string(),
+                "kubectl -n agent-system get serviceaccounts -o yaml".to_string(),
+            ),
+            ("ARGS".to_string(), String::new()),
+        ]),
+        execution_timeout_seconds: None,
+        reasoning: None,
+    };
+    request
+        .args
+        .insert("BACKGROUND".to_string(), "false".to_string());
+
+    let exec = campaign
+        .prepare_action(request, &armory)
+        .expect("execute-in-shell should prepare");
+
+    assert_eq!(
+        exec.procedure.command,
+        r#"bash -c "/tmp/kubectl -n agent-system get serviceaccounts -o yaml ""#
     );
 }
 

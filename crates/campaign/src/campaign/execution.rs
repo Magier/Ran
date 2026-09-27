@@ -2520,6 +2520,54 @@ impl Campaign {
         self.on_ttp_executed_with_outcome(cmd, event, false)
     }
 
+    fn record_missing_binary(&mut self, cmd: &ExecTtp, attempted: Option<&str>) {
+        let binary = attempted
+            .and_then(binary_map_key)
+            .or_else(|| procedure_binary_name(&cmd.procedure));
+        let Some(binary) = binary else {
+            return;
+        };
+
+        let system_id = cmd
+            .exec_chain
+            .iter()
+            .rev()
+            .map(String::as_str)
+            .find(|id| self.get_system_entity(id).is_some())
+            .or_else(|| {
+                let target_id_arg = cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+                self.get_system_entity(target_id_arg).map(|_| target_id_arg)
+            })
+            .or_else(|| {
+                self.get_system_entity(&cmd.target_id)
+                    .map(|_| cmd.target_id.as_str())
+            })
+            .map(str::to_string);
+        let Some(system_id) = system_id else {
+            return;
+        };
+
+        let current = self
+            .get_system_entity(&system_id)
+            .map(|system| system.entity().system().has_binary(binary))
+            .unwrap_or(BinaryPresence::Unknown);
+        if !missing_binary_invalidates_presence(&current, attempted) {
+            tracing::warn!(
+                binary,
+                attempted = attempted.unwrap_or("unknown"),
+                known_presence = ?current,
+                "retaining known binary path after contradictory missing-tool report"
+            );
+            return;
+        }
+
+        let absent_update = SystemFieldUpdates {
+            binaries: std::collections::HashMap::from([(binary.to_string(), String::new())]),
+            ..Default::default()
+        };
+        let _ = self.apply_system_update(&system_id, &absent_update);
+    }
+
     /// Process a C2 result and retain whether it completed with an operational
     /// limitation. The plain [`Campaign::on_ttp_executed`] entry point keeps
     /// existing callers as ordinary full-success processing.
@@ -2574,40 +2622,7 @@ impl Campaign {
             // the procedure runs a wrapper that calls a different binary), then
             // fall back to the procedure's declared tool name.
             if classified.is_binary_missing {
-                let binary = classified
-                    .extracted_binary
-                    .as_deref()
-                    .or_else(|| procedure_binary_name(&cmd.procedure));
-
-                if let Some(binary) = binary {
-                    let system_id = cmd
-                        .exec_chain
-                        .iter()
-                        .rev()
-                        .map(String::as_str)
-                        .find(|id| self.get_system_entity(id).is_some())
-                        .or_else(|| {
-                            let target_id_arg =
-                                cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
-                            self.get_system_entity(target_id_arg).map(|_| target_id_arg)
-                        })
-                        .or_else(|| {
-                            self.get_system_entity(&cmd.target_id)
-                                .map(|_| cmd.target_id.as_str())
-                        });
-                    if let Some(id) = system_id {
-                        // Empty path → BinaryPresence::Absent; only written when
-                        // currently Unknown (apply_system_update's existing guard).
-                        let absent_update = SystemFieldUpdates {
-                            binaries: std::collections::HashMap::from([(
-                                binary.to_string(),
-                                String::new(),
-                            )]),
-                            ..Default::default()
-                        };
-                        let _ = self.apply_system_update(id, &absent_update);
-                    }
-                }
+                self.record_missing_binary(cmd, classified.extracted_binary.as_deref());
             }
 
             self.parse_audits.extend(parse_audits.clone());
@@ -2628,37 +2643,7 @@ impl Campaign {
         // inference so a failed exploit cannot create an execution edge.
         if let Some(early_failure) = detect_failure_signature(cmd, event) {
             if early_failure.is_binary_missing {
-                let binary = early_failure
-                    .extracted_binary
-                    .as_deref()
-                    .or_else(|| procedure_binary_name(&cmd.procedure));
-                if let Some(binary) = binary {
-                    let system_id = cmd
-                        .exec_chain
-                        .iter()
-                        .rev()
-                        .map(String::as_str)
-                        .find(|id| self.get_system_entity(id).is_some())
-                        .or_else(|| {
-                            let target_id_arg =
-                                cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
-                            self.get_system_entity(target_id_arg).map(|_| target_id_arg)
-                        })
-                        .or_else(|| {
-                            self.get_system_entity(&cmd.target_id)
-                                .map(|_| cmd.target_id.as_str())
-                        });
-                    if let Some(id) = system_id {
-                        let absent_update = SystemFieldUpdates {
-                            binaries: std::collections::HashMap::from([(
-                                binary.to_string(),
-                                String::new(),
-                            )]),
-                            ..Default::default()
-                        };
-                        let _ = self.apply_system_update(id, &absent_update);
-                    }
-                }
+                self.record_missing_binary(cmd, early_failure.extracted_binary.as_deref());
             }
             let parse_audits = vec![build_parse_audit(
                 FAILURE_ANALYZER_EFFECT_ID,
@@ -3579,6 +3564,23 @@ fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
 
     // Fall back to the first word of the command.
     procedure.command.split_whitespace().next()
+}
+
+fn binary_map_key(attempted: &str) -> Option<&str> {
+    let attempted = attempted.trim();
+    if attempted.is_empty() {
+        return None;
+    }
+    attempted.rsplit('/').find(|part| !part.is_empty())
+}
+
+/// Decide whether a missing-tool report invalidates the current fact.
+/// A bare-name PATH lookup does not contradict a known non-standard path.
+fn missing_binary_invalidates_presence(current: &BinaryPresence, attempted: Option<&str>) -> bool {
+    let BinaryPresence::Present(known_path) = current else {
+        return true;
+    };
+    attempted.is_some_and(|attempted| attempted.trim() == known_path)
 }
 
 /// Return the binary name used to evaluate a procedure's tool readiness.
