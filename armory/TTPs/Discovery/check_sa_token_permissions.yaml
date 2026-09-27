@@ -8,6 +8,7 @@ parameters:
     description: the Kubernetes identity selected by Authenticate As
   NS:
     type: Namespace
+    valueField: name
     description: the namespace of the service account
   API_SERVER:
     type: string

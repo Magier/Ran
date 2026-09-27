@@ -971,6 +971,7 @@ mod tests {
             ("deploy-container", "NodeName", "Node"),
             ("delete-kubernetes-events", "NAMESPACE", "Namespace"),
             ("get-pods-via-node-proxy", "NODE", "Node"),
+            ("check-token-permissions", "NS", "Namespace"),
         ] {
             let ttp = armory
                 .get_ttp(action_id)
