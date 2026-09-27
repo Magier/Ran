@@ -516,7 +516,9 @@ fn on_ttp_executed_marks_exec_pod_running_before_kubelet_source_inference() {
     let mut sa = ServiceAccount::new("attacker-sa", "default");
     sa.entitlements
         .push(RbacPermission::new("get", "nodes/proxy"));
+    let sa_id = sa.entity_id();
     campaign.entities.insert_typed(sa);
+    campaign.insert_relation(&Uses::new(pod_id.clone(), sa_id.0));
 
     let mut cmd = sample_exec_ttp(&pod_id, vec!["k8s.kubelet-exec-source(sys, all(k8s.node))"]);
     cmd.procedure.command = "ran-ws -- ${CMD}".to_string();
@@ -542,6 +544,21 @@ fn on_ttp_executed_marks_exec_pod_running_before_kubelet_source_inference() {
         has_kubelet_source,
         "expected kubelet-exec source relation from pod to node"
     );
+
+    let record = campaign
+        .get_execution_records()
+        .last()
+        .expect("execution record");
+    assert!(record.discovered_relations.iter().any(|relation| {
+        relation.name == "kubelet-exec"
+            && relation.source_id == pod_id
+            && relation.target_id == node_id
+            && relation.is_exec_channel
+    }));
+    assert!(record
+        .discovered_relations
+        .iter()
+        .all(|relation| !relation.target_id.eq_ignore_ascii_case("all(k8s.node)")));
 }
 
 #[test]
@@ -809,6 +826,7 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         is_cleanup: false,
         reasoning: String::new(),
         discovered_entities: vec![],
+        discovered_relations: vec![],
     });
 
     let ch = campaign
@@ -939,6 +957,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         is_cleanup: false,
         reasoning: String::new(),
         discovered_entities: vec![],
+        discovered_relations: vec![],
     });
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
@@ -961,6 +980,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         is_cleanup: false,
         reasoning: String::new(),
         discovered_entities: vec![],
+        discovered_relations: vec![],
     });
 
     let ch = campaign.resolve_exec_source().expect("should find source");
@@ -4039,6 +4059,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         is_cleanup: false,
         reasoning: String::new(),
         discovered_entities: vec![],
+        discovered_relations: vec![],
     });
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
@@ -4061,6 +4082,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         is_cleanup: false,
         reasoning: String::new(),
         discovered_entities: vec![],
+        discovered_relations: vec![],
     });
 
     let armory = cleanup_armory();
@@ -4109,6 +4131,7 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
         is_cleanup: false,
         reasoning: String::new(),
         discovered_entities: vec![],
+        discovered_relations: vec![],
     });
 
     let armory = cleanup_armory();
@@ -4170,6 +4193,7 @@ fn build_cleanup_actions_preserves_kubernetes_auth_identity() {
         is_cleanup: false,
         reasoning: String::new(),
         discovered_entities: vec![],
+        discovered_relations: vec![],
     });
 
     let actions = campaign.build_cleanup_actions(&armory);

@@ -271,6 +271,7 @@ mod tests {
             is_cleanup: false,
             reasoning: String::new(),
             discovered_entities: vec![],
+            discovered_relations: vec![],
         }
     }
 

@@ -149,7 +149,9 @@ effects:
 ### `k8s.kubelet-exec(src, tgt)` / `k8s.kubelet-exec-source(src, tgt)`
 
 Records that `src` can execute commands on nodes via the kubelet API.
-`tgt` may be a specific node ID or the wildcard `all(k8s.node)`.
+`tgt` may be a specific node ID or the wildcard `all(k8s.node)`. The wildcard
+form records only a transport capability. Concrete executable paths are inferred
+after the source pod's service account is known to hold `get nodes/proxy`.
 
 When the procedure command contains `${CMD}`, Ran stores it as an envelope so
 subsequent commands are routed via this path automatically.

@@ -558,6 +558,20 @@
 						timestamp: new Date()
 					});
 				}
+				for (const relation of data?.newRelations ?? []) {
+					timeline.addRelationEvent({
+						kind: 'relation',
+						id: `relation:${data.cmdId}:${relation.name}:${relation.source_id}:${relation.target_id}`,
+						relationName: relation.name,
+						sourceId: relation.source_id,
+						sourceName: campaignState.getEntityById(relation.source_id)?.name ?? relation.source_id,
+						targetId: relation.target_id,
+						targetName: campaignState.getEntityById(relation.target_id)?.name ?? relation.target_id,
+						isExecChannel: relation.is_exec_channel,
+						cmdId: data.cmdId,
+						timestamp: new Date()
+					});
+				}
 			})
 		);
 
@@ -627,17 +641,31 @@
 							partial: r.partial,
 							failReason: r.fail_reason,
 							timestampMs: r.completed_at_ms || r.started_at_ms,
-							effects: r.discovered_entities.map((entity) => ({
-								// Both fields come from the backend rather than being
-								// re-derived from `kind` here — a second copy of that rule
-								// is what let the live and replayed timelines disagree.
-								kind: entity.category ?? ('discovery' as const),
-								outcome: entity.outcome ?? ('observed' as const),
-								id: entity.id,
-								entityId: entity.id,
-								entityName: entity.name,
-								entityKind: entity.kind
-							}))
+							effects: [
+								...r.discovered_entities.map((entity) => ({
+									// Both fields come from the backend rather than being
+									// re-derived from `kind` here because live and replayed
+									// timelines must make the same epistemic claim.
+									kind: entity.category ?? ('discovery' as const),
+									outcome: entity.outcome ?? ('observed' as const),
+									id: entity.id,
+									entityId: entity.id,
+									entityName: entity.name,
+									entityKind: entity.kind
+								})),
+								...(r.discovered_relations ?? []).map((relation) => ({
+									kind: 'relation' as const,
+									id: `relation:${r.id}:${relation.name}:${relation.source_id}:${relation.target_id}`,
+									relationName: relation.name,
+									sourceId: relation.source_id,
+									sourceName:
+										campaignState.getEntityById(relation.source_id)?.name ?? relation.source_id,
+									targetId: relation.target_id,
+									targetName:
+										campaignState.getEntityById(relation.target_id)?.name ?? relation.target_id,
+									isExecChannel: relation.is_exec_channel
+								}))
+							]
 						};
 					})
 				);

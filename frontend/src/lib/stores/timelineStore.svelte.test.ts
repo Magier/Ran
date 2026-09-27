@@ -3,6 +3,7 @@ import {
 	TimelineStore,
 	type TtpActionEntry,
 	type EntityEntry,
+	type RelationEntry,
 	type ActionGroup
 } from '$lib/stores/timelineStore.svelte';
 
@@ -34,6 +35,21 @@ function makeEntityEntry(overrides: Partial<EntityEntry> = {}): EntityEntry {
 		entityId: 'ns/default/pod/web-app',
 		entityName: 'web-app',
 		entityKind: 'Pod',
+		timestamp: new Date('2026-05-25T10:01:00Z'),
+		...overrides
+	};
+}
+
+function makeRelationEntry(overrides: Partial<RelationEntry> = {}): RelationEntry {
+	return {
+		kind: 'relation',
+		id: 'relation:kubelet-exec:pod-a:node-a',
+		relationName: 'kubelet-exec',
+		sourceId: 'pod-a',
+		sourceName: 'attacker',
+		targetId: 'node-a',
+		targetName: 'worker-a',
+		isExecChannel: true,
 		timestamp: new Date('2026-05-25T10:01:00Z'),
 		...overrides
 	};
@@ -82,8 +98,21 @@ describe('TimelineStore', () => {
 		const entry = store.topEntries[0];
 		if (entry.kind === 'action-group') {
 			expect(entry.effects).toHaveLength(1);
-			expect(entry.effects[0].entityName).toBe('web-app');
+			expect((entry.effects[0] as EntityEntry).entityName).toBe('web-app');
 		}
+	});
+
+	it('addRelationEvent appends a new executable path to its action group', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.addRelationEvent(makeRelationEntry({ cmdId: 'cmd-abc' }));
+
+		const group = store.topEntries[0] as ActionGroup;
+		expect(group.effects).toHaveLength(1);
+		expect(group.effects[0]).toMatchObject({
+			kind: 'relation',
+			relationName: 'kubelet-exec',
+			isExecChannel: true
+		});
 	});
 
 	it('addEntityEvent without cmdId prepends as standalone', () => {
@@ -138,7 +167,7 @@ describe('TimelineStore', () => {
 		const group = store.topEntries[0] as ActionGroup;
 		expect(group.kind).toBe('action-group');
 		expect(group.effects).toHaveLength(1);
-		expect(group.effects[0].outcome).toBe('created');
+		expect((group.effects[0] as EntityEntry).outcome).toBe('created');
 	});
 
 	it('keeps a created entity visible as a standalone row when its action is unknown', () => {
@@ -168,7 +197,7 @@ describe('TimelineStore', () => {
 
 		const group = store.topEntries[0] as ActionGroup;
 		expect(group.effects).toHaveLength(1);
-		expect(group.effects[0].outcome).toBe('updated');
+		expect((group.effects[0] as EntityEntry).outcome).toBe('updated');
 	});
 
 	it('shows a shell caught on an already-known host, despite the update outcome', () => {
@@ -301,7 +330,7 @@ describe('TimelineStore', () => {
 		const entry = store.topEntries[0];
 		if (entry.kind === 'action-group') {
 			expect(entry.effects).toHaveLength(1);
-			expect(entry.effects[0].entityName).toBe('web-app');
+			expect((entry.effects[0] as EntityEntry).entityName).toBe('web-app');
 		}
 	});
 
@@ -380,6 +409,25 @@ describe('TimelineStore', () => {
 		expect(group.collapsed).toBe(false);
 	});
 
+	it('backfill restores discovered relations as expandable action effects', () => {
+		store.backfill([
+			{
+				id: 'cmd-drop-ran-ws',
+				ttpId: 'drop-ran-ws',
+				ttpName: 'Drop Ran-WS',
+				targetId: 'pod-a',
+				targetName: 'attacker',
+				success: true,
+				timestampMs: 1,
+				effects: [makeRelationEntry()]
+			}
+		]);
+
+		const group = store.topEntries[0] as ActionGroup;
+		expect(group.effects).toHaveLength(1);
+		expect(group.effects[0].kind).toBe('relation');
+	});
+
 	// startup kubeconfig backfill
 	it('backfillBootstrap creates an oldest successful group with discovery effects', () => {
 		store.addTtpAction(makeTtpEntry({ id: 'cmd-live' }));
@@ -417,7 +465,7 @@ describe('TimelineStore', () => {
 		if (startup.kind === 'action-group') {
 			expect(startup.action.startup).toBe(true);
 			expect(startup.action.timestamp).toBeInstanceOf(Date);
-			expect(startup.effects.map((effect) => effect.entityKind)).toEqual([
+			expect(startup.effects.map((effect) => (effect as EntityEntry).entityKind)).toEqual([
 				'K8sCredential',
 				'Cluster',
 				'Namespace'

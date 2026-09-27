@@ -146,6 +146,32 @@ describe('OperationTimeline action interactions', () => {
 		expect(screen.getByText('Reusing existing Redirector')).toBeInTheDocument();
 		expect(screen.queryByText('Partial')).not.toBeInTheDocument();
 	});
+
+	it('shows a discovered executable path in expanded action details', async () => {
+		const { onfocusentity } = renderTimeline([
+			actionEntry({
+				effects: [
+					{
+						kind: 'relation',
+						id: 'relation:kubelet-exec:pod-a:node-a',
+						relationName: 'kubelet-exec',
+						sourceId: 'pod-a',
+						sourceName: 'attacker',
+						targetId: 'node-a',
+						targetName: 'worker-a',
+						isExecChannel: true
+					}
+				],
+				collapsed: false
+			})
+		]);
+
+		expect(screen.getByText('Discovered executable path')).toBeInTheDocument();
+		expect(screen.getByText('via kubelet-exec')).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'worker-a' }));
+		expect(onfocusentity).toHaveBeenCalledWith('node-a');
+	});
 });
 
 describe('OperationTimeline timestamps', () => {

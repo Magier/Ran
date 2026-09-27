@@ -998,6 +998,8 @@ export interface components {
 			completed_at_ms: number;
 			/** @description Entities produced by this execution, retained for operation timeline replay */
 			discovered_entities: components['schemas']['ExecutionEntity'][];
+			/** @description Concrete relations first learned from this execution, retained for operation timeline replay */
+			discovered_relations: components['schemas']['ExecutionRelation'][];
 			/** @description Caller-supplied rationale for why this action was run, as passed to the execute-action request. Empty when none was given. */
 			reasoning?: string;
 			parseAudits: components['schemas']['ParseAudit'][];
@@ -1018,6 +1020,14 @@ export interface components {
 			 * @enum {string}
 			 */
 			category: 'discovery' | 'credential' | 'access-gained';
+		};
+		ExecutionRelation: {
+			/** @description Relation name, such as `kubelet-exec` or `uses` */
+			name: string;
+			source_id: string;
+			target_id: string;
+			/** @description Whether this relation adds a command execution path */
+			is_exec_channel: boolean;
 		};
 		/**
 		 * @description Audit record for a single effect parse attempt. `parse_result` indicates

@@ -412,10 +412,9 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             })
                             .collect(),
                         new_relations: processing
-                            .updates
-                            .new_relations
+                            .discovered_relations
                             .iter()
-                            .map(|r| RelationSummary::from_relation(r.as_ref()))
+                            .map(RelationSummary::from)
                             .collect(),
                     });
 

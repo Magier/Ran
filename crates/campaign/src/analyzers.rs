@@ -1823,8 +1823,9 @@ fn already_aliased(update: &FactsUpdate, id: &EntityId) -> bool {
 // KubeletExecSourceAnalyzer
 // ---------------------------------------------------------------------------
 
-/// Expand `kubelet-exec(sys, all(k8s.Node))` marker relations into concrete
-/// `KubeletExecSource(pod -> node)` edges for all known nodes.
+/// Expand `kubelet-exec(sys, all(k8s.Node))` capability markers into concrete
+/// `KubeletExecSource(pod -> node)` edges for all known nodes, but only when
+/// the source pod's own service account is known to hold `get nodes/proxy`.
 pub struct KubeletExecSourceAnalyzer;
 
 impl InferenceRule for KubeletExecSourceAnalyzer {
@@ -1847,15 +1848,28 @@ impl InferenceRule for KubeletExecSourceAnalyzer {
         }
 
         let relations = view.relations();
+        let service_accounts = view.collect::<ServiceAccount>();
         let kubelet_markers = relations
             .iter()
             .filter(|r| {
-                r.name == "kubelet-exec" && r.target_id.eq_ignore_ascii_case("all(k8s.node)")
+                r.name == "kubelet-exec-capability"
+                    && r.target_id.eq_ignore_ascii_case("all(k8s.node)")
             })
             .collect::<Vec<_>>();
 
         for marker in kubelet_markers {
             let pod_id = EntityId::new(&marker.source_id);
+            let authorized = relations.iter().any(|relation| {
+                relation.name == "uses"
+                    && relation.source_id == marker.source_id
+                    && service_accounts.iter().any(|account| {
+                        account.entity_id().0 == relation.target_id
+                            && account.can("get", "nodes/proxy").is_some()
+                    })
+            });
+            if !authorized {
+                continue;
+            }
             for node_id in &nodes {
                 if campaign
                     .graph
@@ -3105,6 +3119,14 @@ mod tests {
         let pod_id = pod.entity_id().0.clone();
         campaign.entities.insert_typed(pod);
 
+        let mut account = ServiceAccount::new("attacker", "default");
+        account
+            .entitlements
+            .push(RbacPermission::new("get", "nodes/proxy"));
+        let account_id = account.entity_id();
+        campaign.entities.insert_typed(account);
+        campaign.insert_relation(&Uses::new(pod_id.clone(), account_id.0));
+
         campaign.entities.insert_typed(K8sNode::new("worker-a"));
         campaign.entities.insert_typed(K8sNode::new("worker-b"));
 
@@ -3132,6 +3154,88 @@ mod tests {
             .all(|r| r.output_transform == Some(OutputTransformKind::JsonEnvelope)));
         assert!(concrete.iter().any(|r| r.node_id.0 == "node/worker-a"));
         assert!(concrete.iter().any(|r| r.node_id.0 == "node/worker-b"));
+    }
+
+    #[test]
+    fn kubelet_source_marker_does_not_expand_without_source_identity_permission() {
+        let mut campaign = test_campaign();
+
+        let pod = Pod::new("attacker", "default");
+        let pod_id = pod.entity_id().0.clone();
+        campaign.entities.insert_typed(pod);
+        campaign.entities.insert_typed(K8sNode::new("worker-a"));
+
+        let account = ServiceAccount::new("attacker", "default");
+        let account_id = account.entity_id();
+        campaign.entities.insert_typed(account);
+        campaign.insert_relation(&Uses::new(pod_id.clone(), account_id.0));
+
+        let mut update = FactsUpdate::default();
+        update
+            .new_relations
+            .push(Box::new(KubeletExecSource::new(pod_id, "all(k8s.node)")));
+
+        let inferred = KubeletExecSourceAnalyzer.infer(&campaign, &update);
+        assert!(inferred.new_relations.is_empty());
+    }
+
+    #[test]
+    fn kubelet_source_marker_does_not_borrow_unrelated_identity_permission() {
+        let mut campaign = test_campaign();
+
+        let pod = Pod::new("attacker", "default");
+        let pod_id = pod.entity_id().0.clone();
+        campaign.entities.insert_typed(pod);
+        campaign.entities.insert_typed(K8sNode::new("worker-a"));
+
+        let source_account = ServiceAccount::new("attacker", "default");
+        let source_account_id = source_account.entity_id();
+        campaign.entities.insert_typed(source_account);
+        campaign.insert_relation(&Uses::new(pod_id.clone(), source_account_id.0));
+
+        let mut unrelated = ServiceAccount::new("cluster-admin", "other");
+        unrelated
+            .entitlements
+            .push(RbacPermission::new("get", "nodes/proxy"));
+        campaign.entities.insert_typed(unrelated);
+
+        let mut update = FactsUpdate::default();
+        update
+            .new_relations
+            .push(Box::new(KubeletExecSource::new(pod_id, "all(k8s.node)")));
+
+        let inferred = KubeletExecSourceAnalyzer.infer(&campaign, &update);
+        assert!(inferred.new_relations.is_empty());
+    }
+
+    #[test]
+    fn kubelet_source_marker_expands_when_source_permission_is_learned_later() {
+        let mut campaign = test_campaign();
+
+        let pod = Pod::new("attacker", "default");
+        let pod_id = pod.entity_id().0.clone();
+        campaign.entities.insert_typed(pod);
+        campaign.entities.insert_typed(K8sNode::new("worker-a"));
+
+        let account = ServiceAccount::new("attacker", "default");
+        let account_id = account.entity_id();
+        campaign.entities.insert_typed(account);
+        campaign.insert_relation(&Uses::new(pod_id.clone(), account_id.0.clone()));
+        campaign.insert_relation(&KubeletExecSource::new(pod_id.clone(), "all(k8s.node)"));
+
+        let mut reviewed_account = ServiceAccount::new("attacker", "default");
+        reviewed_account
+            .entitlements
+            .push(RbacPermission::new("get", "nodes/proxy"));
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(reviewed_account));
+
+        let inferred = KubeletExecSourceAnalyzer.infer(&campaign, &update);
+        assert!(inferred.new_relations.iter().any(|relation| {
+            relation.relation_name() == "kubelet-exec"
+                && relation.source_id().0 == pod_id
+                && relation.target_id().0 == "node/worker-a"
+        }));
     }
 
     // ---------------------------------------------------------------------------

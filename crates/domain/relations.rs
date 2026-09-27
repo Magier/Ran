@@ -219,7 +219,11 @@ impl KubeletExecSource {
 
 impl Relation for KubeletExecSource {
     fn relation_name(&self) -> &str {
-        "kubelet-exec"
+        if self.node_id.0.eq_ignore_ascii_case("all(k8s.node)") {
+            "kubelet-exec-capability"
+        } else {
+            "kubelet-exec"
+        }
     }
 
     fn source_id(&self) -> &EntityId {
@@ -232,6 +236,10 @@ impl Relation for KubeletExecSource {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn is_exec_channel(&self) -> bool {
+        !self.node_id.0.eq_ignore_ascii_case("all(k8s.node)")
     }
 }
 

