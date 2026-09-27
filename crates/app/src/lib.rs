@@ -2786,6 +2786,10 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     .to_string(),
                 );
             }
+            Ok(CampaignEvent::EntityMerged { from, into, kind }) => {
+                let (event, payload) = entity_merged_sse_event(&from, &into, &kind);
+                api::publish_sse_event(event, payload);
+            }
             Ok(CampaignEvent::SessionStateChanged {
                 backend_id,
                 entity_id,
@@ -2898,6 +2902,48 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
             }
             Err(broadcast::error::RecvError::Closed) => break,
         }
+    }
+}
+
+fn entity_merged_sse_event(from: &str, into: &str, kind: &str) -> (&'static str, String) {
+    (
+        "entity-merged",
+        serde_json::json!({
+            "type": "entity-merged",
+            "data": {
+                "from": from,
+                "into": into,
+                "kind": kind,
+            },
+        })
+        .to_string(),
+    )
+}
+
+#[cfg(test)]
+mod campaign_sse_tests {
+    use super::*;
+
+    #[test]
+    fn entity_merge_uses_the_public_sse_envelope() {
+        let (event, payload) = entity_merged_sse_event(
+            "system/agent-worker-4vnbf",
+            "ns/agent-system/pod/agent-worker-4vnbf",
+            "Pod",
+        );
+
+        assert_eq!(event, "entity-merged");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&payload).unwrap(),
+            serde_json::json!({
+                "type": "entity-merged",
+                "data": {
+                    "from": "system/agent-worker-4vnbf",
+                    "into": "ns/agent-system/pod/agent-worker-4vnbf",
+                    "kind": "Pod",
+                },
+            })
+        );
     }
 }
 
