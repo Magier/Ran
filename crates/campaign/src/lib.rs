@@ -24,7 +24,7 @@ pub use campaign::{
     TtpExecutionProcessing,
 };
 pub use effects::{EffectCategory, EffectKind, FactsUpdate};
-pub use execution_record::{ExecutionEntity, ExecutionRecord};
+pub use execution_record::{ExecutionEntity, ExecutionRecord, ExecutionRelation};
 pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};
 pub use output_parsers::{credential_from_resolved, ParseAudit, ParseResult};
 pub use pending_view::PendingView;

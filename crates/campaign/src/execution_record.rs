@@ -23,6 +23,35 @@ pub struct ExecutionEntity {
     pub category: crate::FactCategory,
 }
 
+/// A relation fact produced as a direct or inferred consequence of an execution.
+///
+/// This intentionally omits execution envelopes and authentication material. The
+/// operation timeline needs to explain the newly learned path, not retain the
+/// command template used to traverse it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionRelation {
+    pub name: String,
+    pub source_id: String,
+    pub target_id: String,
+    pub is_exec_channel: bool,
+}
+
+impl From<&ExecutionRelation> for ran_domain::RelationSummary {
+    fn from(relation: &ExecutionRelation) -> Self {
+        Self {
+            name: relation.name.clone(),
+            source_id: relation.source_id.clone(),
+            target_id: relation.target_id.clone(),
+            is_exec_channel: relation.is_exec_channel,
+            envelope: None,
+            output_transform: None,
+            weight: 0.0,
+            session_id: None,
+            broken: false,
+        }
+    }
+}
+
 /// A single recorded execution - the grounded command, its arguments, and the
 /// raw results returned by the C2 backend.  This forms the append-only audit
 /// trail for a campaign session.
@@ -77,6 +106,10 @@ pub struct ExecutionRecord {
     /// operation timeline after a frontend reload.
     #[serde(default)]
     pub discovered_entities: Vec<ExecutionEntity>,
+    /// Relation summaries produced by this execution, used to reconstruct the
+    /// operation timeline after a frontend reload.
+    #[serde(default)]
+    pub discovered_relations: Vec<ExecutionRelation>,
 }
 
 impl ExecutionRecord {
@@ -115,6 +148,7 @@ impl ExecutionRecord {
             is_cleanup: false,
             reasoning: request.reasoning.clone().unwrap_or_default(),
             discovered_entities: Vec::new(),
+            discovered_relations: Vec::new(),
         }
     }
 
@@ -145,6 +179,7 @@ impl ExecutionRecord {
             is_cleanup: cmd.is_cleanup,
             reasoning: cmd.reasoning.clone(),
             discovered_entities: Vec::new(),
+            discovered_relations: Vec::new(),
         }
     }
 }

@@ -2615,6 +2615,7 @@ impl Campaign {
             self.complete_open_step(&cmd.id);
             return Ok(TtpExecutionProcessing {
                 updates,
+                discovered_relations: Vec::new(),
                 parse_audits,
                 effective_success: false,
                 effective_fail_reason: event.fail_reason.clone(),
@@ -2676,6 +2677,7 @@ impl Campaign {
             self.complete_open_step(&cmd.id);
             return Ok(TtpExecutionProcessing {
                 updates: FactsUpdate::default(),
+                discovered_relations: Vec::new(),
                 parse_audits,
                 effective_success: false,
                 effective_fail_reason: early_failure.detail,
@@ -2735,6 +2737,8 @@ impl Campaign {
 
             match parse_effect_with_status(effect, &effect_ctx) {
                 Ok(parsed_structural) if parsed_structural.handled => {
+                    let facts_written = parsed_structural.updates.new_entities.len()
+                        + parsed_structural.updates.new_relations.len();
                     updates.merge(parsed_structural.updates);
                     parse_audits.push(build_parse_audit(
                         effect,
@@ -2742,7 +2746,7 @@ impl Campaign {
                         event,
                         ParseResult::Parsed,
                         "parsed by structural effect handler",
-                        0,
+                        facts_written,
                     ));
                 }
                 Ok(_) => {
@@ -2834,6 +2838,48 @@ impl Campaign {
         // every entity looks like one we already knew.
         updates.resolve_outcomes(|id| self.entities.contains_id(id));
 
+        // Preserve only concrete relations that were absent before this action.
+        // Wildcard capability markers drive inference but are not operator-facing
+        // graph discoveries and must not appear in the operation timeline.
+        let discovered_relations: Vec<crate::ExecutionRelation> = updates
+            .new_relations
+            .iter()
+            .filter_map(|relation| {
+                let (source_id, target_id) = updates.entity_aliases.iter().fold(
+                    (relation.source_id().clone(), relation.target_id().clone()),
+                    |(source, target), (stale, preferred)| {
+                        (
+                            if source == *stale {
+                                preferred.clone()
+                            } else {
+                                source
+                            },
+                            if target == *stale {
+                                preferred.clone()
+                            } else {
+                                target
+                            },
+                        )
+                    },
+                );
+                if target_id.0.to_ascii_lowercase().starts_with("all(")
+                    || self
+                        .graph
+                        .targets_of(&source_id, relation.relation_name())
+                        .contains(&&target_id)
+                {
+                    return None;
+                }
+                let summary = ran_domain::RelationSummary::from_relation(relation.as_ref());
+                Some(crate::ExecutionRelation {
+                    name: summary.name,
+                    source_id: source_id.0,
+                    target_id: target_id.0,
+                    is_exec_channel: summary.is_exec_channel,
+                })
+            })
+            .collect();
+
         self.apply_facts(&updates);
         self.parse_audits.extend(parse_audits.clone());
 
@@ -2859,6 +2905,7 @@ impl Campaign {
                 category: crate::FactCategory::from_kind(entity.entity_kind()),
             })
             .collect();
+        record.discovered_relations = discovered_relations.clone();
         let (effective_success, effective_fail_reason, effective_partial) =
             if let Some(err_audit) = api_error {
                 record.success = false;
@@ -2874,6 +2921,7 @@ impl Campaign {
 
         Ok(TtpExecutionProcessing {
             updates,
+            discovered_relations,
             parse_audits,
             effective_success,
             effective_fail_reason,

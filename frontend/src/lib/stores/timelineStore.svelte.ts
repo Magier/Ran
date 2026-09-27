@@ -37,6 +37,24 @@ export type EntityEntry = {
 	timestamp?: Date;
 };
 
+export type RelationEntry = {
+	kind: 'relation';
+	id: string;
+	relationName: string;
+	sourceId: string;
+	sourceName: string;
+	targetId: string;
+	targetName: string;
+	isExecChannel: boolean;
+	cmdId?: string;
+	timestamp?: Date;
+};
+
+export type EffectEntry = EntityEntry | RelationEntry;
+export type BackfillEffect =
+	| Omit<EntityEntry, 'cmdId' | 'timestamp'>
+	| Omit<RelationEntry, 'cmdId' | 'timestamp'>;
+
 /**
  * A C2 session dying or coming back.
  *
@@ -56,7 +74,7 @@ export type SessionEventEntry = {
 export type ActionGroup = {
 	kind: 'action-group';
 	action: TtpActionEntry;
-	effects: EntityEntry[];
+	effects: EffectEntry[];
 	collapsed: boolean;
 	score?: number;
 };
@@ -76,7 +94,7 @@ export type BackfillRecord = {
 	partial?: boolean;
 	failReason?: string;
 	timestampMs: number;
-	effects?: Array<Omit<EntityEntry, 'cmdId' | 'timestamp'>>;
+	effects?: BackfillEffect[];
 };
 
 /** An in-flight (dispatched, not yet completed) action to seed as pending. */
@@ -88,6 +106,7 @@ export class TimelineStore {
 
 	private index = new Map<string, ActionGroup>();
 	private seenEntityIds = new Set<string>();
+	private seenRelationIds = new Set<string>();
 	private sessionEventSeq = 0;
 
 	pendingCount = $derived(
@@ -152,6 +171,16 @@ export class TimelineStore {
 		// action never registered, or a host that called back on its own), and
 		// `entityPrefix` labels it by outcome rather than calling it a discovery.
 		this.topEntries = [entry, ...this.topEntries];
+	}
+
+	addRelationEvent(entry: RelationEntry): void {
+		if (this.seenRelationIds.has(entry.id)) return;
+		this.seenRelationIds.add(entry.id);
+
+		const group = entry.cmdId ? this.index.get(entry.cmdId) : undefined;
+		if (group) {
+			group.effects.push(entry);
+		}
 	}
 
 	/**
@@ -220,11 +249,19 @@ export class TimelineStore {
 				timestamp: new Date(r.timestampMs)
 			});
 			for (const effect of r.effects ?? []) {
-				this.addEntityEvent({
-					...effect,
-					cmdId: r.id,
-					timestamp: new Date(r.timestampMs)
-				});
+				if (effect.kind === 'relation') {
+					this.addRelationEvent({
+						...effect,
+						cmdId: r.id,
+						timestamp: new Date(r.timestampMs)
+					});
+				} else {
+					this.addEntityEvent({
+						...effect,
+						cmdId: r.id,
+						timestamp: new Date(r.timestampMs)
+					});
+				}
 			}
 		}
 	}
@@ -311,6 +348,7 @@ export class TimelineStore {
 		this.topEntries = [];
 		this.index.clear();
 		this.seenEntityIds.clear();
+		this.seenRelationIds.clear();
 		this.sessionEventSeq = 0;
 	}
 }

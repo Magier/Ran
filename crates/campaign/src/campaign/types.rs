@@ -100,6 +100,9 @@ impl ExecChannel {
 #[derive(Default)]
 pub struct TtpExecutionProcessing {
     pub updates: FactsUpdate,
+    /// Concrete relations that were absent before this action and are suitable
+    /// for reporting as newly discovered timeline details.
+    pub discovered_relations: Vec<crate::ExecutionRelation>,
     pub parse_audits: Vec<ParseAudit>,
     /// Effective success flag - may differ from `TtpExecuted.success` when a
     /// parser detected a semantic failure in an otherwise successful transport

@@ -4,6 +4,7 @@
 	import type {
 		TopEntry,
 		EntityEntry,
+		RelationEntry,
 		ActionGroup,
 		SessionEventEntry
 	} from '$lib/stores/timelineStore.svelte';
@@ -151,6 +152,11 @@
 	function effectCounts(group: ActionGroup) {
 		const counts = { discovery: 0, created: 0, credential: 0, access: 0 };
 		for (const e of group.effects) {
+			if (e.kind === 'relation') {
+				if (e.isExecChannel) counts.access++;
+				else counts.discovery++;
+				continue;
+			}
 			const outcome = e.outcome ?? 'observed';
 			if (e.kind === 'credential') counts.credential++;
 			else if (e.kind === 'access-gained') counts.access++;
@@ -174,6 +180,14 @@
 		if (entry.kind === 'access-gained') return 'size-4 text-success-400';
 		if ((entry.outcome ?? 'observed') === 'created') return 'size-4 text-tertiary-400';
 		return 'size-4 text-primary-400';
+	}
+
+	function relationIcon(entry: RelationEntry): string {
+		return entry.isExecChannel ? 'mdi:transit-connection-variant' : 'mdi:source-branch';
+	}
+
+	function relationIconClass(entry: RelationEntry): string {
+		return entry.isExecChannel ? 'size-4 text-success-400' : 'size-4 text-primary-400';
 	}
 
 	function isSessionEvent(entry: TopEntry): entry is SessionEventEntry {
@@ -409,21 +423,49 @@
 								class="border-surface-200-800 hover:bg-surface-200-800 border-l-surface-300-700 ml-5 flex items-start gap-2 border-b border-l-2 py-1.5 pr-3 pl-3.5 text-sm"
 							>
 								<div class="mt-0.5 shrink-0">
-									<Icon
-										icon={entityIcon(effect)}
-										class={entityIconClass(effect)}
-										aria-hidden="true"
-									/>
+									{#if effect.kind === 'relation'}
+										<Icon
+											icon={relationIcon(effect)}
+											class={relationIconClass(effect)}
+											aria-hidden="true"
+										/>
+									{:else}
+										<Icon
+											icon={entityIcon(effect)}
+											class={entityIconClass(effect)}
+											aria-hidden="true"
+										/>
+									{/if}
 								</div>
 								<div class="min-w-0 flex-1">
-									<span class="font-medium"
-										>{entityPrefix(effect, entry.action.status === 'partial')}</span
-									>
-									<button
-										type="button"
-										class="text-primary-500 text-left font-medium hover:underline"
-										onclick={() => onfocusentity(effect.entityId)}>{effect.entityName}</button
-									>
+									{#if effect.kind === 'relation'}
+										<span class="font-medium"
+											>{effect.isExecChannel
+												? 'Discovered executable path'
+												: 'Discovered relation'}</span
+										>
+										<button
+											type="button"
+											class="text-primary-500 text-left font-medium hover:underline"
+											onclick={() => onfocusentity(effect.sourceId)}>{effect.sourceName}</button
+										>
+										<span class="text-surface-500">to</span>
+										<button
+											type="button"
+											class="text-primary-500 text-left font-medium hover:underline"
+											onclick={() => onfocusentity(effect.targetId)}>{effect.targetName}</button
+										>
+										<span class="text-surface-500 text-xs">via {effect.relationName}</span>
+									{:else}
+										<span class="font-medium"
+											>{entityPrefix(effect, entry.action.status === 'partial')}</span
+										>
+										<button
+											type="button"
+											class="text-primary-500 text-left font-medium hover:underline"
+											onclick={() => onfocusentity(effect.entityId)}>{effect.entityName}</button
+										>
+									{/if}
 								</div>
 								{@render timestamp(effect.timestamp)}
 							</div>

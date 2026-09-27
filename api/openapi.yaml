@@ -1688,6 +1688,7 @@ components:
         - started_at_ms
         - completed_at_ms
         - discovered_entities
+        - discovered_relations
         - parseAudits
       properties:
         id:
@@ -1744,6 +1745,11 @@ components:
           description: Entities produced by this execution, retained for operation timeline replay
           items:
             $ref: '#/components/schemas/ExecutionEntity'
+        discovered_relations:
+          type: array
+          description: Concrete relations first learned from this execution, retained for operation timeline replay
+          items:
+            $ref: '#/components/schemas/ExecutionRelation'
         reasoning:
           type: string
           description: >
@@ -1787,6 +1793,25 @@ components:
             exec access to a host the campaign already knew is `access-gained`
             with an outcome of `updated`, and is still worth showing. Decided by
             the producer, so clients must not re-derive it from `kind`.
+
+    ExecutionRelation:
+      type: object
+      required:
+        - name
+        - source_id
+        - target_id
+        - is_exec_channel
+      properties:
+        name:
+          type: string
+          description: Relation name, such as `kubelet-exec` or `uses`
+        source_id:
+          type: string
+        target_id:
+          type: string
+        is_exec_channel:
+          type: boolean
+          description: Whether this relation adds a command execution path
 
     ParseAudit:
       type: object
