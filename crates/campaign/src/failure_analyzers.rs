@@ -417,9 +417,8 @@ fn extract_quoted_exec_name(haystack: &str) -> Option<String> {
 /// - `sh: 1: kubectl`         → `"kubectl"`  (skips the numeric line number)
 /// - `/usr/bin/sh: 1: curl`   → `"curl"`
 ///
-/// When a segment contains a `/` its basename is returned so that a shell path
-/// like `/bin/sh` yields `"sh"` rather than the full path - though in practice
-/// the shell segment is never the final one in a real "binary not found" message.
+/// An executable path is retained so callers can distinguish a failed PATH
+/// lookup from direct evidence that a known absolute path no longer exists.
 fn last_non_digit_colon_segment(s: &str) -> Option<String> {
     let mut slice = s;
     loop {
@@ -431,10 +430,7 @@ fn last_non_digit_colon_segment(s: &str) -> Option<String> {
 
         let trimmed = segment.trim();
         if !trimmed.is_empty() && !trimmed.chars().all(|c| c.is_ascii_digit()) {
-            let name = trimmed.rsplit('/').next().unwrap_or(trimmed);
-            if !name.is_empty() {
-                return Some(name.to_string());
-            }
+            return Some(trimmed.to_string());
         }
 
         if rest.is_empty() {
@@ -799,6 +795,10 @@ mod tests {
         assert_eq!(
             extract_before_suffix("/usr/bin/sh: 1: curl: not found", ": not found"),
             Some("curl".to_string())
+        );
+        assert_eq!(
+            extract_before_suffix("/bin/sh: /tmp/kubectl: not found", ": not found"),
+            Some("/tmp/kubectl".to_string())
         );
     }
 
