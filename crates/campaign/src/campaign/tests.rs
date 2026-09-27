@@ -2381,6 +2381,148 @@ fn kubernetes_authentication_is_grounded_from_auth_identity_only() {
     assert!(!exec.args.contains_key("K8S_AUTH"));
 }
 
+fn kubernetes_copy_request(
+    target_id: &str,
+    auth_identity_id: &str,
+    source: &str,
+    destination: &str,
+) -> ExecuteActionRequest {
+    ExecuteActionRequest {
+        action_id: "upload-tool-or-file-via-k8s".to_string(),
+        target_id: target_id.to_string(),
+        exec_system_id: None,
+        auth_identity_id: Some(auth_identity_id.to_string()),
+        procedure_id: Some("kubectl".to_string()),
+        args: HashMap::from([
+            ("SRC_PATH".to_string(), source.to_string()),
+            ("DST_PATH".to_string(), destination.to_string()),
+            ("POD_NAME".to_string(), target_id.to_string()),
+        ]),
+        execution_timeout_seconds: None,
+        reasoning: None,
+    }
+}
+
+#[test]
+fn kubernetes_copy_grounds_pod_namespace_and_local_source() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("agent-worker-fxrdg", "agent-system");
+    let target_id = pod.entity_id().0;
+    campaign.entities.insert_typed(pod);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
+
+    let exec = campaign
+        .prepare_action(
+            kubernetes_copy_request(
+                &target_id,
+                &auth_identity_id,
+                "/opt/tools/nmap",
+                "/tmp/nmap",
+            ),
+            &repository_armory(),
+        )
+        .expect("local Kubernetes copy should prepare");
+
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(auth_identity_id.as_str())
+    );
+    assert_eq!(
+        exec.args.get("POD_NAME").map(String::as_str),
+        Some("agent-worker-fxrdg")
+    );
+    assert_eq!(
+        exec.args.get("NAMESPACE").map(String::as_str),
+        Some("agent-system")
+    );
+    assert!(exec.procedure.command.contains("src=/opt/tools/nmap"));
+    assert!(exec.procedure.command.contains("destination=/tmp/nmap"));
+    assert!(exec.procedure.command.contains("pod=agent-worker-fxrdg"));
+    assert!(exec.procedure.command.contains("namespace=agent-system"));
+    assert!(exec.procedure.command.contains(
+        "kubectl --kubeconfig \"$KUBECONFIG\" cp --namespace \"$namespace\" -- \"$src\" \"$remote\""
+    ));
+    assert!(matches!(
+        exec.operation,
+        ExecutionOperation::KubernetesCommand { .. }
+    ));
+    assert!(!exec.procedure.command.contains("header.payload.signature"));
+    assert!(!exec
+        .args
+        .values()
+        .any(|value| value.contains("header.payload.signature")));
+}
+
+#[test]
+fn kubernetes_copy_downloads_http_source_to_cleaned_up_temporary_file() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("agent-worker-fxrdg", "agent-system");
+    let target_id = pod.entity_id().0;
+    campaign.entities.insert_typed(pod);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
+
+    let exec = campaign
+        .prepare_action(
+            kubernetes_copy_request(
+                &target_id,
+                &auth_identity_id,
+                "https://github.com/example/tool/archive/main.zip",
+                "/tmp/main.zip",
+            ),
+            &repository_armory(),
+        )
+        .expect("HTTP Kubernetes copy should prepare");
+
+    let command = &exec.procedure.command;
+    assert!(command.contains("mktemp"));
+    assert!(command.contains("trap 'rm -f -- \"$tmp\"' EXIT HUP INT TERM"));
+    assert!(command.contains("curl --fail --location --silent --show-error"));
+    assert!(command.contains("--output \"$tmp\""));
+    assert!(command.contains(
+        "kubectl --kubeconfig \"$KUBECONFIG\" cp --namespace \"$namespace\" -- \"$tmp\" \"$remote\""
+    ));
+    assert!(!command.contains(
+        "kubectl --kubeconfig \"$KUBECONFIG\" cp --namespace \"$namespace\" -- https://"
+    ));
+    assert!(!command.contains("header.payload.signature"));
+}
+
+#[test]
+fn kubernetes_copy_rejects_malformed_input_before_execution_without_exposing_secrets() {
+    let invalid = [
+        ("", "/tmp/nmap"),
+        ("/opt/tools/nmap", ""),
+        ("/opt/tools/nmap", "tmp/nmap"),
+        ("/opt/tools/nmap", "/tmp/../nmap"),
+        ("https://", "/tmp/nmap"),
+        ("ftp://example.test/nmap", "/tmp/nmap"),
+        ("https://user:password@example.test/nmap", "/tmp/nmap"),
+    ];
+
+    for (source, destination) in invalid {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let pod = Pod::new("agent-worker-fxrdg", "agent-system");
+        let target_id = pod.entity_id().0;
+        campaign.entities.insert_typed(pod);
+        let auth_identity_id = insert_test_auth_service_account(&mut campaign);
+        let request = kubernetes_copy_request(&target_id, &auth_identity_id, source, destination);
+
+        let error = campaign
+            .prepare_action(request.clone(), &repository_armory())
+            .expect_err("invalid Kubernetes copy input must fail during preparation");
+        let error_text = format!("{error:?}");
+        assert!(!error_text.contains("header.payload.signature"));
+        assert!(!error_text.contains("password"));
+
+        let (record, _) =
+            campaign.record_preparation_failure(&request, &repository_armory(), &error);
+        let record_json = serde_json::to_string(&record).unwrap();
+        assert!(!record_json.contains("header.payload.signature"));
+        assert!(!record_json.contains("password"));
+        assert!(record.command.is_empty());
+    }
+}
+
 #[test]
 fn legacy_token_entity_id_is_normalized_but_conflicts_and_raw_tokens_are_rejected() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));

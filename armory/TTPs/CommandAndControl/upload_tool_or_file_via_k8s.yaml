@@ -8,18 +8,19 @@ parameters:
     type: K8sAuth
     description: the Kubernetes identity selected by Authenticate As
   SRC_PATH:
-    type: string
-    description: Path to the file which will be transfered to the target system
+    type: FileSource
+    description: Absolute or relative operator-host path, or an HTTP(S) URL to download before copying
   DST_PATH:
-    type: string
-    description: Path on the target system where the file will be transfered
+    type: AbsolutePath
+    description: Absolute path in the target pod
   POD_NAME:
     type: Pod
     description: Name of the target pod
-    default: ${TARGET} 
+    default: ${TARGET}
   NAMESPACE:
     type: Namespace
     description: Kubernetes namespace of the target pod
+    default: ${NAMESPACE}
   Unpack:
     type: bool
     description: Flag if the file should be unpacked after transfer
@@ -28,8 +29,24 @@ parameters:
   #   description: Path on the target system where the file will be transfered
 procedures:
   - key: kubectl
-    command: kubectl ${K8S_AUTH} cp -n ${NAMESPACE} ${SRC_PATH} ${POD_NAME}:${DST_PATH}
     isLocal: true
+    command: |
+      src={{ SRC_PATH | shell_quote }}
+      destination={{ DST_PATH | shell_quote }}
+      pod={{ POD_NAME | shell_quote }}
+      namespace={{ NAMESPACE | shell_quote }}
+      remote="${pod}:${destination}"
+      case "$src" in
+        http://*|https://*)
+          tmp=$(mktemp "${TMPDIR:-/tmp}/ran-kubectl-cp.XXXXXX") || exit 1
+          trap 'rm -f -- "$tmp"' EXIT HUP INT TERM
+          curl --fail --location --silent --show-error --output "$tmp" -- "$src" &&
+            kubectl ${K8S_AUTH} cp --namespace "$namespace" -- "$tmp" "$remote"
+          ;;
+        *)
+          kubectl ${K8S_AUTH} cp --namespace "$namespace" -- "$src" "$remote"
+          ;;
+      esac
 preconditions:
   accessLevel: user-exec
   kind: Pod
