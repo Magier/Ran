@@ -693,7 +693,13 @@
 								selectedObject = el;
 							} else {
 								const el = graph.edges.find((n) => n.id === selectedObjectId);
-								selectedObject = el;
+								if (el) {
+									selectedObject = el;
+								} else {
+									selectedObject = undefined;
+									selectedObjectId = '';
+									clearSelectionFocus();
+								}
 							}
 						}
 					});

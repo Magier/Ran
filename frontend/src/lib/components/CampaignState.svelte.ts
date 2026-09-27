@@ -131,6 +131,7 @@ class CampaignState {
 	private liveRefreshInFlight = false;
 	private liveRefreshQueued = false;
 	private initPromise: Promise<void> | null = null;
+	private hasConnectedToBackend = false;
 
 	init(): Promise<void> {
 		if (this.initPromise) return this.initPromise;
@@ -192,7 +193,10 @@ class CampaignState {
 		this.api.on('ttp-output', (data: any) => this.recordExecutionOutput(data));
 		this.api.on('ttp-executed', (data: any) => this.completeExecutionOutput(data));
 		this.api.onConnectionStateChange((state) => {
-			if (state === 'connected') void this.restoreLiveExecutionOutput();
+			if (state !== 'connected') return;
+			void this.restoreLiveExecutionOutput();
+			if (this.hasConnectedToBackend) this.#queueLiveRefresh();
+			this.hasConnectedToBackend = true;
 		});
 		this.api.on('reset-campaign', () => this.onReset());
 		this.api.on('error-msg', (rawMsg: string) => {

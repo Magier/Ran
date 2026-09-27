@@ -72,7 +72,7 @@
 		// exec access is gained (e.g. after an exec relation is created).
 		const _track = obj?.accessLevel;
 		const _track2 = obj?.compromised;
-		if (!id) {
+		if (!id || !obj) {
 			applicableTtps = [];
 			return;
 		}

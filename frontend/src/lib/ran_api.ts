@@ -41,6 +41,8 @@ import type {
 
 export type BackendConnectionState = 'connecting' | 'connected' | 'disconnected';
 
+const SSE_RECONNECT_FALLBACK_MS = 1_000;
+
 export class RanAPI {
 	eventSource?: EventSource;
 	private messageHandlers = new Map<string, Set<(data: any) => void>>();
@@ -49,57 +51,93 @@ export class RanAPI {
 	private restClient = createClient<paths>({ baseUrl: '' }); // Use relative URLs
 	private connectionState: BackendConnectionState = 'connecting';
 	private connectionStateListeners = new Set<(state: BackendConnectionState) => void>();
+	private reconnectTimer?: ReturnType<typeof setTimeout>;
+	private reconnectEnabled = false;
+	private eventSourceUrl = '/events';
+	private initialConnectionPromise?: Promise<void>;
+	private resolveInitialConnection?: () => void;
 
 	connect(url?: string): Promise<void> {
-		return this.connectSSE(url);
+		this.reconnectEnabled = true;
+		this.eventSourceUrl = url ?? '/events';
+		if (this.eventSource?.readyState === EventSource.OPEN) return Promise.resolve();
+
+		if (!this.initialConnectionPromise) {
+			this.initialConnectionPromise = new Promise((resolve) => {
+				this.resolveInitialConnection = resolve;
+			});
+		}
+		if (!this.eventSource) this.connectSSE();
+		return this.initialConnectionPromise;
 	}
 
-	private connectSSE(url?: string): Promise<void> {
-		// Construct SSE URL from current location if not provided
-		if (!url) {
-			url = `/events`;
-		}
-		console.info('Connecting to SSE at', url);
-		this.setConnectionState('connecting');
-		return new Promise((resolve, reject) => {
-			this.eventSource = new EventSource(url);
+	private connectSSE(): void {
+		this.clearReconnectTimer();
+		this.eventSource?.close();
+		this.sseEventListeners.clear();
+		console.info('Connecting to SSE at', this.eventSourceUrl);
+		const eventSource = new EventSource(this.eventSourceUrl);
+		this.eventSource = eventSource;
 
-			this.eventSource.onopen = () => {
-				console.log('SSE connection established');
-				this.setConnectionState('connected');
+		eventSource.onopen = () => {
+			if (this.eventSource !== eventSource) return;
+			this.clearReconnectTimer();
+			console.log('SSE connection established');
+			this.setConnectionState('connected');
 
-				// Register any event listeners that were added before connection was ready
-				this.pendingSSEEventTypes.forEach((type) => {
-					if (!this.sseEventListeners.has(type) && this.eventSource) {
-						this.sseEventListeners.add(type);
-						this.eventSource.addEventListener(type, (event: MessageEvent) => {
-							this.handleSSEMessage(event);
-						});
-					}
-				});
-				this.pendingSSEEventTypes.clear();
-
-				resolve();
-			};
-
-			this.eventSource.onmessage = (event) => {
-				console.info('Received SSE message:', event.data);
-				this.handleSSEMessage(event);
-			};
-
-			this.eventSource.onerror = (err) => {
-				console.error('SSE error:', err);
-				this.setConnectionState('disconnected');
-				// SSE automatically reconnects, so only reject if not yet connected
-				if (this.eventSource?.readyState === EventSource.CONNECTING) {
-					reject(err);
+			// Every replacement EventSource needs its own named event listeners.
+			const eventTypes = new Set([...this.messageHandlers.keys(), ...this.pendingSSEEventTypes]);
+			eventTypes.forEach((type) => {
+				if (!this.sseEventListeners.has(type) && this.eventSource) {
+					this.sseEventListeners.add(type);
+					eventSource.addEventListener(type, (event: MessageEvent) => {
+						this.handleSSEMessage(event);
+					});
 				}
-			};
+			});
+			this.pendingSSEEventTypes.clear();
 
-			// Note: We don't set onmessage here because SSE events from the backend
-			// use named events (event: <type>), which only trigger addEventListener
-			// Event listeners are registered dynamically in the on() method
-		});
+			this.resolveInitialConnection?.();
+			this.resolveInitialConnection = undefined;
+			this.initialConnectionPromise = undefined;
+		};
+
+		eventSource.onmessage = (event) => {
+			console.info('Received SSE message:', event.data);
+			this.handleSSEMessage(event);
+		};
+
+		eventSource.onerror = (err) => {
+			if (this.eventSource !== eventSource) return;
+			console.error('SSE error:', err);
+			this.setConnectionState('disconnected');
+			this.scheduleReconnectFallback(eventSource);
+		};
+
+		// SSE events from the backend use named events, which are registered
+		// dynamically above and in on().
+	}
+
+	private scheduleReconnectFallback(eventSource: EventSource) {
+		this.clearReconnectTimer();
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = undefined;
+			if (
+				!this.reconnectEnabled ||
+				this.eventSource !== eventSource ||
+				eventSource.readyState === EventSource.OPEN
+			) {
+				return;
+			}
+			eventSource.close();
+			this.eventSource = undefined;
+			this.connectSSE();
+		}, SSE_RECONNECT_FALLBACK_MS);
+	}
+
+	private clearReconnectTimer() {
+		if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = undefined;
 	}
 
 	getConnectionState(): BackendConnectionState {
@@ -184,6 +222,8 @@ export class RanAPI {
 	}
 
 	disconnect() {
+		this.reconnectEnabled = false;
+		this.clearReconnectTimer();
 		if (this.eventSource) {
 			this.eventSource.close();
 			this.eventSource = undefined;
