@@ -33,7 +33,7 @@ export interface paths {
 		};
 		/**
 		 * Get attack graph
-		 * @description Returns the current attack graph with nodes and edges
+		 * @description Returns the layout-oriented attack graph projection used for rendering. Some campaign entities, including listeners and redirectors, are folded into their host node instead of appearing as graph nodes. Use /api/campaign-state and enumerate its entities field for the canonical set of entity IDs accepted as targetId values.
 		 */
 		get: operations['getGraph'];
 		put?: never;
@@ -53,7 +53,7 @@ export interface paths {
 		};
 		/**
 		 * Get campaign state
-		 * @description Returns the current campaign state with entities and relations
+		 * @description Returns the current campaign state with entities and relations. The entities field is the canonical enumeration of entity IDs accepted as targetId values by target-aware action endpoints.
 		 */
 		get: operations['getCampaignState'];
 		put?: never;
@@ -547,6 +547,7 @@ export interface components {
 			edges: components['schemas']['Edge'][];
 			rootNodeId: string;
 		};
+		/** @description One node in the layout-oriented graph projection. Graph identity and rendering fields are top-level; the shared public campaign-entity payload is nested under entity. */
 		Node: {
 			id: string;
 			name: string;
@@ -554,6 +555,7 @@ export interface components {
 			parent?: string;
 			accessLevel?: string;
 			entityId: string;
+			/** @description Redacted and normalized public entity fields nested separately from graph-node identity. This uses the same projection policy as the fields flattened into campaign-state entities. Graph construction may additionally attach display aggregates such as hosted listeners and redirectors. */
 			entity?: {
 				/** @description Binary names mapped to explicit discovery results. An absent key means the binary has not been probed. A present key has a value whose status distinguishes present, absent, and unknown without relying on empty-string sentinels. */
 				binaries?: {
@@ -585,8 +587,13 @@ export interface components {
 			provenance?: ('scenario' | 'operator' | 'action' | 'inference')[];
 		};
 		CampaignState: {
+			/** @description Canonical current campaign entities keyed by entity ID. Every key and matching entity id is accepted as a targetId by target-aware action endpoints, although a target may have no applicable actions. Each value flattens the redacted and normalized public entity fields alongside id, name, kind, namespace, and provenance. The same base entity projection is nested under Node.entity in /api/graph. */
 			entities: {
 				[key: string]: {
+					/** @description Canonical entity ID accepted as a targetId. */
+					id: string;
+					name: string;
+					kind: string;
 					/** @description Binary names mapped to explicit discovery results. An absent key means the binary has not been probed. */
 					binaries?: {
 						[key: string]: components['schemas']['BinaryPresence'];

@@ -33,7 +33,7 @@ pub(crate) fn campaign_to_campaign_state(
         }
 
         if let Some(mut full_entity) = serialize_campaign_entity_map(&entity) {
-            prune_entity_payload_for_ui(entity.entity_kind(), &mut full_entity, kubetier);
+            project_entity_payload_for_api(entity.entity_kind(), &mut full_entity, kubetier);
             for (k, v) in full_entity {
                 data.entry(k).or_insert(v);
             }
@@ -285,7 +285,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
 
         let mut entity_payload = serialize_campaign_entity_map(&entity);
         if let Some(ref mut payload) = entity_payload {
-            prune_entity_payload_for_ui(entity.entity_kind(), payload, kubetier);
+            project_entity_payload_for_api(entity.entity_kind(), payload, kubetier);
             attach_hosted_services(payload, &id, &hosted_services);
             attach_hosted_listeners(payload, &id, &hosted_listeners);
             attach_hosted_redirectors(payload, &id, &hosted_redirectors);
@@ -591,7 +591,13 @@ pub(crate) fn serialize_campaign_entity_map(
     }
 }
 
-fn prune_entity_payload_for_ui(
+/// Apply the shared public API projection to a serialized campaign entity.
+///
+/// Both `/api/campaign-state` and `/api/graph` expose this same redacted and
+/// normalized payload. Campaign state flattens it alongside entity identity,
+/// while graph nodes nest it under `entity` and may add graph-only display
+/// aggregates afterward.
+fn project_entity_payload_for_api(
     kind: &str,
     data: &mut HashMap<String, Value>,
     kubetier: &kubetier::Catalog,
@@ -888,7 +894,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_exposes_explicit_binary_presence_states() {
+    fn entity_payload_is_flattened_in_campaign_state_and_nested_in_graph() {
         let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
         let mut pod = ran_domain::Pod::new("agent-worker", "agent-system");
         pod.system.binaries.insert(
@@ -901,20 +907,38 @@ mod tests {
         let pod_id = pod.entity_id();
         campaign.upsert_entity(pod, KnowledgeProvenance::Inference);
 
-        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
-        let binaries = graph
+        let catalog = kubetier::Catalog::embedded();
+        let graph = campaign_to_graph(&campaign, &catalog);
+        let graph_entity = graph
             .nodes
             .iter()
             .find(|node| node.id == pod_id.0)
             .and_then(|node| node.entity.as_ref())
-            .and_then(|entity| entity.get("binaries"))
-            .expect("pod graph payload contains binary discovery results");
+            .expect("graph node nests the public entity payload");
+        let graph_binaries = graph_entity
+            .get("binaries")
+            .expect("nested graph entity contains binary discovery results");
 
-        assert_eq!(binaries["kubectl"], serde_json::json!({"status": "absent"}));
+        let state = campaign_to_campaign_state(&campaign, &catalog);
+        let state_entity = state
+            .entities
+            .get(&pod_id.0)
+            .expect("campaign state contains the pod");
+        let state_binaries = state_entity
+            .get("binaries")
+            .expect("campaign state flattens binary discovery results");
+
+        assert_eq!(graph_binaries, state_binaries);
         assert_eq!(
-            binaries["ls"],
+            graph_binaries["kubectl"],
+            serde_json::json!({"status": "absent"})
+        );
+        assert_eq!(
+            graph_binaries["ls"],
             serde_json::json!({"status": "present", "path": "/bin/ls"})
         );
+        assert!(!graph_entity.contains_key("id"));
+        assert!(!state_entity.contains_key("entity"));
     }
 
     #[test]
@@ -923,7 +947,7 @@ mod tests {
         account.entitlements_reviewed = true;
         let mut data = serialize_entity_map(&account).unwrap();
 
-        prune_entity_payload_for_ui(
+        project_entity_payload_for_api(
             account.entity_kind(),
             &mut data,
             &kubetier::Catalog::embedded(),
@@ -1083,6 +1107,44 @@ mod tests {
         (campaign, c2_id)
     }
 
+    #[test]
+    fn campaign_state_enumerates_folded_entities_as_valid_targets() {
+        let (campaign, _) = campaign_with_redirector(1337, true);
+        let listener_id = campaign
+            .get_entities()
+            .iter()
+            .find(|entity| entity.entity_kind() == "Listener")
+            .map(|entity| entity.entity_id())
+            .expect("the listener was inserted");
+        let redirector_id = campaign
+            .get_entities()
+            .iter()
+            .find(|entity| entity.entity_kind() == "Redirector")
+            .map(|entity| entity.entity_id())
+            .expect("the redirector was inserted");
+
+        let state = campaign_to_campaign_state(&campaign, &kubetier::Catalog::embedded());
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+
+        for (id, expected_kind) in [(&listener_id, "Listener"), (&redirector_id, "Redirector")] {
+            let entity = state
+                .entities
+                .get(&id.0)
+                .expect("campaign state enumerates the folded entity");
+            assert_eq!(entity.get("id"), Some(&Value::from(id.0.as_str())));
+            assert_eq!(entity.get("kind"), Some(&Value::from(expected_kind)));
+            assert!(entity.get("name").and_then(Value::as_str).is_some());
+            assert!(
+                campaign::ttp_applicability::resolve_target_context(&campaign, &id.0).is_some(),
+                "an enumerated entity id must be accepted as a target"
+            );
+            assert!(
+                !graph.nodes.iter().any(|node| node.id == id.0),
+                "folded entities remain absent from the render projection"
+            );
+        }
+    }
+
     fn c2_redirectors(graph: &Graph, c2_id: &EntityId) -> Vec<Value> {
         graph
             .nodes
@@ -1145,7 +1207,7 @@ mod tests {
         let redirector = Redirector::new("labctl", "zn1kqxk3ykpvxp5x", 9000, 4444);
         let mut data = serialize_entity_map(&redirector).expect("redirector serializes");
 
-        prune_entity_payload_for_ui(
+        project_entity_payload_for_api(
             redirector.entity_kind(),
             &mut data,
             &kubetier::Catalog::embedded(),
