@@ -98,6 +98,8 @@ impl ApiError {
             body: ErrorResponse {
                 error: msg.into(),
                 details: None,
+                id: None,
+                cmd_id: None,
             },
         }
     }
@@ -108,6 +110,8 @@ impl ApiError {
             body: ErrorResponse {
                 error: msg.into(),
                 details: None,
+                id: None,
+                cmd_id: None,
             },
         }
     }
@@ -118,6 +122,8 @@ impl ApiError {
             body: ErrorResponse {
                 error: msg.into(),
                 details: None,
+                id: None,
+                cmd_id: None,
             },
         }
     }

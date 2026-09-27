@@ -830,6 +830,21 @@ export interface components {
 			/** @description Free-text rationale for choosing this action at this point in the assessment - why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
 			reasoning?: string;
 		};
+		ExecuteActionAck: {
+			/** @description Command ID used to fetch the eventual execution record. */
+			id: string;
+			/** @description Compatibility alias for `id`. */
+			cmdId: string;
+			/**
+			 * @description Queue acceptance status, not the final execution outcome.
+			 * @enum {string}
+			 */
+			status: 'queued';
+			/** @description Whether the action was accepted for execution. */
+			success: boolean;
+			/** @description Whether the action was placed on the execution queue. */
+			queued: boolean;
+		};
 		AuthIdentity: {
 			id: string;
 			name: string;
@@ -1063,6 +1078,10 @@ export interface components {
 		Error: {
 			error: string;
 			details?: string;
+			/** @description Execution record ID when the failed request produced a record. */
+			id?: string;
+			/** @description Compatibility alias for `id` when an execution record exists. */
+			cmdId?: string;
 		};
 		/** @description One consideration's contribution to a candidate's score. */
 		ConsiderationScore: {
@@ -1647,27 +1666,13 @@ export interface operations {
 			};
 		};
 		responses: {
-			/** @description Action executed successfully */
-			200: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/json': {
-						status?: string;
-					};
-				};
-			};
-			/** @description Action queued for execution, pending asynchronous processing. The final status will be sent via SSE. */
+			/** @description Action accepted and queued for asynchronous execution. Correlate the preferred `ttp-executed` SSE completion event using `id`, or fetch the execution record by `id` after a missed event. `cmdId` is retained for compatibility and has the same value as `id`. */
 			202: {
 				headers: {
 					[name: string]: unknown;
 				};
 				content: {
-					'application/json': {
-						status?: string;
-						taskId?: string;
-					};
+					'application/json': components['schemas']['ExecuteActionAck'];
 				};
 			};
 			/** @description Invalid request */
@@ -1688,8 +1693,17 @@ export interface operations {
 					'application/json': components['schemas']['Error'];
 				};
 			};
-			/** @description The action was executed, but failed for some reason */
-			409: {
+			/** @description No viable execution channel was found for the target */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+			/** @description The action could not be queued due to an internal error */
+			500: {
 				headers: {
 					[name: string]: unknown;
 				};

@@ -304,7 +304,7 @@ class CampaignState {
 	}
 
 	private completeExecutionOutput(data: any): void {
-		const cmdId = data?.CmdId ?? data?.ID ?? '';
+		const cmdId = data?.cmdId ?? data?.id ?? '';
 		if (!cmdId) return;
 		const current = this.executionOutputs.get(cmdId) ?? {
 			sequence: 0,
@@ -315,14 +315,14 @@ class CampaignState {
 			truncated: false,
 			completed: false
 		};
-		const results: string[] = data?.Results ?? [];
+		const results: string[] = data?.results ?? [];
 		this.setExecutionOutput(cmdId, {
 			...current,
 			stdout: results[0] ?? current.stdout,
 			stderr: results[1] ?? current.stderr,
 			completed: true,
-			success: Boolean(data?.Success),
-			failReason: data?.FailReason || undefined
+			success: Boolean(data?.success),
+			failReason: data?.failReason || undefined
 		});
 	}
 

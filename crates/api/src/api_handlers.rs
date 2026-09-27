@@ -144,8 +144,10 @@ pub(crate) struct ExecuteActionCmdPayload {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct ExecuteActionAck {
+    id: String,
     success: bool,
     queued: bool,
+    status: &'static str,
     #[serde(rename = "cmdId")]
     cmd_id: String,
 }
@@ -307,6 +309,8 @@ pub(crate) async fn recommendations_handler<S: ApiService>(
             body: ErrorResponse {
                 error: "utility AI is disabled (set scoring.enabled: true in ran.yaml)".to_string(),
                 details: None,
+                id: None,
+                cmd_id: None,
             },
         });
     }
@@ -449,6 +453,8 @@ fn require_tuning<S: ApiService>(service: &S) -> Result<(), ApiError> {
                 error: "scoring tuning is disabled (set scoring.tuning_ui: true in ran.yaml)"
                     .to_string(),
                 details: None,
+                id: None,
+                cmd_id: None,
             },
         })
     }
@@ -512,6 +518,8 @@ pub(crate) async fn calibrate_scoring_handler<S: ApiService>(
         body: ErrorResponse {
             error: "no operator decisions captured yet - execute some actions first".to_string(),
             details: None,
+            id: None,
+            cmd_id: None,
         },
     })?;
 
@@ -538,7 +546,7 @@ pub(crate) async fn calibrate_scoring_handler<S: ApiService>(
 pub(crate) async fn execute_action_handler<S: ApiService>(
     State(service): State<S>,
     axum::Json(cmd): axum::Json<ExecuteActionCmdPayload>,
-) -> Result<axum::Json<ExecuteActionAck>, ApiError> {
+) -> Result<(axum::http::StatusCode, axum::Json<ExecuteActionAck>), ApiError> {
     let execution = service
         .execute_action(campaign::ExecuteActionRequest {
             action_id: cmd.action_id,
@@ -552,11 +560,16 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
         })
         .await?;
 
-    Ok(axum::Json(ExecuteActionAck {
-        success: true,
-        queued: true,
-        cmd_id: execution.cmd_id,
-    }))
+    Ok((
+        axum::http::StatusCode::ACCEPTED,
+        axum::Json(ExecuteActionAck {
+            id: execution.cmd_id.clone(),
+            success: true,
+            queued: true,
+            status: "queued",
+            cmd_id: execution.cmd_id,
+        }),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -612,6 +625,8 @@ pub(crate) async fn execution_record_by_id_handler<S: ApiService>(
             body: ErrorResponse {
                 error: format!("execution record '{}' not found", id),
                 details: None,
+                id: None,
+                cmd_id: None,
             },
         })?;
     let parse_audits = campaign
@@ -670,6 +685,8 @@ pub(crate) async fn file_content_handler<S: ApiService>(
             body: ErrorResponse {
                 error: format!("file content not found for path: {}", params.path),
                 details: None,
+                id: None,
+                cmd_id: None,
             },
         })?
         .to_string();
@@ -875,6 +892,44 @@ pub(crate) struct AttackFlow {
 #[cfg(test)]
 mod flow_contract_tests {
     use super::*;
+
+    #[test]
+    fn execute_action_ack_exposes_record_id_and_queue_status() {
+        let value = serde_json::to_value(ExecuteActionAck {
+            id: "cmd-123".to_string(),
+            success: true,
+            queued: true,
+            status: "queued",
+            cmd_id: "cmd-123".to_string(),
+        })
+        .expect("execute action acknowledgement should serialize");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "id": "cmd-123",
+                "cmdId": "cmd-123",
+                "status": "queued",
+                "success": true,
+                "queued": true,
+            })
+        );
+    }
+
+    #[test]
+    fn execution_error_can_expose_the_record_id() {
+        let value = serde_json::to_value(ErrorResponse {
+            error: "no route to target".to_string(),
+            details: None,
+            id: Some("cmd-456".to_string()),
+            cmd_id: Some("cmd-456".to_string()),
+        })
+        .expect("execution error should serialize");
+
+        assert_eq!(value["id"], "cmd-456");
+        assert_eq!(value["cmdId"], "cmd-456");
+        assert!(value.get("details").is_none());
+    }
 
     #[test]
     fn campaign_flow_serializes_the_documented_ran_json_shape() {
