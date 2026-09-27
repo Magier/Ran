@@ -257,6 +257,7 @@ pub fn ttp_applicable_for_target(
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
         && ttp_active_session_satisfied(ttp, tc.active_session)
+        && ttp_filesystem_access_satisfied(ttp, campaign, tc)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
         && ttp_tool_satisfied(ttp, campaign, tc)
         // Last: the only gate that touches the filesystem. `&&` short-circuits,
@@ -459,6 +460,63 @@ pub fn ttp_active_session_satisfied(ttp: &armory::Ttp, active: bool) -> bool {
         Some(true) => active,
         _ => true,
     }
+}
+
+/// Gate actions that require executable access to the selected system's
+/// filesystem.
+///
+/// Direct execution on the target satisfies the requirement. A Node target is
+/// also satisfied by an executable Pod scheduled on that node when the Pod has
+/// a hostPath mount, because that mount exposes at least part of the node's
+/// filesystem to the Pod.
+pub fn ttp_filesystem_access_satisfied(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    tc: &TargetContext,
+) -> bool {
+    let Some(required) = ttp
+        .requires
+        .get("filesystemAccess")
+        .and_then(Value::as_bool)
+    else {
+        return true;
+    };
+    if !required {
+        return true;
+    }
+
+    if tc.access_level >= AccessLevel::Exec || tc.active_session {
+        return true;
+    }
+
+    if tc.target_kind != "Node" {
+        return false;
+    }
+
+    let Some(node) = campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == tc.target_id)
+        .and_then(|entity| match entity {
+            CampaignEntityRef::Node(node) => Some(node),
+            _ => None,
+        })
+    else {
+        return false;
+    };
+    let reachable_pods = campaign.reachable_pods();
+
+    campaign.entities.values::<Pod>().any(|pod| {
+        pod.node_name.as_deref() == Some(node.entity_name())
+            && pod.has_host_paths()
+            && (pod.system.can_exec()
+                || pod
+                    .system
+                    .sessions
+                    .iter()
+                    .any(|session| session.status == SessionStatus::Active)
+                || reachable_pods.contains(&pod.entity_id().0))
+    })
 }
 
 /// Returns `true` when the TTP's `c2.has-listener` requirement is satisfied.
@@ -1202,6 +1260,64 @@ mod tests {
         assert!(context.active_session);
         assert!(!ttp_applicable_for_target(
             &ttp_requiring_active_pod_session(),
+            &campaign,
+            &context
+        ));
+    }
+
+    fn ttp_requiring_node_filesystem_access() -> Ttp {
+        let mut ttp = Ttp::new("node-files", "Node files", "Discovery");
+        ttp.requires.insert("kind".to_string(), json!("Node"));
+        ttp.requires
+            .insert("filesystemAccess".to_string(), json!(true));
+        ttp
+    }
+
+    #[test]
+    fn node_filesystem_access_requires_a_direct_or_hostpath_execution_capability() {
+        let mut campaign = empty_campaign();
+        let node = K8sNode::new("worker-1");
+        let node_id = node.entity_id().0;
+        campaign.entities.insert_typed(node);
+        let ttp = ttp_requiring_node_filesystem_access();
+
+        let context = resolve_target_context(&campaign, &node_id).unwrap();
+        assert!(!ttp_applicable_for_target(&ttp, &campaign, &context));
+
+        let mut inaccessible_pod = Pod::new("host-reader", "default");
+        inaccessible_pod.node_name = Some("worker-1".to_string());
+        inaccessible_pod.volume_mounts.push(ran_domain::Mount {
+            name: "host".to_string(),
+            mount_point: "/host".to_string(),
+            mount_root: "/".to_string(),
+            is_host_path: true,
+            ..ran_domain::Mount::default()
+        });
+        let pod_id = inaccessible_pod.entity_id().0;
+        campaign.entities.insert_typed(inaccessible_pod);
+        assert!(!ttp_applicable_for_target(&ttp, &campaign, &context));
+
+        campaign
+            .entities
+            .get_mut::<Pod>()
+            .get_mut(&ran_domain::EntityId::new(&pod_id))
+            .expect("hostPath pod")
+            .system
+            .access_level = AccessLevel::Exec;
+        assert!(ttp_applicable_for_target(&ttp, &campaign, &context));
+    }
+
+    #[test]
+    fn node_filesystem_access_accepts_direct_node_execution() {
+        let mut campaign = empty_campaign();
+        let mut node = K8sNode::new("worker-1");
+        node.system.access_level = AccessLevel::Exec;
+        let node_id = node.entity_id().0;
+        campaign.entities.insert_typed(node);
+
+        let context = resolve_target_context(&campaign, &node_id).unwrap();
+        assert!(ttp_applicable_for_target(
+            &ttp_requiring_node_filesystem_access(),
             &campaign,
             &context
         ));

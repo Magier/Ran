@@ -4357,6 +4357,12 @@ fn pod_and_node_kubeconfig_searches_are_bounded_and_configurable() {
             ttp.requires.get("kind").and_then(serde_json::Value::as_str),
             Some(target_kind)
         );
+        assert_eq!(
+            ttp.requires
+                .get("filesystemAccess")
+                .and_then(serde_json::Value::as_bool),
+            (action_id == "search-node-kubeconfig-files").then_some(true)
+        );
 
         let mount_path = ttp
             .params
