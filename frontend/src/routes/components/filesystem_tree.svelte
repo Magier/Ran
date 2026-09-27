@@ -122,14 +122,14 @@
 
 	function actionFinished(data: any) {
 		if (
-			data?.TargetID !== objectId ||
-			data?.TTP?.id !== 'list-files' ||
-			typeof data?.Args?.DIR !== 'string'
+			data?.targetId !== objectId ||
+			data?.actionId !== 'list-files' ||
+			typeof data?.args?.DIR !== 'string'
 		) {
 			return;
 		}
 		const next = new Set(loadingDirectories);
-		next.delete(data.Args.DIR);
+		next.delete(data.args.DIR);
 		loadingDirectories = next;
 	}
 

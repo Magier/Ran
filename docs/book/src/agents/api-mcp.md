@@ -63,14 +63,18 @@ Response:
 
 ```json
 {
+  "id": "01HXYZ...",
+  "cmdId": "01HXYZ...",
+  "status": "queued",
   "success": true,
-  "queued": true,
-  "cmdId": "01HXYZ..."
+  "queued": true
 }
 ```
 
-The execution is asynchronous. Poll `GET /api/execution-records/{cmdId}` or
-subscribe to `GET /events` to receive the result.
+Ran returns this acknowledgement with HTTP 202. The execution is asynchronous.
+Subscribe to `GET /events` and wait for the `ttp-executed` event whose
+`data.id` matches the response. If the client disconnects or misses the event,
+fetch `GET /api/execution-records/{id}` as a recovery path.
 
 `GET /api/flow` is the JSON download contract used by the browser UI. It is
 Ran's native format, not MITRE Attack Flow/STIX.
@@ -230,6 +234,31 @@ alternative to polling `GET /api/execution-records` in a loop.
 
 Each event is a JSON-encoded payload. The stream stays open until the client
 disconnects or `ran emulate` exits.
+
+An action completion uses the same command ID returned by
+`POST /api/action/execute`:
+
+```json
+{
+  "type": "ttp-executed",
+  "data": {
+    "id": "cmd-...",
+    "cmdId": "cmd-...",
+    "actionId": "get-pods",
+    "targetId": "ns/default",
+    "execSystemId": "ns/default/pod/entry-hall-abc12",
+    "success": true,
+    "partial": false,
+    "failReason": "",
+    "results": ["...", ""],
+    "exitCode": 0
+  }
+}
+```
+
+The event also includes the grounded `ttp` and `args` objects. Use `success`,
+`exitCode`, and `failReason` as the execution outcome. Fetching the execution
+record remains useful for durable replay and joined parse-audit evidence.
 
 WebSocket RPC is not currently implemented. A future WebSocket transport will
 use a newly designed protocol rather than a compatibility wire format.

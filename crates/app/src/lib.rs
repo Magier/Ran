@@ -1854,6 +1854,7 @@ impl AppState {
         };
         let (record, ttp) = campaign.record_preparation_failure(request, &self.armory, &error);
         drop(campaign);
+        let record_id = record.id.clone();
 
         let _ = self.campaign_events.publish(CampaignEvent::TtpExecuted {
             cmd_id: record.id,
@@ -1869,7 +1870,7 @@ impl AppState {
             exit_code: -1,
         });
 
-        match error {
+        let mut api_error = match error {
             ExecuteActionError::InvalidInput(message) => ApiError::bad_request(message),
             ExecuteActionError::NotFound(message) => ApiError::not_found(message),
             ExecuteActionError::NoExecChannel(message) => ApiError {
@@ -1877,10 +1878,15 @@ impl AppState {
                 body: api::ErrorResponse {
                     error: message,
                     details: None,
+                    id: None,
+                    cmd_id: None,
                 },
             },
             ExecuteActionError::InvariantViolation(message) => ApiError::internal(message),
-        }
+        };
+        api_error.body.id = Some(record_id.clone());
+        api_error.body.cmd_id = Some(record_id);
+        api_error
     }
 }
 
@@ -2734,6 +2740,7 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
             }
             Ok(CampaignEvent::TtpExecuted {
                 cmd_id,
+                action_id,
                 target_id,
                 exec_system_id,
                 ttp,
@@ -2743,30 +2750,21 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                 fail_reason,
                 results,
                 exit_code,
-                ..
             }) => {
-                let executed_payload = serde_json::json!({
-                    "ID": cmd_id,
-                    "CmdId": cmd_id,
-                    "TTP": ttp,
-                    "Args": args,
-                    "TargetID": target_id,
-                    "ExecSystemID": exec_system_id,
-                    "Success": success,
-                    "Partial": partial,
-                    "FailReason": fail_reason,
-                    "Results": results,
-                    "ExitCode": exit_code,
-                });
-
-                api::publish_sse_event(
-                    "ttp-executed",
-                    serde_json::json!({
-                        "type": "ttp-executed",
-                        "data": executed_payload,
-                    })
-                    .to_string(),
+                let (event, payload) = ttp_executed_sse_event(
+                    &cmd_id,
+                    &action_id,
+                    &target_id,
+                    &exec_system_id,
+                    &ttp,
+                    &args,
+                    success,
+                    partial,
+                    &fail_reason,
+                    &results,
+                    exit_code,
                 );
+                api::publish_sse_event(event, payload);
             }
             Ok(CampaignEvent::FactsChanged {
                 cmd_id,
@@ -2905,6 +2903,43 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn ttp_executed_sse_event(
+    cmd_id: &str,
+    action_id: &str,
+    target_id: &str,
+    exec_system_id: &str,
+    ttp: &impl serde::Serialize,
+    args: &impl serde::Serialize,
+    success: bool,
+    partial: bool,
+    fail_reason: &str,
+    results: &[String],
+    exit_code: i32,
+) -> (&'static str, String) {
+    (
+        "ttp-executed",
+        serde_json::json!({
+            "type": "ttp-executed",
+            "data": {
+                "id": cmd_id,
+                "cmdId": cmd_id,
+                "actionId": action_id,
+                "ttp": ttp,
+                "args": args,
+                "targetId": target_id,
+                "execSystemId": exec_system_id,
+                "success": success,
+                "partial": partial,
+                "failReason": fail_reason,
+                "results": results,
+                "exitCode": exit_code,
+            },
+        })
+        .to_string(),
+    )
+}
+
 fn entity_merged_sse_event(from: &str, into: &str, kind: &str) -> (&'static str, String) {
     (
         "entity-merged",
@@ -2923,6 +2958,45 @@ fn entity_merged_sse_event(from: &str, into: &str, kind: &str) -> (&'static str,
 #[cfg(test)]
 mod campaign_sse_tests {
     use super::*;
+
+    #[test]
+    fn ttp_executed_uses_correlatable_camel_case_payload() {
+        let (event, payload) = ttp_executed_sse_event(
+            "cmd-123",
+            "list-pods",
+            "ns/default",
+            "ns/default/pod/operator",
+            &serde_json::json!({ "id": "list-pods", "name": "List Pods" }),
+            &serde_json::json!({ "NS": "default" }),
+            true,
+            false,
+            "",
+            &["pod-a".to_string()],
+            0,
+        );
+
+        assert_eq!(event, "ttp-executed");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&payload).unwrap(),
+            serde_json::json!({
+                "type": "ttp-executed",
+                "data": {
+                    "id": "cmd-123",
+                    "cmdId": "cmd-123",
+                    "actionId": "list-pods",
+                    "ttp": { "id": "list-pods", "name": "List Pods" },
+                    "args": { "NS": "default" },
+                    "targetId": "ns/default",
+                    "execSystemId": "ns/default/pod/operator",
+                    "success": true,
+                    "partial": false,
+                    "failReason": "",
+                    "results": ["pod-a"],
+                    "exitCode": 0,
+                },
+            })
+        );
+    }
 
     #[test]
     fn entity_merge_uses_the_public_sse_envelope() {

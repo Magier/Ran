@@ -366,26 +366,16 @@ paths:
             schema:
               $ref: '#/components/schemas/ExecuteActionCmd'
       responses:
-        '200':
-          description: Action executed successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
         '202':
-          description: Action queued for execution, pending asynchronous processing. The final status will be sent via SSE.
+          description: >-
+            Action accepted and queued for asynchronous execution. Correlate
+            the preferred `ttp-executed` SSE completion event using `id`, or
+            fetch the execution record by `id` after a missed event. `cmdId`
+            is retained for compatibility and has the same value as `id`.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  taskId:
-                    type: string
+                $ref: '#/components/schemas/ExecuteActionAck'
         '400':
           description: Invalid request
           content:
@@ -398,8 +388,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '409':
-          description: The action was executed, but failed for some reason
+        '422':
+          description: No viable execution channel was found for the target
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The action could not be queued due to an internal error
           content:
             application/json:
               schema:
@@ -1352,6 +1348,32 @@ components:
             is stored on the resulting execution record so the timeline is
             self-explaining and auditable.
 
+    ExecuteActionAck:
+      type: object
+      required:
+        - id
+        - cmdId
+        - status
+        - success
+        - queued
+      properties:
+        id:
+          type: string
+          description: Command ID used to fetch the eventual execution record.
+        cmdId:
+          type: string
+          description: Compatibility alias for `id`.
+        status:
+          type: string
+          enum: [queued]
+          description: Queue acceptance status, not the final execution outcome.
+        success:
+          type: boolean
+          description: Whether the action was accepted for execution.
+        queued:
+          type: boolean
+          description: Whether the action was placed on the execution queue.
+
     AuthIdentity:
       type: object
       required:
@@ -1821,6 +1843,12 @@ components:
           type: string
         details:
           type: string
+        id:
+          type: string
+          description: Execution record ID when the failed request produced a record.
+        cmdId:
+          type: string
+          description: Compatibility alias for `id` when an execution record exists.
 
     ConsiderationScore:
       type: object

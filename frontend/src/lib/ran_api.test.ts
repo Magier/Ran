@@ -72,22 +72,22 @@ describe('RanAPI event subscriptions', () => {
 
 		(api as any).handleSSEMessage(
 			new MessageEvent('ttp-executed', {
-				data: JSON.stringify({ type: 'ttp-executed', data: { CmdId: 'cmd-1' } })
+				data: JSON.stringify({ type: 'ttp-executed', data: { cmdId: 'cmd-1' } })
 			})
 		);
 
-		expect(first).toHaveBeenCalledWith({ CmdId: 'cmd-1' });
-		expect(second).toHaveBeenCalledWith({ CmdId: 'cmd-1' });
+		expect(first).toHaveBeenCalledWith({ cmdId: 'cmd-1' });
+		expect(second).toHaveBeenCalledWith({ cmdId: 'cmd-1' });
 
 		api.off('ttp-executed', first);
 		(api as any).handleSSEMessage(
 			new MessageEvent('ttp-executed', {
-				data: JSON.stringify({ type: 'ttp-executed', data: { CmdId: 'cmd-2' } })
+				data: JSON.stringify({ type: 'ttp-executed', data: { cmdId: 'cmd-2' } })
 			})
 		);
 
 		expect(first).toHaveBeenCalledTimes(1);
-		expect(second).toHaveBeenLastCalledWith({ CmdId: 'cmd-2' });
+		expect(second).toHaveBeenLastCalledWith({ cmdId: 'cmd-2' });
 	});
 
 	it('replaces a stuck EventSource and reattaches named listeners', async () => {

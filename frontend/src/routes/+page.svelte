@@ -507,32 +507,32 @@
 
 		pageEventUnsubscribers.push(
 			ranAPI.on('ttp-executed', (data) => {
-				const cmdId = data.CmdId ?? data.ID ?? '';
-				const targetId = data.TargetID ?? '';
-				const execSystemId = data.ExecSystemID ?? '';
+				const cmdId = data.cmdId ?? data.id ?? '';
+				const targetId = data.targetId ?? '';
+				const execSystemId = data.execSystemId ?? '';
 				const differsFromTarget = execSystemId && execSystemId !== targetId;
 				// Resolves the pending entry for UI-initiated actions, or creates the
 				// entry outright for actions driven via MCP / autonomous plans.
 				timeline.recordExecutedTtp({
 					id: cmdId,
-					ttpId: data.TTP?.id ?? '',
-					ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
+					ttpId: data.actionId ?? data.ttp?.id ?? '',
+					ttpName: data.ttp?.name ?? data.ttp?.id ?? data.actionId ?? cmdId,
 					targetId,
 					targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
 					execSystemId: differsFromTarget ? execSystemId : undefined,
 					execSystemName: differsFromTarget
 						? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
 						: undefined,
-					status: data.Partial ? 'partial' : data.Success ? 'success' : 'failed',
-					failReason: data.Success ? undefined : data.FailReason,
+					status: data.partial ? 'partial' : data.success ? 'success' : 'failed',
+					failReason: data.success ? undefined : data.failReason,
 					timestamp: new Date()
 				});
 
-				if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
+				if (data.success && data.actionId === 'read-file' && data.args?.PATH) {
 					ranAPI
-						.GetFileContent(data.Args.PATH)
+						.GetFileContent(data.args.PATH)
 						.then((file) => {
-							fileViewerPath = file.path ?? data.Args.PATH;
+							fileViewerPath = file.path ?? data.args.PATH;
 							fileViewerContent = file.content ?? '';
 							showFileViewer = true;
 						})

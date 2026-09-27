@@ -67,7 +67,7 @@ export type GetFlowResponse =
 export type ExecuteActionRequest =
 	operations['executeAction']['requestBody']['content']['application/json'];
 export type ExecuteActionResponse =
-	operations['executeAction']['responses']['200']['content']['application/json'];
+	operations['executeAction']['responses']['202']['content']['application/json'];
 
 // Re-export original types for advanced usage
 export type { components, paths, operations };
