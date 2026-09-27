@@ -14,8 +14,8 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 
 | Method | Path                          | Description                                                                     |
 | ------ | ----------------------------- | ------------------------------------------------------------------------------- |
-| `GET`  | `/api/graph`                  | Full knowledge graph: all discovered entities and relations                     |
-| `GET`  | `/api/campaign-state`         | Campaign state: entities with all their discovered facts                        |
+| `GET`  | `/api/graph`                  | Layout-oriented graph projection used for rendering                             |
+| `GET`  | `/api/campaign-state`         | Campaign entities and relations; `entities` is the canonical target enumeration |
 | `GET`  | `/api/armory`                 | All TTPs; `?targetId=<entity_id>` adds target-aware readiness                   |
 | `GET`  | `/api/armory/{id}/resolution` | Argument values, choices, blockers, and provenance for one action and target    |
 | `GET`  | `/api/applicable-ttps`        | TTPs filtered by target entity; use `?targetId=<entity_id>`                     |
@@ -104,8 +104,44 @@ Ran's native format, not MITRE Attack Flow/STIX.
 }
 ```
 
-`GET /api/graph` returns a graph-layout-ready representation with `nodes` and
-`edges` arrays suitable for rendering.
+Enumerate the values of `entities` to discover valid `targetId` values. Each
+entity always includes `id`, `name`, and `kind`. This includes entities such as
+listeners and redirectors that Ran accepts as action targets even though they
+are not drawn as standalone graph nodes. Ask Ran for applicability with
+`GET /api/armory?targetId=<entity_id>` rather than inferring it from the entity
+kind or ID prefix.
+
+`GET /api/graph` returns a graph-layout-ready projection with `nodes` and
+`edges` arrays suitable for rendering. It is not the entity enumeration
+contract. Some entities are folded into their host node for display, so clients
+must not assume every valid `targetId` appears in `graph.nodes`.
+
+The endpoints deliberately shape entity data differently:
+
+```jsonc
+// /api/campaign-state: identity and public entity fields are flattened
+{
+  "id": "ns/a/pod/w",
+  "kind": "Pod",
+  "binaries": {},
+  "ips": [],
+  "provenance": []
+}
+
+// /api/graph: graph identity is top-level and public entity fields are nested
+{
+  "id": "ns/a/pod/w",
+  "kind": "Pod",
+  "parent": "ns/a",
+  "entity": { "binaries": {}, "ips": [] }
+}
+```
+
+Both use the same redaction and normalization policy. The graph payload is not
+an unpruned source of campaign facts. It may add rendering-only aggregates,
+such as listeners and redirectors attached to their C2 node. Start with
+`campaign-state.entities` for entity identity and target enumeration, and read
+the graph only when graph placement or those display aggregates are needed.
 
 ### Execution records
 
