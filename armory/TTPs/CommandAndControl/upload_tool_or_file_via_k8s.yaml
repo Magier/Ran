@@ -24,6 +24,7 @@ parameters:
   Unpack:
     type: bool
     description: Flag if the file should be unpacked after transfer
+    required: false
   # DST_DIR:
   #   type: string
   #   description: Path on the target system where the file will be transfered
