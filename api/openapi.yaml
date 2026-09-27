@@ -1459,6 +1459,25 @@ components:
           type: string
         activeSession:
           type: boolean
+        Pod.securityContext.privileged:
+          type: boolean
+          description: Requires a Pod known or not yet determined to be privileged. A known false value makes the action inapplicable.
+        Pod.securityContext.hostPID:
+          type: boolean
+          description: Requires a Pod known or not yet determined to share the host PID namespace. A known false value makes the action inapplicable.
+        Pod.hostPath:
+          description: Requires one or more exact hostPath source paths. Boolean true accepts any hostPath.
+          oneOf:
+            - type: boolean
+            - type: string
+            - type: array
+              items:
+                type: string
+        linuxNamespaceAccess:
+          type: array
+          description: Linux namespaces required by the action. Unknown access is allowed, while a known denial from the same action makes it inapplicable.
+          items:
+            type: string
         exists:
           type: array
           items:

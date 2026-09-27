@@ -258,6 +258,8 @@ pub fn ttp_applicable_for_target(
         && ttp_has_token_satisfied(ttp, tc.has_token)
         && ttp_active_session_satisfied(ttp, tc.active_session)
         && ttp_filesystem_access_satisfied(ttp, campaign, tc)
+        && ttp_pod_requirements_satisfied(ttp, campaign, &tc.target_id)
+        && ttp_namespace_access_satisfied(ttp, campaign, &tc.target_id)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
         && ttp_tool_satisfied(ttp, campaign, tc)
         // Last: the only gate that touches the filesystem. `&&` short-circuits,
@@ -519,6 +521,155 @@ pub fn ttp_filesystem_access_satisfied(
     })
 }
 
+/// Evaluate Pod-specific runtime requirements against the selected Pod.
+/// Security facts are tri-state, so unknown values remain applicable while a
+/// known false value blocks the action. HostPath requirements are strict
+/// because their mount point is needed to ground the procedure.
+pub fn ttp_pod_requirements_satisfied(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    target_id: &str,
+) -> bool {
+    let privileged = ttp
+        .requires
+        .get("Pod.securityContext.privileged")
+        .and_then(Value::as_bool);
+    let host_pid = ttp
+        .requires
+        .get("Pod.securityContext.hostPID")
+        .and_then(Value::as_bool);
+    let host_path = ttp.requires.get("Pod.hostPath");
+    if privileged.is_none() && host_pid.is_none() && host_path.is_none() {
+        return true;
+    }
+
+    let Some(pod) = campaign
+        .entities
+        .values::<Pod>()
+        .find(|pod| pod.entity_id().0 == campaign.canonical_entity_id(target_id))
+    else {
+        return false;
+    };
+
+    let confidence_satisfies =
+        |actual: ran_domain::Confidence, required: Option<bool>| match required {
+            Some(true) => actual != ran_domain::Confidence::No,
+            Some(false) => actual != ran_domain::Confidence::Yes,
+            None => true,
+        };
+    confidence_satisfies(pod.privileged, privileged)
+        && confidence_satisfies(pod.host_pid, host_pid)
+        && match host_path {
+            None => true,
+            Some(Value::Bool(true)) => pod.has_host_paths(),
+            Some(Value::Bool(false)) => !pod.has_host_paths(),
+            Some(Value::String(required_root)) => pod.volume_mounts.iter().any(|mount| {
+                mount.is_host_path && paths_equivalent(&mount.mount_root, required_root)
+            }),
+            Some(Value::Array(required_roots)) => required_roots.iter().all(|required_root| {
+                required_root.as_str().is_some_and(|required_root| {
+                    pod.volume_mounts.iter().any(|mount| {
+                        mount.is_host_path && paths_equivalent(&mount.mount_root, required_root)
+                    })
+                })
+            }),
+            Some(_) => false,
+        }
+}
+
+fn paths_equivalent(actual: &str, required: &str) -> bool {
+    fn normalize(path: &str) -> &str {
+        let trimmed = path.trim();
+        if trimmed == "/" {
+            "/"
+        } else {
+            trimmed.trim_end_matches('/')
+        }
+    }
+    normalize(actual) == normalize(required)
+}
+
+/// Gate actions on namespace access learned from earlier `nsenter` executions.
+/// Unknown access remains applicable. A recognized denial blocks the action
+/// until a newer successful execution proves that namespace accessible.
+pub fn ttp_namespace_access_satisfied(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    target_id: &str,
+) -> bool {
+    let Some(Value::Array(required)) = ttp.requires.get("linuxNamespaceAccess") else {
+        return true;
+    };
+
+    let target_id = campaign.canonical_entity_id(target_id);
+    required.iter().all(|value| {
+        let Some(namespace) = value
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return false;
+        };
+
+        campaign
+            .get_execution_records()
+            .iter()
+            .rev()
+            .filter(|record| {
+                let observed_system_id = if record.exec_system_id.trim().is_empty() {
+                    &record.target_id
+                } else {
+                    &record.exec_system_id
+                };
+                record.ttp_id == ttp.id
+                    && campaign.canonical_entity_id(observed_system_id) == target_id
+            })
+            .find_map(|record| nsenter_namespace_observation(record, namespace))
+            .unwrap_or(true)
+    })
+}
+
+fn nsenter_namespace_observation(
+    record: &crate::execution_record::ExecutionRecord,
+    namespace: &str,
+) -> Option<bool> {
+    if !record.command.to_ascii_lowercase().contains("nsenter")
+        && !record.procedure_id.eq_ignore_ascii_case("nsenter")
+    {
+        return None;
+    }
+
+    let namespace = namespace.to_ascii_lowercase();
+    if !record.success {
+        let kernel_namespace = match namespace.as_str() {
+            "mount" => "mnt",
+            other => other,
+        };
+        let output =
+            format!("{}\n{}", record.fail_reason, record.results.join("\n")).to_ascii_lowercase();
+        let denied = [
+            format!("namespace 'ns/{kernel_namespace}' failed: operation not permitted"),
+            format!("namespace \"ns/{kernel_namespace}\" failed: operation not permitted"),
+        ]
+        .iter()
+        .any(|signature| output.contains(signature));
+        return denied.then_some(false);
+    }
+
+    let arg_name = namespace.to_ascii_uppercase();
+    let enabled_by_arg = record.args.get(&arg_name).is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes"
+        )
+    });
+    let enabled_by_command = record
+        .command
+        .split_whitespace()
+        .any(|part| part.eq_ignore_ascii_case(&format!("--{namespace}")));
+    (enabled_by_arg || enabled_by_command).then_some(true)
+}
+
 /// Returns `true` when the TTP's `c2.has-listener` requirement is satisfied.
 ///
 /// - No `c2.has-listener` in `requires` → satisfied (no restriction).
@@ -725,10 +876,13 @@ pub fn ttp_related_satisfied(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use armory::Ttp;
     use ran_domain::{
-        C2Server, Entity, K8sCluster, K8sCredential, K8sNode, Listener, Pod, RbacPermission,
-        Redirector, ServiceAccount, SessionChannel, SessionInfo, SessionStatus, Uses,
+        C2Server, Confidence, Entity, K8sCluster, K8sCredential, K8sNode, Listener, Mount, Pod,
+        RbacPermission, Redirector, ServiceAccount, SessionChannel, SessionInfo, SessionStatus,
+        Uses,
     };
     use serde_json::json;
 
@@ -737,7 +891,8 @@ mod tests {
     use super::{
         eligible_auth_identities, resolve_target_context, ttp_access_level_satisfied,
         ttp_applicable_for_target, ttp_exists_satisfied, ttp_has_listener_satisfied,
-        ttp_has_session_satisfied, ttp_operator_tool_satisfied, ttp_rbac_satisfied,
+        ttp_has_session_satisfied, ttp_namespace_access_satisfied, ttp_operator_tool_satisfied,
+        ttp_pod_requirements_satisfied, ttp_rbac_satisfied,
     };
 
     fn ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
@@ -1273,6 +1428,19 @@ mod tests {
         ttp
     }
 
+    fn ttp_requiring_host_pid() -> Ttp {
+        let mut ttp = Ttp::new(
+            "escape-container-via-nsenter",
+            "Escape container via NSenter",
+            "Privilege Escalation",
+        );
+        ttp.requires
+            .insert("Pod.securityContext.privileged".to_string(), json!(true));
+        ttp.requires
+            .insert("Pod.securityContext.hostPID".to_string(), json!(true));
+        ttp
+    }
+
     #[test]
     fn node_filesystem_access_requires_a_direct_or_hostpath_execution_capability() {
         let mut campaign = empty_campaign();
@@ -1320,6 +1488,335 @@ mod tests {
             &ttp_requiring_node_filesystem_access(),
             &campaign,
             &context
+        ));
+    }
+
+    #[test]
+    fn host_pid_requirement_allows_unknown_but_rejects_known_false() {
+        let (mut campaign, pod_id) = campaign_with_pod_session(None);
+        let ttp = ttp_requiring_host_pid();
+        assert!(ttp_pod_requirements_satisfied(&ttp, &campaign, &pod_id));
+
+        campaign
+            .entities
+            .find_mut::<Pod>(&ran_domain::EntityId::new(&pod_id))
+            .expect("pod")
+            .host_pid = Confidence::No;
+        assert!(!ttp_pod_requirements_satisfied(&ttp, &campaign, &pod_id));
+
+        let pod = campaign
+            .entities
+            .find_mut::<Pod>(&ran_domain::EntityId::new(&pod_id))
+            .expect("pod");
+        pod.host_pid = Confidence::Yes;
+        pod.privileged = Confidence::No;
+        assert!(!ttp_pod_requirements_satisfied(&ttp, &campaign, &pod_id));
+
+        campaign
+            .entities
+            .find_mut::<Pod>(&ran_domain::EntityId::new(&pod_id))
+            .expect("pod")
+            .privileged = Confidence::Yes;
+        assert!(ttp_pod_requirements_satisfied(&ttp, &campaign, &pod_id));
+    }
+
+    #[test]
+    fn exact_host_proc_requirement_rejects_other_host_paths() {
+        let (mut campaign, pod_id) = campaign_with_pod_session(None);
+        let mut ttp = Ttp::new("host-proc", "Host proc", "Privilege Escalation");
+        ttp.requires
+            .insert("Pod.hostPath".to_string(), json!("/proc"));
+        let pod = campaign
+            .entities
+            .find_mut::<Pod>(&ran_domain::EntityId::new(&pod_id))
+            .expect("pod");
+        pod.volume_mounts.push(Mount {
+            mount_root: "/".to_string(),
+            mount_point: "/host".to_string(),
+            is_host_path: true,
+            ..Default::default()
+        });
+        assert!(!ttp_pod_requirements_satisfied(&ttp, &campaign, &pod_id));
+
+        campaign
+            .entities
+            .find_mut::<Pod>(&ran_domain::EntityId::new(&pod_id))
+            .expect("pod")
+            .volume_mounts
+            .push(Mount {
+                mount_root: "/proc/".to_string(),
+                mount_point: "/host/proc".to_string(),
+                is_host_path: true,
+                ..Default::default()
+            });
+        assert!(ttp_pod_requirements_satisfied(&ttp, &campaign, &pod_id));
+    }
+
+    fn namespace_execution_record(
+        target_id: &str,
+        success: bool,
+        results: Vec<&str>,
+    ) -> crate::ExecutionRecord {
+        crate::ExecutionRecord {
+            id: format!("execution-{}", success),
+            ttp_id: "escape-container-via-nsenter".to_string(),
+            ttp_name: "Escape container via NSenter".to_string(),
+            tactic: "Privilege Escalation".to_string(),
+            target_id: target_id.to_string(),
+            exec_system_id: target_id.to_string(),
+            auth_identity_id: None,
+            procedure_id: "nsenter".to_string(),
+            command: "nsenter --target 1 --mount --uts --ipc --net --pid hostname".to_string(),
+            args: HashMap::from([
+                ("MOUNT".to_string(), "true".to_string()),
+                ("UTS".to_string(), "true".to_string()),
+                ("IPC".to_string(), "true".to_string()),
+                ("NET".to_string(), "true".to_string()),
+                ("PID".to_string(), "true".to_string()),
+            ]),
+            success,
+            partial: false,
+            exit_code: if success { 0 } else { 1 },
+            results: results.into_iter().map(str::to_string).collect(),
+            fail_reason: String::new(),
+            started_at_ms: 1,
+            completed_at_ms: 2,
+            is_cleanup: false,
+            reasoning: String::new(),
+            discovered_entities: Vec::new(),
+            discovered_relations: Vec::new(),
+        }
+    }
+
+    fn ttp_requiring_namespace_access() -> Ttp {
+        let mut ttp = Ttp::new(
+            "escape-container-via-nsenter",
+            "Escape container via NSenter",
+            "Privilege Escalation",
+        );
+        ttp.requires.insert(
+            "linuxNamespaceAccess".to_string(),
+            json!(["mount", "uts", "pid"]),
+        );
+        ttp
+    }
+
+    #[test]
+    fn namespace_access_unknown_keeps_action_applicable() {
+        let (campaign, pod_id) = campaign_with_pod_session(None);
+
+        assert!(ttp_namespace_access_satisfied(
+            &ttp_requiring_namespace_access(),
+            &campaign,
+            &pod_id
+        ));
+    }
+
+    #[test]
+    fn known_required_nsenter_namespace_denial_blocks_only_affected_system() {
+        let (mut campaign, pod_id) = campaign_with_pod_session(None);
+        let other_pod = Pod::new("other", "default");
+        let other_pod_id = other_pod.entity_id().0;
+        campaign.entities.insert_typed(other_pod);
+        campaign.append_execution_record(namespace_execution_record(
+            &pod_id,
+            false,
+            vec!["nsenter: reassociate to namespace 'ns/pid' failed: Operation not permitted"],
+        ));
+        let ttp = ttp_requiring_namespace_access();
+
+        assert!(!ttp_namespace_access_satisfied(&ttp, &campaign, &pod_id));
+        assert!(ttp_namespace_access_satisfied(
+            &ttp,
+            &campaign,
+            &other_pod_id
+        ));
+    }
+
+    #[test]
+    fn optional_ipc_namespace_denial_keeps_minimal_escape_applicable() {
+        let (mut campaign, pod_id) = campaign_with_pod_session(None);
+        campaign.append_execution_record(namespace_execution_record(
+            &pod_id,
+            false,
+            vec!["nsenter: reassociate to namespace 'ns/ipc' failed: Operation not permitted"],
+        ));
+
+        assert!(ttp_namespace_access_satisfied(
+            &ttp_requiring_namespace_access(),
+            &campaign,
+            &pod_id
+        ));
+    }
+
+    #[test]
+    fn direct_nsenter_denial_does_not_hide_host_proc_alternative() {
+        let (mut campaign, pod_id) = campaign_with_pod_session(None);
+        campaign.append_execution_record(namespace_execution_record(
+            &pod_id,
+            false,
+            vec!["nsenter: reassociate to namespace 'ns/pid' failed: Operation not permitted"],
+        ));
+        let mut alternative = ttp_requiring_namespace_access();
+        alternative.id = "escape-container-via-nsenter-and-mounted-host-proc".to_string();
+
+        assert!(ttp_namespace_access_satisfied(
+            &alternative,
+            &campaign,
+            &pod_id
+        ));
+    }
+
+    #[test]
+    fn mount_requirement_recognizes_kernel_mnt_namespace_name() {
+        let (mut campaign, pod_id) = campaign_with_pod_session(None);
+        campaign.append_execution_record(namespace_execution_record(
+            &pod_id,
+            false,
+            vec!["nsenter: reassociate to namespace 'ns/mnt' failed: Operation not permitted"],
+        ));
+
+        assert!(!ttp_namespace_access_satisfied(
+            &ttp_requiring_namespace_access(),
+            &campaign,
+            &pod_id
+        ));
+    }
+
+    #[test]
+    fn namespace_denial_is_attributed_to_physical_execution_system() {
+        let (mut campaign, pod_id) = campaign_with_pod_session(None);
+        let mut record = namespace_execution_record(
+            &pod_id,
+            false,
+            vec!["nsenter: reassociate to namespace 'ns/pid' failed: Operation not permitted"],
+        );
+        record.target_id = "node/worker-1".to_string();
+        campaign.append_execution_record(record);
+        let ttp = ttp_requiring_namespace_access();
+
+        assert!(!ttp_namespace_access_satisfied(&ttp, &campaign, &pod_id));
+        assert!(ttp_namespace_access_satisfied(
+            &ttp,
+            &campaign,
+            "node/worker-1"
+        ));
+    }
+
+    #[test]
+    fn repository_nsenter_action_declares_namespace_access_requirement() {
+        let armory_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory =
+            armory::Armory::load_from_dir(armory_path).expect("repository armory should load");
+        let ttp = armory
+            .get_ttp("escape-container-via-nsenter")
+            .expect("nsenter escape action");
+
+        assert_eq!(
+            ttp.requires.get("linuxNamespaceAccess"),
+            Some(&json!(["mount", "uts", "pid"]))
+        );
+        assert_eq!(
+            ttp.requires.get("Pod.securityContext.hostPID"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            ttp.params
+                .iter()
+                .find(|param| param.name == "IPC")
+                .map(|param| param.default.as_str()),
+            Some("false")
+        );
+
+        let host_proc_ttp = armory
+            .get_ttp("escape-container-via-nsenter-and-mounted-host-proc")
+            .expect("mounted host proc escape action");
+        assert_eq!(host_proc_ttp.requires.get("kind"), Some(&json!("Pod")));
+        assert_eq!(
+            host_proc_ttp.requires.get("Pod.hostPath"),
+            Some(&json!("/proc"))
+        );
+        assert_eq!(
+            host_proc_ttp
+                .params
+                .iter()
+                .find(|param| param.name == "HOST_PROC")
+                .map(|param| param.default.as_str()),
+            Some("${SRC.HOST_PATH:/proc}")
+        );
+        assert_eq!(
+            ttp.params
+                .iter()
+                .find(|param| param.name == "NET")
+                .map(|param| param.default.as_str()),
+            Some("false")
+        );
+    }
+
+    #[test]
+    fn mounted_host_proc_action_grounds_exact_mount_and_minimal_namespaces() {
+        let armory_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory =
+            armory::Armory::load_from_dir(armory_path).expect("repository armory should load");
+        let ttp = armory
+            .get_ttp("escape-container-via-nsenter-and-mounted-host-proc")
+            .expect("mounted host proc escape action");
+        let mut campaign = empty_campaign();
+        let mut pod = Pod::new("target", "default");
+        pod.volume_mounts.push(Mount {
+            mount_root: "/proc".to_string(),
+            mount_point: "/host/proc".to_string(),
+            is_host_path: true,
+            ..Default::default()
+        });
+        let pod_id = pod.entity_id().0;
+        campaign.entities.insert_typed(pod);
+        let mut args: HashMap<_, _> = ttp
+            .params
+            .iter()
+            .map(|param| (param.name.clone(), param.default.clone()))
+            .collect();
+        args.insert("SRC".to_string(), pod_id);
+
+        crate::grounding::ground_entity_ref_vars(&mut args, &campaign);
+        let command = crate::effects::ground_template(
+            &crate::grounding::resolve_template(&ttp.procedures[0].command, &args),
+            &args,
+        );
+
+        assert!(
+            command.contains("--mount=/host/proc/1/ns/mnt"),
+            "rendered command: {command}"
+        );
+        assert!(
+            command.contains("--uts=/host/proc/1/ns/uts"),
+            "rendered command: {command}"
+        );
+        assert!(
+            command.contains("--pid=/host/proc/1/ns/pid"),
+            "rendered command: {command}"
+        );
+        assert!(!command.contains("--ipc"));
+        assert!(!command.contains("--net"));
+        assert!(!command.contains("${"));
+    }
+
+    #[test]
+    fn newer_successful_nsenter_execution_restores_namespace_access() {
+        let (mut campaign, pod_id) = campaign_with_pod_session(None);
+        campaign.append_execution_record(namespace_execution_record(
+            &pod_id,
+            false,
+            vec!["nsenter: reassociate to namespace 'ns/pid' failed: Operation not permitted"],
+        ));
+        campaign.append_execution_record(namespace_execution_record(&pod_id, true, vec![]));
+
+        assert!(ttp_namespace_access_satisfied(
+            &ttp_requiring_namespace_access(),
+            &campaign,
+            &pod_id
         ));
     }
 

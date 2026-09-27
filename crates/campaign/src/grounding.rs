@@ -435,6 +435,7 @@ fn random_id() -> String {
 /// | PROP          | Resolution                               |
 /// |---------------|------------------------------------------|
 /// | `MOUNT_PATH`  | First host-path on a pod (`host_paths`)  |
+/// | `HOST_PATH:<source>` | In-container mount point for an exact hostPath source |
 /// | `IP`          | First IP address on the entity's system  |
 /// | `NAME`        | Entity name                              |
 /// | `NS` / `NAMESPACE` | Entity namespace                    |
@@ -508,6 +509,13 @@ fn expand_entity_props(value: &mut String, ref_name: &str, entity_id: &str, camp
 /// Returns `None` when the property is not applicable to the entity kind or
 /// the value is unavailable.
 fn resolve_entity_prop(entity: &CampaignEntityRef, prop: &str) -> Option<String> {
+    if let Some(host_path) = prop.strip_prefix("HOST_PATH:") {
+        return match entity {
+            CampaignEntityRef::Pod(pod) => resolve_host_path_mount(pod, host_path),
+            _ => None,
+        };
+    }
+
     match prop.to_ascii_uppercase().as_str() {
         "NAME" => Some(entity.entity_name().to_string()),
         "NS" | "NAMESPACE" => entity.namespace().map(str::to_string),
@@ -526,6 +534,31 @@ fn resolve_entity_prop(entity: &CampaignEntityRef, prop: &str) -> Option<String>
         },
         _ => None,
     }
+}
+
+fn resolve_host_path_mount(pod: &Pod, required_root: &str) -> Option<String> {
+    fn normalize(path: &str) -> &str {
+        let trimmed = path.trim();
+        if trimmed == "/" {
+            "/"
+        } else {
+            trimmed.trim_end_matches('/')
+        }
+    }
+    let required_root = normalize(required_root);
+    let mut matches = pod
+        .volume_mounts
+        .iter()
+        .filter(|mount| mount.is_host_path && normalize(&mount.mount_root) == required_root);
+    let first = matches.next()?;
+    if matches.next().is_some() {
+        tracing::warn!(
+            pod = %pod.entity_name(),
+            host_path = required_root,
+            "host path is mounted more than once; using the first mount point"
+        );
+    }
+    Some(first.mount_point.clone())
 }
 
 fn resolve_mount_path(pod: &Pod) -> Option<String> {
@@ -1263,6 +1296,56 @@ mod tests {
         ]);
         ground_entity_ref_vars(&mut args, &campaign);
         assert_eq!(args["MOUNT_PATH"], "/host/root/etc/kubernetes");
+    }
+
+    #[test]
+    fn exact_host_path_resolves_its_in_container_mount_point() {
+        let mut pod = Pod::new("attacker", "default");
+        pod.volume_mounts.push(ran_domain::Mount {
+            name: "host-root".to_string(),
+            mount_root: "/".to_string(),
+            mount_point: "/host/root".to_string(),
+            mount_type: None,
+            is_host_path: true,
+            read_only: false,
+        });
+        pod.volume_mounts.push(ran_domain::Mount {
+            name: "host-proc".to_string(),
+            mount_root: "/proc/".to_string(),
+            mount_point: "/mnt/host-proc".to_string(),
+            mount_type: None,
+            is_host_path: true,
+            read_only: true,
+        });
+        let (campaign, pod_id) = campaign_with_pod(pod);
+        let mut args = HashMap::from([
+            ("SRC".to_string(), pod_id),
+            (
+                "HOST_PROC".to_string(),
+                "${SRC.HOST_PATH:/proc}".to_string(),
+            ),
+        ]);
+
+        ground_entity_ref_vars(&mut args, &campaign);
+
+        assert_eq!(args["HOST_PROC"], "/mnt/host-proc");
+    }
+
+    #[test]
+    fn missing_exact_host_path_leaves_placeholder_unresolved() {
+        let pod = Pod::new("attacker", "default");
+        let (campaign, pod_id) = campaign_with_pod(pod);
+        let mut args = HashMap::from([
+            ("SRC".to_string(), pod_id),
+            (
+                "HOST_PROC".to_string(),
+                "${SRC.HOST_PATH:/proc}".to_string(),
+            ),
+        ]);
+
+        ground_entity_ref_vars(&mut args, &campaign);
+
+        assert_eq!(args["HOST_PROC"], "${SRC.HOST_PATH:/proc}");
     }
 
     #[test]

@@ -94,6 +94,43 @@ preconditions:
   has-token: true
 ```
 
+### `linuxNamespaceAccess`
+
+Requires access to the listed Linux namespaces. Namespace access starts unknown,
+which keeps the action applicable. If an earlier `nsenter` execution against the
+same system and action reported `Operation not permitted` for one of the listed
+namespaces, the action becomes inapplicable. A newer successful execution can
+prove access and make it applicable again. Evidence from another action does not
+cross-gate alternatives that address different namespace files.
+
+```yaml
+preconditions:
+  linuxNamespaceAccess: [mount, uts, pid]
+```
+
+### Pod runtime requirements
+
+Pod actions can require privileged execution, host PID sharing, or hostPath
+mounts. Unknown security-context values remain applicable, while known false
+values do not. HostPath requirements are strict because the procedure needs a
+real mount point to execute.
+
+```yaml
+preconditions:
+  kind: Pod
+  "Pod.securityContext.privileged": true
+  "Pod.securityContext.hostPID": true
+```
+
+`Pod.hostPath: true` accepts any hostPath mount. A string requires that exact
+host source path, and an array requires every listed source path.
+
+```yaml
+preconditions:
+  kind: Pod
+  "Pod.hostPath": /proc
+```
+
 ### `related`
 
 Requires a related entity of a given kind - and optionally with a minimum access
