@@ -45,7 +45,6 @@ parameters:
 | `default`     | any    | `""`     | Default value. Can reference built-in variables like `${NS}`.                              |
 | `required`    | bool   | `true`   | Whether the parameter must be provided. Set to `false` to make it optional.                |
 | `options`     | list   | `[]`     | Static allowed values. Campaign-derived candidates are added by action resolution.         |
-| `valueField`  | string | `id`     | For entity-backed candidates, pass either the canonical entity `id` or its `name`.          |
 
 **Built-in variable defaults:**
 
@@ -57,19 +56,17 @@ parameters:
 | `${TARGET_ID}`  | Ran entity ID of the target (e.g. `ns/default/pod/nginx`) |
 | `${IXIMIUZ_PLAY_ID}` | Iximiuz playground ID from Ran's `IXIMIUZ_PLAY_ID` environment variable |
 
-### Entity-backed values and `valueField`
+### Entity-backed values
 
 An entity-backed `type`, such as `Namespace`, `Pod`, `Node`, `ServiceAccount`,
 `Listener`, or `K8sAuth`, tells action resolution which campaign entities may
-satisfy the parameter. `valueField` controls the value projected from each
-matching entity:
+satisfy the parameter. The type also owns the representation passed to the
+procedure:
 
-- `id` is the default and produces the canonical Ran entity ID, such as
-  `ns/agent-system` or `listener/tcp/1337`. Use it when the runtime needs a
-  stable entity reference.
-- `name` produces the entity's procedure-facing name, such as `agent-system`
-  or `agent-worker-m4qc4`. Use it when a shell command or Kubernetes request
-  expects a resource name rather than a Ran ID.
+| Parameter types | Candidate value | Example |
+| --------------- | --------------- | ------- |
+| `Namespace`, `Pod`, `Node`, `ServiceAccount`, `Deployment`, `Secret`, `ConfigMap` | Kubernetes resource name | `agent-system` |
+| `Listener`, `Redirector`, `Session`, `K8sAuth`, `K8sCredential` | Canonical Ran entity ID | `listener/tcp/1337` |
 
 For example:
 
@@ -77,13 +74,15 @@ For example:
 parameters:
   NS:
     type: Namespace
-    valueField: name
     description: Namespace passed to the Kubernetes API
   LISTENER_REF:
     type: Listener
-    valueField: id
     description: Listener entity controlled by Ran
 ```
+
+TTP authors do not configure this mapping. Use the semantic type that describes
+the value the procedure needs. In the example, `${NS}` receives
+`agent-system`, while `${LISTENER_REF}` receives `listener/tcp/1337`.
 
 Resolution keeps provenance separate from the projected value. A namespace
 candidate can therefore have `value: agent-system` while its source still has
@@ -92,10 +91,8 @@ candidate's `value`, not its display `label` or source entity ID. The selected
 value is validated against the same projected candidate set and is then passed
 to procedure rendering.
 
-`valueField` does not change candidate scope or identity provenance. It only
-selects the entity field exposed to the parameter. `K8sAuth` remains an entity
-reference: Ran resolves its credential material internally and never exposes a
-token or kubeconfig as an argument candidate.
+`K8sAuth` remains an identity reference: Ran resolves its credential material
+internally and never exposes a token or kubeconfig as an argument candidate.
 
 `FileSource` accepts a local path or an HTTP(S) URL without embedded
 credentials. `AbsolutePath` requires an absolute path without `.` or `..`

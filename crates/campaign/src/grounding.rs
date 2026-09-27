@@ -222,10 +222,10 @@ pub fn ground_args_from_context(
     }
 }
 
-/// Resolve entity-valued parameters from graph IDs to the concrete values
-/// expected by command-line tools. The API deliberately transports entity IDs
-/// so selections stay unambiguous; procedure templates generally need the
-/// entity's name or namespace instead.
+/// Accept canonical entity IDs at the execution boundary for compatibility and
+/// normalize them to the concrete values expected by command-line tools.
+/// Action resolution already exposes procedure-facing names for Kubernetes
+/// resource parameters, so those values pass through unchanged.
 pub fn ground_entity_parameters(
     ttp: &armory::Ttp,
     args: &mut HashMap<String, String>,

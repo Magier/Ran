@@ -312,7 +312,6 @@ mod tests {
                 required: true,
                 default: String::new(),
                 options: vec![],
-                value_field: None,
             },
             armory::TtpParam {
                 name: "Interactive".into(),
@@ -321,7 +320,6 @@ mod tests {
                 required: false,
                 default: "true".into(),
                 options: vec![],
-                value_field: None,
             },
             armory::TtpParam {
                 name: "Container".into(),
@@ -330,7 +328,6 @@ mod tests {
                 required: false,
                 default: String::new(),
                 options: vec![],
-                value_field: None,
             },
         ];
         let armory = armory::Armory::from_ttps(vec![ttp]);

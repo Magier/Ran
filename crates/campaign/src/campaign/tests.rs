@@ -1572,7 +1572,6 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
                 default: "https://metadata.google.internal/computeMetadata/v1/project/project-id"
                     .to_string(),
                 options: vec![],
-                value_field: None,
             },
             TtpParam {
                 name: "HEADERS".to_string(),
@@ -1582,7 +1581,6 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
                 default: "{\"Metadata-Flavor\":\"Google\",\"Authorization\":\"Bearer abc\"}"
                     .to_string(),
                 options: vec![],
-                value_field: None,
             },
         ],
         procedures: vec![Procedure {
@@ -3237,7 +3235,6 @@ fn source_side_redis_armory() -> Armory {
                 required: true,
                 default: "${TARGET.IP}".to_string(),
                 options: vec![],
-                value_field: None,
             },
             TtpParam {
                 name: "PORT".to_string(),
@@ -3246,7 +3243,6 @@ fn source_side_redis_armory() -> Armory {
                 required: true,
                 default: "6379".to_string(),
                 options: vec![],
-                value_field: None,
             },
         ],
         procedures: vec![Procedure {
@@ -4157,7 +4153,6 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
             required: false,
             default: "${SRC.MOUNT_PATH}/etc/kubernetes".to_string(),
             options: vec![],
-            value_field: None,
         }],
         procedures: vec![Procedure::new("grep", "grep -r ${MOUNT_PATH}")],
         ..Ttp::new("scan-node", "Search kubeconfig files", "Discovery")
@@ -4260,7 +4255,6 @@ fn cleanup_armory() -> Armory {
                 required: false,
                 default: "curl".to_string(),
                 options: vec![],
-                value_field: None,
             }],
             procedures: vec![Procedure {
                 tool: Some("apt".to_string()),
@@ -4548,7 +4542,6 @@ fn active_kubeconfig_request_uses_namespace_target_and_records_request_line() {
                 required: true,
                 default: "${NS}".to_string(),
                 options: vec![],
-                value_field: None,
             },
             TtpParam {
                 name: "ALL_NS".to_string(),
@@ -4557,7 +4550,6 @@ fn active_kubeconfig_request_uses_namespace_target_and_records_request_line() {
                 required: true,
                 default: "false".to_string(),
                 options: vec![],
-                value_field: None,
             },
         ],
         procedures: vec![Procedure {

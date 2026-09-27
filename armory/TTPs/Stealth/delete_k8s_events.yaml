@@ -8,7 +8,6 @@ parameters:
     description: the Kubernetes identity selected by Authenticate As
   NAMESPACE:
     type: Namespace
-    valueField: name
     default: ${NS}
     description: the name of the namespace in which the events will be deleted
   ALL_NS:

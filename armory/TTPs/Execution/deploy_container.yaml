@@ -12,7 +12,6 @@ parameters:
     default: ran-${RANDOM}
   Namespace:
     type: Namespace
-    valueField: name
     default: ${NS}
     description: the namespace in which the workload will be deployed
   Image:
@@ -43,7 +42,6 @@ parameters:
     description: JSON array of Kubernetes container ports, for example [{"containerPort":8080}].
   ServiceAccount:
     type: ServiceAccount
-    valueField: name
     default: "${NODE_NAME}"
     required: false
     description: the service account used by the workload
@@ -73,7 +71,6 @@ parameters:
     description: the host path mounted into the container with pattern <path on host>:<path in pod>
   NodeName:
     type: Node
-    valueField: name
     default: ""
     required: false
     description: the name of the node where the pod should be deployed

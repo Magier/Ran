@@ -9,7 +9,6 @@ parameters:
     description: Kubernetes identity selected by the operator
   NS:
     type: Namespace
-    valueField: name
     default: ${NS}
   ALL_NS:
     type: bool
@@ -18,14 +17,13 @@ parameters:
 
 Common types include `string`, `bool`, `int`, `Namespace`, `ServiceAccount`, and `K8sAuth`. Entity-backed types are populated from campaign knowledge.
 
-Entity-backed candidates have a canonical Ran ID and a procedure-facing name.
-Set `valueField: name` when the procedure expects a Kubernetes resource name,
-such as `agent-system`. Keep the default `valueField: id` when Ran needs a
-stable entity reference, such as `listener/tcp/1337`. Resolution candidates
-carry the projected value in `value` and retain the canonical entity ID under
-`source.entityId`; API clients must submit `value`. See the
-[YAML field catalog](../reference/yaml-fields.md#entity-backed-values-and-valuefield)
-for the full contract.
+Entity-backed parameter types own their procedure representation. Kubernetes
+resource types such as `Namespace`, `Pod`, `Node`, and `ServiceAccount` expose
+resource names. Control and identity types such as `Listener`, `Session`, and
+`K8sAuth` expose stable Ran entity IDs. Resolution retains the canonical entity
+ID under `source.entityId`; API clients only submit `candidate.value`. See the
+[YAML field catalog](../reference/yaml-fields.md#entity-backed-values) for the
+full contract.
 
 Parameters are required by default. Use `required: false` or `optional: true` for optional input.
 

@@ -8,7 +8,6 @@ parameters:
     description: the Kubernetes identity selected by Authenticate As
   NAMESPACE:
     type: Namespace
-    valueField: name
     default: ${TARGET}
     description: the name of the namespace to disable Pod Security Admission on
 procedures:

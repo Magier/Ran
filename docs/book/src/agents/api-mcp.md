@@ -48,9 +48,10 @@ partial choice. Send `targetId` plus any selected `args`, `authIdentityId`,
 the same selections to action execution. This matters for dependent parameters:
 choosing a namespace can change the valid ServiceAccount candidates.
 
-For entity-backed parameters, the armory declaration's `valueField` determines
-whether `candidate.value` is the canonical Ran entity ID or its name. The
-candidate source always retains the canonical entity ID as provenance.
+The parameter's semantic type determines `candidate.value`. Kubernetes resource
+types expose resource names, while control and identity types expose canonical
+Ran entity IDs. Clients do not choose this representation. The candidate source
+always retains the canonical entity ID as provenance.
 
 ### Invoking a TTP via API
 

@@ -808,11 +808,6 @@ export interface components {
 			required: boolean;
 			default: string;
 			options?: string[];
-			/**
-			 * @description Field projected from each entity-backed candidate into the parameter value. `id` uses the canonical Ran entity ID and is the default. `name` uses the entity's procedure-facing name. Candidate provenance always retains the canonical entity ID in `source.entityId`.
-			 * @enum {string}
-			 */
-			valueField?: 'id' | 'name';
 		};
 		TTPDefense: {
 			id: string;

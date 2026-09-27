@@ -13,7 +13,6 @@ parameters:
     description: the Kubernetes identity selected by Authenticate As
   NODE:
     type: Node
-    valueField: name
     default: ${TARGET}
     description: the name of the node for which the running pods will be listed
 procedures:

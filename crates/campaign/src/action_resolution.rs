@@ -336,14 +336,32 @@ fn resolve_argument(
         let constrained = !candidates.is_empty()
             || !param.options.is_empty()
             || requires_entity_id(&param.param_type);
-        if constrained && !candidates.iter().any(|candidate| candidate.value == value) {
+        if constrained {
+            let canonical_value = campaign.canonical_entity_id(value);
+            let selected = candidates.iter().find(|candidate| {
+                candidate.value == value
+                    || candidate.source.entity_id.as_deref() == Some(canonical_value.as_str())
+            });
+            let Some(candidate) = selected else {
+                return ArgumentResolution {
+                    status: ArgumentResolutionStatus::Blocked,
+                    value: Some(value.to_string()),
+                    source: Some(source("operator", None, Some(param.name.clone()), None)),
+                    reason: Some(format!(
+                        "{} value '{}' is not available for this target",
+                        param.name, value
+                    )),
+                    ..base()
+                };
+            };
             return ArgumentResolution {
-                status: ArgumentResolutionStatus::Blocked,
-                value: Some(value.to_string()),
-                source: Some(source("operator", None, Some(param.name.clone()), None)),
-                reason: Some(format!(
-                    "{} value '{}' is not available for this target",
-                    param.name, value
+                status: ArgumentResolutionStatus::Resolved,
+                value: Some(candidate.value.clone()),
+                source: Some(source(
+                    "operator",
+                    candidate.source.entity_id.clone(),
+                    candidate.source.field.clone(),
+                    None,
                 )),
                 ..base()
             };
@@ -470,7 +488,7 @@ fn resolve_default(
 
     if default == "${TARGET}" {
         let use_name = param.param_type.eq_ignore_ascii_case("string")
-            || param.value_field.as_deref() == Some("name");
+            || (is_entity_param(&param.param_type) && !requires_entity_id(&param.param_type));
         return ArgumentResolution {
             status: ArgumentResolutionStatus::Resolved,
             value: Some(if use_name {
@@ -780,19 +798,26 @@ fn candidates_for_param(
                 &param.param_type,
             )
         })
-        .map(|entity| ArgumentCandidate {
-            value: if param.value_field.as_deref() == Some("name") {
-                entity.entity_name().to_string()
+        .map(|entity| {
+            let field = if requires_entity_id(&param.param_type) {
+                "id"
             } else {
-                entity.entity_id().0.clone()
-            },
-            label: entity.entity_name().to_string(),
-            source: source(
-                "entity",
-                Some(entity.entity_id().0),
-                Some(param.value_field.as_deref().unwrap_or("id").to_string()),
-                None,
-            ),
+                "name"
+            };
+            ArgumentCandidate {
+                value: if field == "name" {
+                    entity.entity_name().to_string()
+                } else {
+                    entity.entity_id().0.clone()
+                },
+                label: entity.entity_name().to_string(),
+                source: source(
+                    "entity",
+                    Some(entity.entity_id().0),
+                    Some(field.to_string()),
+                    None,
+                ),
+            }
         })
         .collect::<Vec<_>>();
     if param.param_type.eq_ignore_ascii_case("Listener")
@@ -1062,7 +1087,6 @@ mod tests {
             required: true,
             default: "${TARGET.IP}/24".to_string(),
             options: Vec::new(),
-            value_field: None,
         });
 
         let resolution = resolve_action(
@@ -1104,7 +1128,6 @@ mod tests {
             required: true,
             default: "${TARGET.IP}/24".to_string(),
             options: Vec::new(),
-            value_field: None,
         });
 
         let resolution = resolve_action(
@@ -1134,7 +1157,6 @@ mod tests {
             required: true,
             default: String::new(),
             options: Vec::new(),
-            value_field: None,
         });
 
         let resolution = resolve_action(
@@ -1204,7 +1226,6 @@ mod tests {
                 required: true,
                 default: String::new(),
                 options: Vec::new(),
-                value_field: None,
             });
         }
 
@@ -1261,7 +1282,6 @@ mod tests {
             required: true,
             default: String::new(),
             options: Vec::new(),
-            value_field: None,
         });
 
         let resolution =
@@ -1279,7 +1299,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_namespace_selection_recomputes_name_projected_service_accounts() {
+    fn partial_namespace_selection_recomputes_semantic_service_accounts() {
         let cluster = K8sCluster::new("dev");
         let cluster_id = cluster.entity_id().0;
         let mut campaign = crate::Campaign::bootstrap("Ran", cluster);
@@ -1308,7 +1328,6 @@ mod tests {
                 required: true,
                 default: "${NS}".to_string(),
                 options: Vec::new(),
-                value_field: Some("name".to_string()),
             },
             armory::TtpParam {
                 name: "ServiceAccount".to_string(),
@@ -1317,7 +1336,6 @@ mod tests {
                 required: false,
                 default: String::new(),
                 options: Vec::new(),
-                value_field: Some("name".to_string()),
             },
         ];
 
@@ -1364,6 +1382,68 @@ mod tests {
     }
 
     #[test]
+    fn token_permission_namespace_accepts_the_kubernetes_name() {
+        let cluster = K8sCluster::new("dev");
+        let cluster_id = cluster.entity_id().0;
+        let mut campaign = crate::Campaign::bootstrap("Ran", cluster);
+        let namespace = Namespace::new("agent-system");
+        let namespace_id = namespace.entity_id().0;
+        campaign.upsert_entity(namespace, crate::KnowledgeProvenance::Scenario);
+        campaign.upsert_relation(
+            &Contains::new(cluster_id, namespace_id),
+            crate::KnowledgeProvenance::Scenario,
+        );
+
+        let mut service_account = ServiceAccount::new("agent-worker", "agent-system");
+        service_account.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "ey.test.token".to_string(),
+                ..Default::default()
+            },
+            service_account_name: "agent-worker".to_string(),
+            namespace: "agent-system".to_string(),
+            pod_name: None,
+            pod_uid: None,
+            service_account_uid: None,
+            is_bound: false,
+        });
+        let target_id = service_account.entity_id().0;
+        campaign.upsert_entity(service_account, crate::KnowledgeProvenance::Scenario);
+
+        let armory_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = armory::Armory::load_from_dir(armory_path).expect("repository armory");
+        let ttp = armory
+            .get_ttp("check-token-permissions")
+            .expect("Check Token Permissions action");
+        let resolution = resolve_action(
+            ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput {
+                args: HashMap::from([("NS".to_string(), "agent-system".to_string())]),
+                auth_identity_id: Some(target_id.clone()),
+                procedure_id: Some("kubectl".to_string()),
+                exec_system_id: None,
+            },
+        )
+        .expect("ServiceAccount target");
+
+        let namespace = resolution
+            .arguments
+            .iter()
+            .find(|argument| argument.name == "NS")
+            .expect("NS resolution");
+        assert_eq!(namespace.status, ArgumentResolutionStatus::Resolved);
+        assert_eq!(namespace.value.as_deref(), Some("agent-system"));
+        assert_eq!(namespace.candidates[0].value, "agent-system");
+        assert_eq!(
+            namespace.candidates[0].source.field.as_deref(),
+            Some("name")
+        );
+    }
+
+    #[test]
     fn missing_listener_exposes_the_parameters_it_blocks() {
         let cluster = K8sCluster::new("dev");
         let target_id = cluster.entity_id().0;
@@ -1377,7 +1457,6 @@ mod tests {
                 required: true,
                 default: String::new(),
                 options: Vec::new(),
-                value_field: None,
             },
             armory::TtpParam {
                 name: "LISTENER".to_string(),
@@ -1386,7 +1465,6 @@ mod tests {
                 required: true,
                 default: "${LISTENER}".to_string(),
                 options: Vec::new(),
-                value_field: None,
             },
             armory::TtpParam {
                 name: "LISTENER_PORT".to_string(),
@@ -1395,7 +1473,6 @@ mod tests {
                 required: true,
                 default: "${LISTENER_PORT}".to_string(),
                 options: Vec::new(),
-                value_field: None,
             },
         ];
         ttp.procedures.push(armory::Procedure::new(

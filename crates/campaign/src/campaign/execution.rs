@@ -3977,7 +3977,6 @@ mod listener_grounding_tests {
                 required: true,
                 default: String::new(),
                 options: vec![],
-                value_field: None,
             }],
             procedures: vec![Procedure::new(
                 "shell",
@@ -4098,7 +4097,6 @@ mod listener_grounding_tests {
                 required: false,
                 default: "${LISTENER}".to_string(),
                 options: vec![],
-                value_field: None,
             },
             TtpParam {
                 name: "LISTENER_PORT".to_string(),
@@ -4107,7 +4105,6 @@ mod listener_grounding_tests {
                 required: false,
                 default: "${LISTENER_PORT}".to_string(),
                 options: vec![],
-                value_field: None,
             },
             TtpParam {
                 name: "Arguments".to_string(),
@@ -4116,7 +4113,6 @@ mod listener_grounding_tests {
                 required: false,
                 default: "[\"TCP:${LISTENER}:${LISTENER_PORT}\", \"EXEC:sh\"]".to_string(),
                 options: vec![],
-                value_field: None,
             },
         ]);
         ttp.procedures[0].command = "socat {{ Arguments | json_encode }}".to_string();
@@ -4179,7 +4175,6 @@ mod k8s_auth_tests {
                 required: false,
                 default: "[]".to_string(),
                 options: vec![],
-                value_field: None,
             }],
             ..Ttp::new("test", "Test", "Execution")
         };
@@ -4202,7 +4197,6 @@ mod k8s_auth_tests {
                 required: true,
                 default: "sT".to_string(),
                 options: vec!["sT".to_string(), "sV".to_string()],
-                value_field: None,
             }],
             ..Ttp::new("test", "Test", "Discovery")
         };
@@ -4227,7 +4221,6 @@ mod k8s_auth_tests {
                 required: true,
                 default: r#"["sT"]"#.to_string(),
                 options: vec!["sT".to_string(), "sV".to_string()],
-                value_field: None,
             }],
             ..Ttp::new("test", "Test", "Discovery")
         };
