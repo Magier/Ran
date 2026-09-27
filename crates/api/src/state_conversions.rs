@@ -852,9 +852,9 @@ mod tests {
         InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
     };
     use ran_domain::{
-        AppService, Entity, EntityId, ForwardsTo, HostsListener, HostsService, K8sCluster,
-        K8sCredential, K8sCustomResource, Listener, RbacPermission, Redirector, ServiceAccount,
-        Transport,
+        AppService, BinaryPresence, Entity, EntityId, ForwardsTo, HostsListener, HostsService,
+        K8sCluster, K8sCredential, K8sCustomResource, Listener, RbacPermission, Redirector,
+        ServiceAccount, Transport,
     };
     use std::collections::BTreeSet;
 
@@ -885,6 +885,36 @@ mod tests {
         let state = campaign_to_campaign_state(&campaign, &kubetier::Catalog::embedded());
 
         assert_eq!(state.entity_aliases["system/agent-worker-4vnbf"], pod_id.0);
+    }
+
+    #[test]
+    fn graph_exposes_explicit_binary_presence_states() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let mut pod = ran_domain::Pod::new("agent-worker", "agent-system");
+        pod.system.binaries.insert(
+            "ls".to_string(),
+            BinaryPresence::Present("/bin/ls".to_string()),
+        );
+        pod.system
+            .binaries
+            .insert("kubectl".to_string(), BinaryPresence::Absent);
+        let pod_id = pod.entity_id();
+        campaign.upsert_entity(pod, KnowledgeProvenance::Inference);
+
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+        let binaries = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == pod_id.0)
+            .and_then(|node| node.entity.as_ref())
+            .and_then(|entity| entity.get("binaries"))
+            .expect("pod graph payload contains binary discovery results");
+
+        assert_eq!(binaries["kubectl"], serde_json::json!({"status": "absent"}));
+        assert_eq!(
+            binaries["ls"],
+            serde_json::json!({"status": "present", "path": "/bin/ls"})
+        );
     }
 
     #[test]

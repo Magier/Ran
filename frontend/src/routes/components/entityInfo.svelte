@@ -28,6 +28,18 @@
 		return false;
 	}
 
+	function formatBinaryPresence(value: unknown): string {
+		if (typeof value !== 'object' || value === null || !('status' in value)) {
+			return String(value ?? 'unknown');
+		}
+
+		const presence = value as { status: unknown; path?: unknown };
+		if (presence.status === 'present') {
+			return typeof presence.path === 'string' ? presence.path : 'present';
+		}
+		return presence.status === 'absent' ? 'absent' : 'unknown';
+	}
+
 	let applicableTtps = $state<TTP[]>([]);
 	let rawKubeconfig = $state<string | null>(null);
 	let rawKubeconfigLoading = $state(false);
@@ -861,8 +873,21 @@
 						{#each Object.entries(data).sort( ([a], [b]) => a.localeCompare(b) ) as [key, value] (key)}
 							<li class="font-mono text-sm">
 								<span class="font-semibold">{key}:</span>
-								{#if label === 'binaries' && value === ''}
-									<span class="text-error-500 font-semibold">absent</span>
+								{#if label === 'binaries'}
+									<span
+										class:text-error-500={typeof value === 'object' &&
+											value !== null &&
+											'status' in value &&
+											value.status === 'absent'}
+										class:text-surface-400={typeof value === 'object' &&
+											value !== null &&
+											'status' in value &&
+											value.status === 'unknown'}
+										class:font-semibold={typeof value === 'object' &&
+											value !== null &&
+											'status' in value &&
+											value.status === 'absent'}>{formatBinaryPresence(value)}</span
+									>
 								{:else if value === ''}
 									<span class="text-surface-400 italic">empty</span>
 								{:else}

@@ -555,6 +555,11 @@ export interface components {
 			accessLevel?: string;
 			entityId: string;
 			entity?: {
+				/** @description Binary names mapped to explicit discovery results. An absent key means the binary has not been probed. A present key has a value whose status distinguishes present, absent, and unknown without relying on empty-string sentinels. */
+				binaries?: {
+					[key: string]: components['schemas']['BinaryPresence'];
+				};
+			} & {
 				[key: string]: unknown;
 			};
 			compromised?: boolean;
@@ -581,7 +586,14 @@ export interface components {
 		};
 		CampaignState: {
 			entities: {
-				[key: string]: Record<string, never>;
+				[key: string]: {
+					/** @description Binary names mapped to explicit discovery results. An absent key means the binary has not been probed. */
+					binaries?: {
+						[key: string]: components['schemas']['BinaryPresence'];
+					};
+				} & {
+					[key: string]: unknown;
+				};
 			};
 			/** @description Stale entity ID to final canonical entity ID. Alias chains are flattened so every value names the surviving entity directly. */
 			entityAliases: {
@@ -822,6 +834,15 @@ export interface components {
 			id: string;
 			name: string;
 			kind: string;
+		};
+		BinaryPresence: {
+			/**
+			 * @description The result of probing for this binary.
+			 * @enum {string}
+			 */
+			status: 'present' | 'absent' | 'unknown';
+			/** @description Non-empty executable path. Present only when status is present. */
+			path?: string;
 		};
 		K8sResource: {
 			id: string;

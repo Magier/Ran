@@ -1,6 +1,12 @@
 import { getContext, setContext } from 'svelte';
 import type { ArmoryType } from '$lib/model';
-import type { AttackFlow, CampaignState as State, Graph, TTP } from '$lib/api/index';
+import type {
+	AttackFlow,
+	BinaryPresence,
+	CampaignState as State,
+	Graph,
+	TTP
+} from '$lib/api/index';
 import type { KubetierCatalog, LocalPermissionAssessment, UiConfig } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
@@ -15,7 +21,7 @@ export type Entity = {
 	kind?: string;
 	namespace?: string;
 	accessLevel?: { User: number; Level: number } | string;
-	binaries?: Record<string, string>;
+	binaries?: Record<string, BinaryPresence>;
 	envVars?: Record<string, string>;
 	files?: string[];
 	directories?: string[];

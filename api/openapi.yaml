@@ -720,6 +720,16 @@ components:
         entity:
           type: object
           additionalProperties: true
+          properties:
+            binaries:
+              type: object
+              description: >-
+                Binary names mapped to explicit discovery results. An absent key
+                means the binary has not been probed. A present key has a value
+                whose status distinguishes present, absent, and unknown without
+                relying on empty-string sentinels.
+              additionalProperties:
+                $ref: '#/components/schemas/BinaryPresence'
         compromised:
           type: boolean
         customResource:
@@ -781,6 +791,15 @@ components:
           type: object
           additionalProperties:
             type: object
+            additionalProperties: true
+            properties:
+              binaries:
+                type: object
+                description: >-
+                  Binary names mapped to explicit discovery results. An absent
+                  key means the binary has not been probed.
+                additionalProperties:
+                  $ref: '#/components/schemas/BinaryPresence'
         entityAliases:
           type: object
           description: >-
@@ -1365,6 +1384,20 @@ components:
           type: string
         kind:
           type: string
+
+    BinaryPresence:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [present, absent, unknown]
+          description: The result of probing for this binary.
+        path:
+          type: string
+          description: >-
+            Non-empty executable path. Present only when status is present.
 
     K8sResource:
       type: object
