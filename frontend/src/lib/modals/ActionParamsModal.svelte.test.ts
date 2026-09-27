@@ -165,9 +165,7 @@ describe('ActionParamsModal target-derived defaults', () => {
 				recommendedProcedureId: resolution.recommendedProcedureId
 			}
 		} as TTP;
-		const resolutionSpy = vi
-			.spyOn(getRanAPI(), 'GetActionResolution')
-			.mockResolvedValue(resolution);
+		const resolutionSpy = vi.spyOn(getRanAPI(), 'ResolveAction').mockResolvedValue(resolution);
 
 		render(ActionParamsModal, {
 			props: {
@@ -181,7 +179,10 @@ describe('ActionParamsModal target-derived defaults', () => {
 		});
 
 		await waitFor(() => expect(targetInput()).toHaveValue(''));
-		expect(resolutionSpy).toHaveBeenCalledWith(ttp.id, target.id, undefined);
+		expect(resolutionSpy).toHaveBeenCalledWith(
+			ttp.id,
+			expect.objectContaining({ targetId: target.id })
+		);
 		const resolutionInfo = screen.getByLabelText(/Resolution for TARGET/);
 		expect(resolutionInfo).toHaveAttribute('title', expect.stringContaining('system.ips'));
 		expect(resolutionInfo).not.toHaveClass('ig-cell');
@@ -241,9 +242,7 @@ describe('ActionParamsModal target-derived defaults', () => {
 			getServiceAccounts: () => [],
 			getServiceAccountsWithTokens: () => []
 		};
-		const resolutionSpy = vi
-			.spyOn(getRanAPI(), 'GetActionResolution')
-			.mockResolvedValue(resolution);
+		const resolutionSpy = vi.spyOn(getRanAPI(), 'ResolveAction').mockResolvedValue(resolution);
 
 		render(ActionParamsModal, {
 			props: {
@@ -259,7 +258,14 @@ describe('ActionParamsModal target-derived defaults', () => {
 		const selector = screen.getByLabelText('Procedure') as HTMLSelectElement;
 		await waitFor(() => expect(selector).toHaveValue('hostname'));
 		expect(screen.getByRole('option', { name: 'ip ❌' })).toBeDisabled();
-		expect(resolutionSpy).toHaveBeenLastCalledWith(targetAwareTtp.id, target.id, target.id);
+		expect(resolutionSpy).toHaveBeenLastCalledWith(
+			targetAwareTtp.id,
+			expect.objectContaining({
+				targetId: target.id,
+				execSystemId: target.id,
+				procedureId: 'hostname'
+			})
+		);
 		resolutionSpy.mockRestore();
 	});
 });

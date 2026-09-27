@@ -5,11 +5,13 @@ use chrono::{DateTime, Utc};
 
 use campaign::ttp_applicability::{eligible_auth_identities, resolve_target_context};
 
-use crate::action_resolution::{resolve_action, summarize, ActionResolution, ArmoryAction};
 use crate::operations::{applicable_ttps, ApplicableTtpsError};
 use crate::sse::events_handler;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::{ApiError, ApiService, CampaignState, ErrorResponse, GetArmoryParams, Graph, UiConfig};
+use campaign::action_resolution::{
+    resolve_action, summarize, ActionResolution, ActionResolutionInput, ArmoryAction,
+};
 
 #[cfg(debug_assertions)]
 use axum::{
@@ -110,6 +112,31 @@ pub(crate) struct GetActionResolutionParams {
     pub(crate) target_id: String,
     #[serde(rename = "execSystemId")]
     pub(crate) exec_system_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub(crate) struct ResolveActionPayload {
+    #[serde(rename = "targetId")]
+    pub(crate) target_id: String,
+    #[serde(default)]
+    pub(crate) args: HashMap<String, String>,
+    #[serde(rename = "authIdentityId")]
+    pub(crate) auth_identity_id: Option<String>,
+    #[serde(rename = "procedureId")]
+    pub(crate) procedure_id: Option<String>,
+    #[serde(rename = "execSystemId")]
+    pub(crate) exec_system_id: Option<String>,
+}
+
+impl ResolveActionPayload {
+    fn into_input(self) -> ActionResolutionInput {
+        ActionResolutionInput {
+            args: self.args,
+            auth_identity_id: self.auth_identity_id,
+            procedure_id: self.procedure_id,
+            exec_system_id: self.exec_system_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -214,8 +241,13 @@ pub(crate) async fn armory_handler<S: ApiService>(
     Ok(axum::Json(
         ttps.into_iter()
             .map(|ttp| {
-                let action_state = resolve_action(&ttp, &campaign, &target_id, None)
-                    .map(|resolution| summarize(&resolution));
+                let action_state = resolve_action(
+                    &ttp,
+                    &campaign,
+                    &target_id,
+                    &ActionResolutionInput::default(),
+                )
+                .map(|resolution| summarize(&resolution));
                 ArmoryAction { ttp, action_state }
             })
             .collect(),
@@ -241,11 +273,36 @@ pub(crate) async fn action_resolution_handler<S: ApiService>(
         &ttp,
         &campaign,
         &params.target_id,
-        params.exec_system_id.as_deref(),
+        &ActionResolutionInput {
+            exec_system_id: params.exec_system_id,
+            ..ActionResolutionInput::default()
+        },
     )
     .ok_or_else(|| {
         ApiError::not_found(format!("failed to get target entity: {}", params.target_id))
     })?;
+    Ok(axum::Json(resolution))
+}
+
+pub(crate) async fn resolve_action_handler<S: ApiService>(
+    State(service): State<S>,
+    Path(action_id): Path<String>,
+    axum::Json(payload): axum::Json<ResolveActionPayload>,
+) -> Result<axum::Json<ActionResolution>, ApiError> {
+    let ttp = service
+        .get_armory(GetArmoryParams {
+            tactic: None,
+            target_id: None,
+        })
+        .await?
+        .into_iter()
+        .find(|ttp| ttp.id == action_id)
+        .ok_or_else(|| ApiError::not_found(format!("unknown action '{action_id}'")))?;
+    let campaign = service.get_campaign().await?;
+    let target_id = payload.target_id.clone();
+    let input = payload.into_input();
+    let resolution = resolve_action(&ttp, &campaign, &target_id, &input)
+        .ok_or_else(|| ApiError::not_found(format!("failed to get target entity: {target_id}")))?;
     Ok(axum::Json(resolution))
 }
 

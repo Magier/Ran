@@ -1,11 +1,20 @@
-use campaign::ttp_applicability::{
+use crate::ttp_applicability::{
     eligible_auth_identities, resolve_target_context, ttp_applicable_for_target,
 };
 use serde::Serialize;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Default)]
+pub struct ActionResolutionInput {
+    pub args: HashMap<String, String>,
+    pub auth_identity_id: Option<String>,
+    pub procedure_id: Option<String>,
+    pub exec_system_id: Option<String>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ActionReadinessStatus {
+pub enum ActionReadinessStatus {
     Inapplicable,
     Blocked,
     NeedsInput,
@@ -15,41 +24,41 @@ pub(crate) enum ActionReadinessStatus {
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ArgumentSummary {
-    pub(crate) total: usize,
-    pub(crate) resolved: usize,
-    pub(crate) needs_input: usize,
-    pub(crate) needs_choice: usize,
-    pub(crate) blocked: usize,
+pub struct ArgumentSummary {
+    pub total: usize,
+    pub resolved: usize,
+    pub needs_input: usize,
+    pub needs_choice: usize,
+    pub blocked: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActionState {
-    pub(crate) status: ActionReadinessStatus,
-    pub(crate) reasons: Vec<String>,
-    pub(crate) arguments: ArgumentSummary,
-    pub(crate) procedures: Vec<ProcedureState>,
+pub struct ActionState {
+    pub status: ActionReadinessStatus,
+    pub reasons: Vec<String>,
+    pub arguments: ArgumentSummary,
+    pub procedures: Vec<ProcedureState>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) recommended_procedure_id: Option<String>,
+    pub recommended_procedure_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActionResolution {
-    pub(crate) action_id: String,
-    pub(crate) target_id: String,
-    pub(crate) status: ActionReadinessStatus,
-    pub(crate) reasons: Vec<String>,
-    pub(crate) arguments: Vec<ArgumentResolution>,
-    pub(crate) procedures: Vec<ProcedureState>,
+pub struct ActionResolution {
+    pub action_id: String,
+    pub target_id: String,
+    pub status: ActionReadinessStatus,
+    pub reasons: Vec<String>,
+    pub arguments: Vec<ArgumentResolution>,
+    pub procedures: Vec<ProcedureState>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) recommended_procedure_id: Option<String>,
+    pub recommended_procedure_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ProcedureReadinessStatus {
+pub enum ProcedureReadinessStatus {
     Ready,
     Unknown,
     Unavailable,
@@ -57,18 +66,18 @@ pub(crate) enum ProcedureReadinessStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProcedureState {
-    pub(crate) procedure_id: String,
-    pub(crate) status: ProcedureReadinessStatus,
+pub struct ProcedureState {
+    pub procedure_id: String,
+    pub status: ProcedureReadinessStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) required_tool: Option<String>,
+    pub required_tool: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) reason: Option<String>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ArgumentResolutionStatus {
+pub enum ArgumentResolutionStatus {
     Resolved,
     Defaulted,
     GeneratedAtExecution,
@@ -80,51 +89,55 @@ pub(crate) enum ArgumentResolutionStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ArgumentResolution {
-    pub(crate) name: String,
+pub struct ArgumentResolution {
+    pub name: String,
     #[serde(rename = "type")]
-    pub(crate) param_type: String,
-    pub(crate) required: bool,
-    pub(crate) status: ArgumentResolutionStatus,
+    pub param_type: String,
+    pub required: bool,
+    pub status: ArgumentResolutionStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) value: Option<String>,
-    pub(crate) candidates: Vec<ArgumentCandidate>,
+    pub value: Option<String>,
+    pub candidates: Vec<ArgumentCandidate>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) source: Option<BindingSource>,
+    pub source: Option<BindingSource>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) reason: Option<String>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ArgumentCandidate {
-    pub(crate) value: String,
-    pub(crate) label: String,
-    pub(crate) source: BindingSource,
+pub struct ArgumentCandidate {
+    pub value: String,
+    pub label: String,
+    pub source: BindingSource,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct BindingSource {
-    pub(crate) kind: String,
+pub struct BindingSource {
+    pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) entity_id: Option<String>,
+    pub entity_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) field: Option<String>,
+    pub field: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) expression: Option<String>,
+    pub expression: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct ArmoryAction {
+pub struct ArmoryAction {
     #[serde(flatten)]
-    pub(crate) ttp: armory::Ttp,
+    pub ttp: armory::Ttp,
     #[serde(rename = "actionState", skip_serializing_if = "Option::is_none")]
-    pub(crate) action_state: Option<ActionState>,
+    pub action_state: Option<ActionState>,
 }
 
 impl ArmoryAction {
-    pub(crate) fn static_action(ttp: armory::Ttp) -> Self {
+    pub fn static_action(ttp: armory::Ttp) -> Self {
         Self {
             ttp,
             action_state: None,
@@ -132,11 +145,11 @@ impl ArmoryAction {
     }
 }
 
-pub(crate) fn resolve_action(
+pub fn resolve_action(
     ttp: &armory::Ttp,
-    campaign: &campaign::Campaign,
+    campaign: &crate::Campaign,
     target_id: &str,
-    exec_system_id: Option<&str>,
+    input: &ActionResolutionInput,
 ) -> Option<ActionResolution> {
     let target = campaign
         .get_entities()
@@ -149,16 +162,25 @@ pub(crate) fn resolve_action(
     let arguments = ttp
         .params
         .iter()
-        .map(|param| resolve_argument(param, ttp, campaign, &target, target_id))
+        .map(|param| resolve_argument(param, ttp, campaign, &target, target_id, input))
         .collect::<Vec<_>>();
     let procedures = ttp
         .procedures
         .iter()
-        .map(|procedure| resolve_procedure(ttp, procedure, campaign, target_id, exec_system_id))
+        .map(|procedure| {
+            resolve_procedure(
+                ttp,
+                procedure,
+                campaign,
+                target_id,
+                input.exec_system_id.as_deref(),
+            )
+        })
         .collect::<Vec<_>>();
-    let recommended_procedure_id =
-        campaign::recommended_procedure(ttp, campaign, target_id, exec_system_id)
-            .map(|procedure| procedure.id.clone());
+    let recommended_procedure_id = input.procedure_id.clone().or_else(|| {
+        crate::recommended_procedure(ttp, campaign, target_id, input.exec_system_id.as_deref())
+            .map(|procedure| procedure.id.clone())
+    });
 
     let mut reasons = Vec::new();
     let status = if !applicable {
@@ -206,7 +228,7 @@ pub(crate) fn resolve_action(
     })
 }
 
-pub(crate) fn summarize(resolution: &ActionResolution) -> ActionState {
+pub fn summarize(resolution: &ActionResolution) -> ActionState {
     let mut arguments = ArgumentSummary {
         total: resolution.arguments.len(),
         ..ArgumentSummary::default()
@@ -231,22 +253,21 @@ pub(crate) fn summarize(resolution: &ActionResolution) -> ActionState {
 fn resolve_procedure(
     ttp: &armory::Ttp,
     procedure: &armory::Procedure,
-    campaign: &campaign::Campaign,
+    campaign: &crate::Campaign,
     target_id: &str,
     exec_system_id: Option<&str>,
 ) -> ProcedureState {
-    let required_tool = campaign::procedure_required_tool(procedure).map(str::to_string);
-    let readiness =
-        campaign::procedure_readiness(ttp, procedure, campaign, target_id, exec_system_id);
+    let required_tool = crate::procedure_required_tool(procedure).map(str::to_string);
+    let readiness = crate::procedure_readiness(ttp, procedure, campaign, target_id, exec_system_id);
     let (status, reason) = match readiness {
-        campaign::ProcedureReadiness::Ready => (ProcedureReadinessStatus::Ready, None),
-        campaign::ProcedureReadiness::Unknown => (
+        crate::ProcedureReadiness::Ready => (ProcedureReadinessStatus::Ready, None),
+        crate::ProcedureReadiness::Unknown => (
             ProcedureReadinessStatus::Unknown,
             required_tool.as_ref().map(|tool| {
                 format!("required tool '{tool}' has not been observed on the execution system")
             }),
         ),
-        campaign::ProcedureReadiness::Unavailable => (
+        crate::ProcedureReadiness::Unavailable => (
             ProcedureReadinessStatus::Unavailable,
             required_tool.as_ref().map(|tool| {
                 format!("required tool '{tool}' is known to be absent from the execution system")
@@ -275,60 +296,105 @@ fn argument_reasons(
 fn resolve_argument(
     param: &armory::TtpParam,
     ttp: &armory::Ttp,
-    campaign: &campaign::Campaign,
-    target: &campaign::CampaignEntityRef<'_>,
+    campaign: &crate::Campaign,
+    target: &crate::CampaignEntityRef<'_>,
     target_id: &str,
+    input: &ActionResolutionInput,
 ) -> ArgumentResolution {
+    let mut candidates = candidates_for_param(param, ttp, campaign, target_id, input);
+    if candidates.is_empty() && !param.options.is_empty() {
+        candidates = option_candidates(param);
+    }
     let base = || ArgumentResolution {
         name: param.name.clone(),
         param_type: param.param_type.clone(),
         required: param.required,
         status: ArgumentResolutionStatus::Resolved,
         value: None,
-        candidates: Vec::new(),
+        candidates: candidates.clone(),
+        depends_on: dependencies_for_param(param, ttp),
+        blocks: blocked_params_for_param(param, ttp),
         source: None,
         reason: None,
     };
 
-    if !param.default.trim().is_empty() {
-        return resolve_default(param, ttp, campaign, target, target_id, base());
+    let supplied = if param.param_type.eq_ignore_ascii_case("K8sAuth") {
+        input
+            .auth_identity_id
+            .as_ref()
+            .or_else(|| input.args.get(&param.name))
+    } else {
+        input.args.get(&param.name)
     }
+    .map(String::as_str)
+    .map(str::trim)
+    .filter(|value| {
+        !value.is_empty() && !value.starts_with("${") && *value != param.default.trim()
+    });
 
-    if let Some(binding) =
-        campaign::grounding::resolve_runtime_argument(&param.name, "", target_id, campaign)
-    {
-        let source_kind = if binding.source().is_default() {
-            "runtime_default"
-        } else {
-            "target_fact"
-        };
-        let status = if binding.source().is_sensitive() {
-            ArgumentResolutionStatus::GeneratedAtExecution
-        } else if binding.source().is_default() {
-            ArgumentResolutionStatus::Defaulted
-        } else {
-            ArgumentResolutionStatus::Resolved
-        };
+    if let Some(value) = supplied {
+        let constrained = !candidates.is_empty()
+            || !param.options.is_empty()
+            || requires_entity_id(&param.param_type);
+        if constrained && !candidates.iter().any(|candidate| candidate.value == value) {
+            return ArgumentResolution {
+                status: ArgumentResolutionStatus::Blocked,
+                value: Some(value.to_string()),
+                source: Some(source("operator", None, Some(param.name.clone()), None)),
+                reason: Some(format!(
+                    "{} value '{}' is not available for this target",
+                    param.name, value
+                )),
+                ..base()
+            };
+        }
         return ArgumentResolution {
-            status,
-            value: binding.readiness_value().map(str::to_string),
-            source: Some(source(
-                source_kind,
-                (!binding.source().is_default()).then(|| target_id.to_string()),
-                Some(binding.source().field().to_string()),
-                None,
-            )),
+            status: ArgumentResolutionStatus::Resolved,
+            value: Some(value.to_string()),
+            source: Some(source("operator", None, Some(param.name.clone()), None)),
             ..base()
         };
     }
 
-    let candidates = candidates_for_param(param, ttp, campaign, target_id);
+    if !param.default.trim().is_empty() {
+        if let Some(binding) = crate::grounding::resolve_runtime_argument(
+            &param.name,
+            &param.default,
+            target_id,
+            campaign,
+        ) {
+            return from_runtime_binding(binding, target_id, base());
+        }
+        return resolve_default(param, ttp, campaign, target, target_id, input, base());
+    }
+
+    if listener_selection_not_needed(param, ttp, input) {
+        return ArgumentResolution {
+            status: ArgumentResolutionStatus::Omitted,
+            source: Some(source("explicit_dependency", None, None, None)),
+            ..base()
+        };
+    }
+
+    if let Some(binding) =
+        crate::grounding::resolve_runtime_argument(&param.name, "", target_id, campaign)
+    {
+        return from_runtime_binding(binding, target_id, base());
+    }
+
+    if !param.required {
+        return ArgumentResolution {
+            status: ArgumentResolutionStatus::Omitted,
+            source: Some(source("optional", None, None, None)),
+            ..base()
+        };
+    }
+
     match candidates.as_slice() {
         [candidate] => ArgumentResolution {
             status: ArgumentResolutionStatus::Resolved,
             value: Some(candidate.value.clone()),
             source: Some(candidate.source.clone()),
-            candidates,
             ..base()
         },
         [] if param.param_type.eq_ignore_ascii_case("K8sAuth")
@@ -345,16 +411,18 @@ fn resolve_argument(
                 ..base()
             }
         }
-        [] if !param.options.is_empty() => from_candidates(param, option_candidates(param), base()),
-        [] if !param.required => ArgumentResolution {
-            status: ArgumentResolutionStatus::Omitted,
-            source: Some(source("optional", None, None, None)),
-            ..base()
-        },
         [] if param.param_type.eq_ignore_ascii_case("Session") => ArgumentResolution {
             status: ArgumentResolutionStatus::Blocked,
             reason: Some(format!(
                 "{} requires a live c2.session channel, but none is available",
+                param.name
+            )),
+            ..base()
+        },
+        [] if param.param_type.eq_ignore_ascii_case("Listener") => ArgumentResolution {
+            status: ArgumentResolutionStatus::Blocked,
+            reason: Some(format!(
+                "{} requires an active Listener, but none exists; run create-listener first",
                 param.name
             )),
             ..base()
@@ -372,16 +440,17 @@ fn resolve_argument(
             reason: Some(format!("{} requires operator input", param.name)),
             ..base()
         },
-        _ => from_candidates(param, candidates, base()),
+        _ => from_candidates(param, candidates.clone(), base()),
     }
 }
 
 fn resolve_default(
     param: &armory::TtpParam,
     ttp: &armory::Ttp,
-    campaign: &campaign::Campaign,
-    target: &campaign::CampaignEntityRef<'_>,
+    campaign: &crate::Campaign,
+    target: &crate::CampaignEntityRef<'_>,
     target_id: &str,
+    input: &ActionResolutionInput,
     base: ArgumentResolution,
 ) -> ArgumentResolution {
     let default = param.default.clone();
@@ -400,7 +469,8 @@ fn resolve_default(
     }
 
     if default == "${TARGET}" {
-        let use_name = param.param_type.eq_ignore_ascii_case("string");
+        let use_name = param.param_type.eq_ignore_ascii_case("string")
+            || param.value_field.as_deref() == Some("name");
         return ArgumentResolution {
             status: ArgumentResolutionStatus::Resolved,
             value: Some(if use_name {
@@ -473,10 +543,13 @@ fn resolve_default(
     }
 
     if default == "${NS}" || default == "${NAMESPACE}" {
-        return match target.namespace() {
+        let selected_namespace = selected_namespace(ttp, input)
+            .or_else(|| target.namespace().map(str::to_string))
+            .or_else(|| cluster_default_namespace(ttp, campaign, target_id, input));
+        return match selected_namespace {
             Some(namespace) => ArgumentResolution {
                 status: ArgumentResolutionStatus::Resolved,
-                value: Some(namespace.to_string()),
+                value: Some(namespace),
                 source: Some(source(
                     "target_fact",
                     Some(target_id.to_string()),
@@ -540,6 +613,17 @@ fn resolve_default(
     }
 
     if default.contains("${") {
+        if !param.required {
+            return ArgumentResolution {
+                status: ArgumentResolutionStatus::Omitted,
+                source: Some(source("optional", None, None, None)),
+                ..base
+            };
+        }
+        if !base.candidates.is_empty() {
+            let candidates = base.candidates.clone();
+            return from_candidates(param, candidates, base);
+        }
         return ArgumentResolution {
             status: ArgumentResolutionStatus::NeedsInput,
             reason: Some(format!(
@@ -554,6 +638,36 @@ fn resolve_default(
         status: ArgumentResolutionStatus::Defaulted,
         value: Some(default.clone()),
         source: Some(source("yaml_default", None, None, Some(default))),
+        ..base
+    }
+}
+
+fn from_runtime_binding(
+    binding: crate::grounding::RuntimeArgumentBinding,
+    target_id: &str,
+    base: ArgumentResolution,
+) -> ArgumentResolution {
+    let source_kind = if binding.source().is_default() {
+        "runtime_default"
+    } else {
+        "target_fact"
+    };
+    let status = if binding.source().is_sensitive() {
+        ArgumentResolutionStatus::GeneratedAtExecution
+    } else if binding.source().is_default() {
+        ArgumentResolutionStatus::Defaulted
+    } else {
+        ArgumentResolutionStatus::Resolved
+    };
+    ArgumentResolution {
+        status,
+        value: binding.readiness_value().map(str::to_string),
+        source: Some(source(
+            source_kind,
+            (!binding.source().is_default()).then(|| target_id.to_string()),
+            Some(binding.source().field().to_string()),
+            None,
+        )),
         ..base
     }
 }
@@ -595,8 +709,9 @@ fn option_candidates(param: &armory::TtpParam) -> Vec<ArgumentCandidate> {
 fn candidates_for_param(
     param: &armory::TtpParam,
     ttp: &armory::Ttp,
-    campaign: &campaign::Campaign,
+    campaign: &crate::Campaign,
     target_id: &str,
+    input: &ActionResolutionInput,
 ) -> Vec<ArgumentCandidate> {
     if param.param_type.eq_ignore_ascii_case("K8sAuth") {
         return eligible_auth_identities(ttp, campaign, target_id)
@@ -641,23 +756,190 @@ fn candidates_for_param(
         return Vec::new();
     }
 
+    let target_cluster_id = cluster_id_for_target(campaign, target_id);
+    let namespace = selected_namespace(ttp, input)
+        .or_else(|| {
+            campaign
+                .get_entities()
+                .into_iter()
+                .find(|entity| entity.entity_id().0 == target_id)
+                .and_then(|entity| entity.namespace().map(str::to_string))
+        })
+        .or_else(|| cluster_default_namespace(ttp, campaign, target_id, input));
+
     let mut candidates = campaign
         .get_entities()
         .into_iter()
         .filter(|entity| entity.entity_kind().eq_ignore_ascii_case(&param.param_type))
+        .filter(|entity| {
+            entity_in_scope(
+                campaign,
+                entity,
+                target_cluster_id.as_deref(),
+                namespace.as_deref(),
+                &param.param_type,
+            )
+        })
         .map(|entity| ArgumentCandidate {
-            value: entity.entity_id().0.clone(),
+            value: if param.value_field.as_deref() == Some("name") {
+                entity.entity_name().to_string()
+            } else {
+                entity.entity_id().0.clone()
+            },
             label: entity.entity_name().to_string(),
             source: source(
                 "entity",
                 Some(entity.entity_id().0),
-                Some("id".to_string()),
+                Some(param.value_field.as_deref().unwrap_or("id").to_string()),
                 None,
             ),
         })
         .collect::<Vec<_>>();
+    if param.param_type.eq_ignore_ascii_case("Listener")
+        && !listener_selection_not_needed(param, ttp, input)
+    {
+        candidates.retain(|candidate| {
+            let mut args = input.args.clone();
+            for declared in &ttp.params {
+                if !declared.default.is_empty() {
+                    args.entry(declared.name.clone())
+                        .or_insert_with(|| declared.default.clone());
+                }
+            }
+            args.insert(param.name.clone(), candidate.value.clone());
+            crate::campaign::execution::ground_listener_defaults(ttp, &mut args, campaign).is_ok()
+        });
+    }
     candidates.sort_by(|a, b| a.label.cmp(&b.label).then(a.value.cmp(&b.value)));
     candidates
+}
+
+fn dependencies_for_param(param: &armory::TtpParam, ttp: &armory::Ttp) -> Vec<String> {
+    if param.param_type.eq_ignore_ascii_case("ServiceAccount") {
+        if let Some(namespace) = namespace_param(ttp) {
+            return vec![namespace.name.clone()];
+        }
+    }
+    if param.default.contains("${LISTENER") {
+        if let Some(listener) = ttp
+            .params
+            .iter()
+            .find(|candidate| candidate.param_type.eq_ignore_ascii_case("Listener"))
+        {
+            return vec![listener.name.clone()];
+        }
+    }
+    Vec::new()
+}
+
+fn blocked_params_for_param(param: &armory::TtpParam, ttp: &armory::Ttp) -> Vec<String> {
+    if !param.param_type.eq_ignore_ascii_case("Listener") {
+        return Vec::new();
+    }
+    ttp.params
+        .iter()
+        .filter(|candidate| candidate.default.contains("${LISTENER"))
+        .map(|candidate| candidate.name.clone())
+        .collect()
+}
+
+fn namespace_param(ttp: &armory::Ttp) -> Option<&armory::TtpParam> {
+    ttp.params.iter().find(|param| {
+        param.param_type.eq_ignore_ascii_case("Namespace")
+            || param.name.eq_ignore_ascii_case("Namespace")
+            || param.name.eq_ignore_ascii_case("NS")
+    })
+}
+
+fn selected_namespace(ttp: &armory::Ttp, input: &ActionResolutionInput) -> Option<String> {
+    namespace_param(ttp)
+        .and_then(|param| input.args.get(&param.name))
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.starts_with("${"))
+        .map(|value| value.strip_prefix("ns/").unwrap_or(value).to_string())
+}
+
+fn cluster_default_namespace(
+    ttp: &armory::Ttp,
+    campaign: &crate::Campaign,
+    target_id: &str,
+    input: &ActionResolutionInput,
+) -> Option<String> {
+    let eligible = eligible_auth_identities(ttp, campaign, target_id);
+    let identity_id = input
+        .auth_identity_id
+        .clone()
+        .or_else(|| input.args.get("K8S_AUTH").cloned())
+        .or_else(|| {
+            eligible
+                .iter()
+                .find(|identity| identity.id == target_id)
+                .map(|identity| identity.id.clone())
+        })
+        .or_else(|| (eligible.len() == 1).then(|| eligible[0].id.clone()));
+    identity_id
+        .as_deref()
+        .and_then(|id| {
+            campaign
+                .get_entities()
+                .into_iter()
+                .find(|entity| entity.entity_id().0 == id)
+        })
+        .and_then(|entity| match entity {
+            crate::CampaignEntityRef::K8sCredential(credential) => {
+                credential.default_namespace.clone()
+            }
+            _ => None,
+        })
+        .or_else(|| Some("default".to_string()))
+}
+
+fn cluster_id_for_target(campaign: &crate::Campaign, target_id: &str) -> Option<String> {
+    let target = campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == target_id)?;
+    if matches!(target, crate::CampaignEntityRef::Cluster(_)) {
+        return Some(target_id.to_string());
+    }
+    let container_id = target
+        .namespace()
+        .map(|namespace| format!("ns/{namespace}"));
+    let contained_id = container_id.as_deref().unwrap_or(target_id);
+    campaign
+        .relation_sources(&ran_domain::EntityId::new(contained_id), "contains")
+        .into_iter()
+        .find(|id| {
+            campaign.get_entities().into_iter().any(|entity| {
+                entity.entity_id() == *id && matches!(entity, crate::CampaignEntityRef::Cluster(_))
+            })
+        })
+        .map(|id| id.0)
+}
+
+fn entity_in_scope(
+    campaign: &crate::Campaign,
+    entity: &crate::CampaignEntityRef<'_>,
+    target_cluster_id: Option<&str>,
+    namespace: Option<&str>,
+    param_type: &str,
+) -> bool {
+    if param_type.eq_ignore_ascii_case("ServiceAccount") {
+        if let Some(namespace) = namespace {
+            return entity.namespace() == Some(namespace);
+        }
+    }
+    if !(param_type.eq_ignore_ascii_case("Namespace") || param_type.eq_ignore_ascii_case("Node")) {
+        return true;
+    }
+    let Some(cluster_id) = target_cluster_id else {
+        return true;
+    };
+    campaign
+        .relation_sources(&entity.entity_id(), "contains")
+        .into_iter()
+        .any(|id| id.0 == cluster_id)
 }
 
 fn is_entity_param(param_type: &str) -> bool {
@@ -675,6 +957,61 @@ fn is_entity_param(param_type: &str) -> bool {
             | "configmap"
             | "k8scredential"
     )
+}
+
+fn requires_entity_id(param_type: &str) -> bool {
+    matches!(
+        param_type.to_ascii_lowercase().as_str(),
+        "k8sauth" | "listener" | "redirector" | "session" | "k8scredential"
+    )
+}
+
+fn listener_selection_not_needed(
+    param: &armory::TtpParam,
+    ttp: &armory::Ttp,
+    input: &ActionResolutionInput,
+) -> bool {
+    if !param.param_type.eq_ignore_ascii_case("Listener") {
+        return false;
+    }
+    let needs = |placeholder: &str, value_name: &str| {
+        let direct_reference = ttp
+            .procedures
+            .iter()
+            .any(|procedure| procedure.command.contains(placeholder))
+            || ttp
+                .effects
+                .iter()
+                .any(|effect| effect.contains(placeholder));
+        let direct_needs_value = direct_reference
+            && input
+                .args
+                .get(value_name)
+                .map(String::as_str)
+                .map(str::trim)
+                .is_none_or(|value| value.is_empty() || value == placeholder);
+        let active_default = ttp.params.iter().any(|candidate| {
+            candidate.default.contains(placeholder)
+                && input
+                    .args
+                    .get(&candidate.name)
+                    .is_none_or(|value| value == &candidate.default)
+                && ttp_references_param(ttp, &candidate.name)
+        });
+        direct_needs_value || active_default
+    };
+    !needs("${LISTENER}", "LISTENER") && !needs("${LISTENER_PORT}", "LISTENER_PORT")
+}
+
+fn ttp_references_param(ttp: &armory::Ttp, name: &str) -> bool {
+    let dollar = format!("${{{name}}}");
+    let tera_with_space = format!("{{{{ {name}");
+    let tera_without_space = format!("{{{{{name}");
+    ttp.procedures.iter().any(|procedure| {
+        procedure.command.contains(&dollar)
+            || procedure.command.contains(&tera_with_space)
+            || procedure.command.contains(&tera_without_space)
+    }) || ttp.effects.iter().any(|effect| effect.contains(&dollar))
 }
 
 fn can_use_default_kubeconfig(ttp: &armory::Ttp) -> bool {
@@ -702,20 +1039,20 @@ fn source(
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        AccessLevel, BinaryPresence, Entity, JwToken, K8sCluster, Pod, ServiceAccount,
-        ServiceAccountToken, SessionChannel, UnknownSystem,
+        AccessLevel, BinaryPresence, Contains, Entity, JwToken, K8sCluster, Namespace, Pod,
+        ServiceAccount, ServiceAccountToken, SessionChannel, UnknownSystem,
     };
 
     use super::*;
 
     #[test]
     fn target_ip_default_is_resolved_with_provenance() {
-        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let mut target = UnknownSystem::new("target");
         target.system.access_level = AccessLevel::Exec;
         target.system.ips.push("10.23.4.5".parse().unwrap());
         let target_id = target.entity_id().0;
-        campaign.upsert_entity(target, campaign::KnowledgeProvenance::Scenario);
+        campaign.upsert_entity(target, crate::KnowledgeProvenance::Scenario);
 
         let mut ttp = armory::Ttp::new("scan", "Scan", "Discovery");
         ttp.params.push(armory::TtpParam {
@@ -725,9 +1062,16 @@ mod tests {
             required: true,
             default: "${TARGET.IP}/24".to_string(),
             options: Vec::new(),
+            value_field: None,
         });
 
-        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
         assert_eq!(resolution.status, ActionReadinessStatus::Ready);
         assert_eq!(
             resolution.arguments[0].value.as_deref(),
@@ -744,13 +1088,13 @@ mod tests {
 
     #[test]
     fn multiple_target_ips_require_a_choice() {
-        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let mut target = UnknownSystem::new("target");
         target.system.access_level = AccessLevel::Exec;
         target.system.ips.push("10.23.4.5".parse().unwrap());
         target.system.ips.push("192.0.2.2".parse().unwrap());
         let target_id = target.entity_id().0;
-        campaign.upsert_entity(target, campaign::KnowledgeProvenance::Scenario);
+        campaign.upsert_entity(target, crate::KnowledgeProvenance::Scenario);
 
         let mut ttp = armory::Ttp::new("scan", "Scan", "Discovery");
         ttp.params.push(armory::TtpParam {
@@ -760,20 +1104,27 @@ mod tests {
             required: true,
             default: "${TARGET.IP}/24".to_string(),
             options: Vec::new(),
+            value_field: None,
         });
 
-        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
         assert_eq!(resolution.status, ActionReadinessStatus::NeedsChoice);
         assert_eq!(resolution.arguments[0].candidates.len(), 2);
     }
 
     #[test]
     fn api_server_runtime_default_matches_execution_grounding() {
-        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let mut target = UnknownSystem::new("target");
         target.system.access_level = AccessLevel::Exec;
         let target_id = target.entity_id().0;
-        campaign.upsert_entity(target, campaign::KnowledgeProvenance::Scenario);
+        campaign.upsert_entity(target, crate::KnowledgeProvenance::Scenario);
 
         let mut ttp = armory::Ttp::new("permissions", "Permissions", "Discovery");
         ttp.params.push(armory::TtpParam {
@@ -783,9 +1134,16 @@ mod tests {
             required: true,
             default: String::new(),
             options: Vec::new(),
+            value_field: None,
         });
 
-        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
         assert_eq!(resolution.status, ActionReadinessStatus::Ready);
         assert_eq!(
             resolution.arguments[0].status,
@@ -793,7 +1151,7 @@ mod tests {
         );
         assert_eq!(
             resolution.arguments[0].value.as_deref(),
-            Some(campaign::grounding::DEFAULT_API_SERVER)
+            Some(crate::grounding::DEFAULT_API_SERVER)
         );
         assert_eq!(
             resolution.arguments[0]
@@ -804,7 +1162,7 @@ mod tests {
         );
 
         let mut args = std::collections::HashMap::new();
-        campaign::grounding::ground_args_from_context(&mut args, &target_id, &campaign);
+        crate::grounding::ground_args_from_context(&mut args, &target_id, &campaign);
         assert_eq!(
             args.get("API_SERVER").map(String::as_str),
             resolution.arguments[0].value.as_deref()
@@ -813,14 +1171,14 @@ mod tests {
 
     #[test]
     fn target_runtime_bindings_are_ready_without_exposing_tokens() {
-        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let mut pod = Pod::new("runner", "workloads");
         pod.system.access_level = AccessLevel::Exec;
         pod.node_name = Some("worker-a".to_string());
         pod.host_ip = Some("10.0.0.8".parse().unwrap());
         pod.service_account_name = Some("runner-sa".to_string());
         let target_id = pod.entity_id().0;
-        campaign.upsert_entity(pod, campaign::KnowledgeProvenance::Scenario);
+        campaign.upsert_entity(pod, crate::KnowledgeProvenance::Scenario);
 
         let mut service_account = ServiceAccount::new("runner-sa", "workloads");
         service_account.token = Some(ServiceAccountToken {
@@ -835,7 +1193,7 @@ mod tests {
             service_account_uid: None,
             is_bound: false,
         });
-        campaign.upsert_entity(service_account, campaign::KnowledgeProvenance::Scenario);
+        campaign.upsert_entity(service_account, crate::KnowledgeProvenance::Scenario);
 
         let mut ttp = armory::Ttp::new("context", "Context", "Discovery");
         for name in ["NS", "POD_NAME", "NODE", "NODE.IP", "NODE.NAME", "TOKEN"] {
@@ -846,10 +1204,17 @@ mod tests {
                 required: true,
                 default: String::new(),
                 options: Vec::new(),
+                value_field: None,
             });
         }
 
-        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
         assert_eq!(resolution.status, ActionReadinessStatus::Ready);
         let value = |name: &str| {
             resolution
@@ -874,7 +1239,7 @@ mod tests {
         assert!(!format!("{resolution:?}").contains("ey.runtime.secret"));
 
         let mut args = std::collections::HashMap::new();
-        campaign::grounding::ground_args_from_context(&mut args, &target_id, &campaign);
+        crate::grounding::ground_args_from_context(&mut args, &target_id, &campaign);
         assert_eq!(
             args.get("TOKEN").map(String::as_str),
             Some("ey.runtime.secret")
@@ -883,10 +1248,10 @@ mod tests {
 
     #[test]
     fn session_parameter_resolves_live_edges_of_the_selected_c2() {
-        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         campaign.upsert_relation(
             &SessionChannel::new("c2/ran", "node/victim", "session/victim-4444"),
-            campaign::KnowledgeProvenance::Scenario,
+            crate::KnowledgeProvenance::Scenario,
         );
         let mut ttp = armory::Ttp::new("kill-session", "Kill Session", "Resource Development");
         ttp.params.push(armory::TtpParam {
@@ -896,9 +1261,12 @@ mod tests {
             required: true,
             default: String::new(),
             options: Vec::new(),
+            value_field: None,
         });
 
-        let resolution = resolve_action(&ttp, &campaign, "c2/ran", None).expect("C2 is a target");
+        let resolution =
+            resolve_action(&ttp, &campaign, "c2/ran", &ActionResolutionInput::default())
+                .expect("C2 is a target");
         assert_eq!(resolution.status, ActionReadinessStatus::Ready);
         assert_eq!(
             resolution.arguments[0].value.as_deref(),
@@ -911,8 +1279,148 @@ mod tests {
     }
 
     #[test]
+    fn partial_namespace_selection_recomputes_name_projected_service_accounts() {
+        let cluster = K8sCluster::new("dev");
+        let cluster_id = cluster.entity_id().0;
+        let mut campaign = crate::Campaign::bootstrap("Ran", cluster);
+        for namespace in ["default", "workloads"] {
+            let entity = Namespace::new(namespace);
+            let namespace_id = entity.entity_id().0;
+            campaign.upsert_entity(entity, crate::KnowledgeProvenance::Scenario);
+            campaign.upsert_relation(
+                &Contains::new(cluster_id.clone(), namespace_id),
+                crate::KnowledgeProvenance::Scenario,
+            );
+        }
+        for (name, namespace) in [("default-sa", "default"), ("runner", "workloads")] {
+            campaign.upsert_entity(
+                ServiceAccount::new(name, namespace),
+                crate::KnowledgeProvenance::Scenario,
+            );
+        }
+
+        let mut ttp = armory::Ttp::new("deploy", "Deploy", "Execution");
+        ttp.params = vec![
+            armory::TtpParam {
+                name: "Namespace".to_string(),
+                param_type: "Namespace".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${NS}".to_string(),
+                options: Vec::new(),
+                value_field: Some("name".to_string()),
+            },
+            armory::TtpParam {
+                name: "ServiceAccount".to_string(),
+                param_type: "ServiceAccount".to_string(),
+                description: String::new(),
+                required: false,
+                default: String::new(),
+                options: Vec::new(),
+                value_field: Some("name".to_string()),
+            },
+        ];
+
+        let initial = resolve_action(
+            &ttp,
+            &campaign,
+            &cluster_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
+        assert_eq!(initial.arguments[0].value.as_deref(), Some("default"));
+        assert_eq!(
+            initial.arguments[0]
+                .candidates
+                .iter()
+                .map(|candidate| candidate.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["default", "workloads"]
+        );
+        assert_eq!(
+            initial.arguments[1].status,
+            ArgumentResolutionStatus::Omitted
+        );
+        assert_eq!(initial.arguments[1].candidates[0].value, "default-sa");
+        assert_eq!(initial.arguments[1].depends_on, vec!["Namespace"]);
+
+        let selected = resolve_action(
+            &ttp,
+            &campaign,
+            &cluster_id,
+            &ActionResolutionInput {
+                args: HashMap::from([("Namespace".to_string(), "workloads".to_string())]),
+                ..ActionResolutionInput::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(selected.arguments[0].value.as_deref(), Some("workloads"));
+        assert_eq!(selected.arguments[1].candidates.len(), 1);
+        assert_eq!(selected.arguments[1].candidates[0].value, "runner");
+        assert_eq!(
+            selected.arguments[1].candidates[0].source.field.as_deref(),
+            Some("name")
+        );
+    }
+
+    #[test]
+    fn missing_listener_exposes_the_parameters_it_blocks() {
+        let cluster = K8sCluster::new("dev");
+        let target_id = cluster.entity_id().0;
+        let campaign = crate::Campaign::bootstrap("Ran", cluster);
+        let mut ttp = armory::Ttp::new("callback", "Callback", "Execution");
+        ttp.params = vec![
+            armory::TtpParam {
+                name: "LISTENER_REF".to_string(),
+                param_type: "Listener".to_string(),
+                description: String::new(),
+                required: true,
+                default: String::new(),
+                options: Vec::new(),
+                value_field: None,
+            },
+            armory::TtpParam {
+                name: "LISTENER".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${LISTENER}".to_string(),
+                options: Vec::new(),
+                value_field: None,
+            },
+            armory::TtpParam {
+                name: "LISTENER_PORT".to_string(),
+                param_type: "int".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${LISTENER_PORT}".to_string(),
+                options: Vec::new(),
+                value_field: None,
+            },
+        ];
+        ttp.procedures.push(armory::Procedure::new(
+            "shell",
+            "connect ${LISTENER}:${LISTENER_PORT}",
+        ));
+
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
+        assert_eq!(resolution.status, ActionReadinessStatus::Blocked);
+        assert_eq!(
+            resolution.arguments[0].blocks,
+            vec!["LISTENER", "LISTENER_PORT"]
+        );
+        assert_eq!(resolution.arguments[1].depends_on, vec!["LISTENER_REF"]);
+    }
+
+    #[test]
     fn procedure_readiness_and_recommendation_are_resolved_by_the_backend() {
-        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let mut target = UnknownSystem::new("target");
         target.system.access_level = AccessLevel::Exec;
         target
@@ -924,7 +1432,7 @@ mod tests {
             BinaryPresence::Present("/bin/hostname".into()),
         );
         let target_id = target.entity_id().0;
-        campaign.upsert_entity(target, campaign::KnowledgeProvenance::Scenario);
+        campaign.upsert_entity(target, crate::KnowledgeProvenance::Scenario);
 
         let ttp = armory::Ttp {
             procedures: vec![
@@ -940,7 +1448,13 @@ mod tests {
             ..armory::Ttp::new("local-ip", "Local IP", "Discovery")
         };
 
-        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
 
         assert_eq!(resolution.procedures.len(), 2);
         assert_eq!(

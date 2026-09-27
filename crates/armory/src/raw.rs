@@ -37,6 +37,8 @@ struct RawParam {
     description: String,
     required: Option<bool>,
     options: Vec<String>,
+    #[serde(rename = "valueField")]
+    value_field: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -69,6 +71,7 @@ impl RawParam {
             required: self.required.unwrap_or(true),
             default: json_to_string(self.default),
             options: self.options,
+            value_field: self.value_field,
         }
     }
 }

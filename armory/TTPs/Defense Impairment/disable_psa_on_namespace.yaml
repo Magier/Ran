@@ -7,7 +7,8 @@ parameters:
     type: K8sAuth
     description: the Kubernetes identity selected by Authenticate As
   NAMESPACE:
-    type: string
+    type: Namespace
+    valueField: name
     default: ${TARGET}
     description: the name of the namespace to disable Pod Security Admission on
 procedures:

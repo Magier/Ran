@@ -129,6 +129,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    post:
+      summary: Re-resolve an action with partial selections
+      description: Recomputes argument candidates, dependencies, defaults, and procedure readiness from the caller's current selections without executing the action.
+      operationId: resolveAction
+      parameters:
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionResolutionRequest'
+      responses:
+        '200':
+          description: Action resolution for the supplied partial selections
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResolution'
+        '404':
+          description: Action or target not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/applicable-ttps:
     get:
@@ -1178,6 +1207,23 @@ components:
         recommendedProcedureId:
           type: string
 
+    ActionResolutionRequest:
+      type: object
+      required: [targetId]
+      properties:
+        targetId:
+          type: string
+        args:
+          type: object
+          additionalProperties:
+            type: string
+        authIdentityId:
+          type: string
+        procedureId:
+          type: string
+        execSystemId:
+          type: string
+
     ArgumentResolution:
       type: object
       required: [name, type, required, status, candidates]
@@ -1197,6 +1243,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ArgumentCandidate'
+        dependsOn:
+          type: array
+          items:
+            type: string
+        blocks:
+          type: array
+          items:
+            type: string
         source:
           $ref: '#/components/schemas/BindingSource'
         reason:
@@ -1270,6 +1324,10 @@ components:
           type: array
           items:
             type: string
+        valueField:
+          type: string
+          enum: [id, name]
+          description: Entity-backed candidate field passed to the procedure. Defaults to id.
     
     TTPDefense:
       type: object

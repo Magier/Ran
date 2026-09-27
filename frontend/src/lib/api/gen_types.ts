@@ -117,7 +117,11 @@ export interface paths {
 		 */
 		get: operations['getActionResolution'];
 		put?: never;
-		post?: never;
+		/**
+		 * Re-resolve an action with partial selections
+		 * @description Recomputes argument candidates, dependencies, defaults, and procedure readiness from the caller's current selections without executing the action.
+		 */
+		post: operations['resolveAction'];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -742,6 +746,15 @@ export interface components {
 			procedures: components['schemas']['ProcedureState'][];
 			recommendedProcedureId?: string;
 		};
+		ActionResolutionRequest: {
+			targetId: string;
+			args?: {
+				[key: string]: string;
+			};
+			authIdentityId?: string;
+			procedureId?: string;
+			execSystemId?: string;
+		};
 		ArgumentResolution: {
 			name: string;
 			type: string;
@@ -757,6 +770,8 @@ export interface components {
 				| 'omitted';
 			value?: string;
 			candidates: components['schemas']['ArgumentCandidate'][];
+			dependsOn?: string[];
+			blocks?: string[];
 			source?: components['schemas']['BindingSource'];
 			reason?: string;
 		};
@@ -786,6 +801,11 @@ export interface components {
 			required: boolean;
 			default: string;
 			options?: string[];
+			/**
+			 * @description Entity-backed candidate field passed to the procedure. Defaults to id.
+			 * @enum {string}
+			 */
+			valueField?: 'id' | 'name';
 		};
 		TTPDefense: {
 			id: string;
@@ -1376,6 +1396,41 @@ export interface operations {
 		requestBody?: never;
 		responses: {
 			/** @description Action resolution for the selected target */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ActionResolution'];
+				};
+			};
+			/** @description Action or target not found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	resolveAction: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				actionId: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['ActionResolutionRequest'];
+			};
+		};
+		responses: {
+			/** @description Action resolution for the supplied partial selections */
 			200: {
 				headers: {
 					[name: string]: unknown;

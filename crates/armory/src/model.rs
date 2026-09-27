@@ -52,6 +52,16 @@ pub struct TtpParam {
     pub default: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub options: Vec<String>,
+    /// Selects which part of an entity-backed candidate is passed to the
+    /// procedure. Entity IDs remain the default because control parameters
+    /// such as Listener and K8sAuth require stable graph identity. Kubernetes
+    /// resource parameters can explicitly request their API name instead.
+    #[serde(
+        rename = "valueField",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub value_field: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

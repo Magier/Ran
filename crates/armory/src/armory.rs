@@ -52,6 +52,7 @@ impl Armory {
 
         // --- Phase 3: expand slot references ---------------------------------
         Self::expand_slot_procedures(&mut ttps);
+        Self::validate_param_bindings(&ttps)?;
         Self::validate_k8s_auth(&ttps)?;
 
         Ok(Self {
@@ -72,6 +73,7 @@ impl Armory {
         }
 
         Self::expand_slot_procedures(&mut ttps);
+        Self::validate_param_bindings(&ttps)?;
         Self::validate_k8s_auth(&ttps)?;
 
         Ok(Self {
@@ -373,6 +375,25 @@ impl Armory {
         Ok(())
     }
 
+    fn validate_param_bindings(ttps: &[Ttp]) -> Result<(), ArmoryError> {
+        for ttp in ttps {
+            for param in &ttp.params {
+                if let Some(value_field) = param.value_field.as_deref() {
+                    if !matches!(value_field, "id" | "name") {
+                        return Err(ArmoryError::InvalidTtp {
+                            ttp_id: ttp.id.clone(),
+                            reason: format!(
+                                "parameter '{}' has unsupported valueField '{}'; expected id or name",
+                                param.name, value_field
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn ttps_from_dir(dir: &Path) -> Result<Vec<Ttp>, ArmoryError> {
         if !dir.exists() {
             return Err(ArmoryError::DirNotFound(dir.display().to_string()));
@@ -495,6 +516,7 @@ mod tests {
                     required: true,
                     default: String::new(),
                     options: vec![],
+                    value_field: None,
                 },
                 crate::TtpParam {
                     name: "TOKEN".to_string(),
@@ -503,6 +525,7 @@ mod tests {
                     required: false,
                     default: String::new(),
                     options: vec![],
+                    value_field: None,
                 },
             ],
             procedures: vec![Procedure::new(
@@ -528,6 +551,7 @@ mod tests {
                 required: true,
                 default: String::new(),
                 options: vec![],
+                value_field: None,
             }],
             procedures: vec![Procedure::new(
                 "ran-ws",
@@ -549,6 +573,7 @@ mod tests {
                 required: true,
                 default: String::new(),
                 options: vec![],
+                value_field: None,
             }],
             procedures: vec![Procedure {
                 k8s_request: Some(serde_json::json!({
@@ -916,6 +941,50 @@ mod tests {
                 }),
                 "enabled TTP {} exposes a Sliver procedure",
                 ttp.id
+            );
+        }
+    }
+
+    #[test]
+    fn entity_backed_kubernetes_name_params_declare_name_projection() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+        for (action_id, param_name, param_type) in [
+            (
+                "deploy-container-and-mount-sa-token",
+                "ServiceAccount",
+                "ServiceAccount",
+            ),
+            (
+                "deploy-container-and-mount-sa-token",
+                "Namespace",
+                "Namespace",
+            ),
+            (
+                "create-new-service-account-token",
+                "SERVICEACCOUNT",
+                "ServiceAccount",
+            ),
+            ("disable-psa-on-namespace", "NAMESPACE", "Namespace"),
+            ("deploy-container", "Namespace", "Namespace"),
+            ("deploy-container", "ServiceAccount", "ServiceAccount"),
+            ("deploy-container", "NodeName", "Node"),
+            ("delete-kubernetes-events", "NAMESPACE", "Namespace"),
+            ("get-pods-via-node-proxy", "NODE", "Node"),
+        ] {
+            let ttp = armory
+                .get_ttp(action_id)
+                .unwrap_or_else(|| panic!("repository armory must contain action {action_id}"));
+            let param = ttp
+                .params
+                .iter()
+                .find(|param| param.name == param_name)
+                .unwrap_or_else(|| panic!("{action_id} must declare {param_name}"));
+            assert_eq!(param.param_type, param_type, "{action_id}.{param_name}");
+            assert_eq!(
+                param.value_field.as_deref(),
+                Some("name"),
+                "{action_id}.{param_name}"
             );
         }
     }
