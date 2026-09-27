@@ -41,6 +41,7 @@
 # Reference
 
 - [YAML Field Catalog](reference/yaml-fields.md)
+- [Requirements and Effects Vocabulary](reference/armory-vocabulary.md)
 - [Effect Catalog](reference/effects.md)
 - [Precondition Types](reference/preconditions.md)
 

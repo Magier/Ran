@@ -9,6 +9,10 @@ in your custom TTPs.
 All precondition keys are optional. Combine them freely; all must be satisfied
 simultaneously for the TTP to be applicable.
 
+The generated [Requirements and Effects Vocabulary](../reference/armory-vocabulary.md)
+is authoritative for accepted value types, matching behavior, and enforcement
+status. This chapter focuses on common authoring patterns.
+
 ### `kind`
 
 Restricts the TTP to a specific entity type. The value is the entity kind as a

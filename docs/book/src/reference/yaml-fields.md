@@ -104,6 +104,10 @@ segments. Both path types are validated before execution.
 
 Declared as a map under `preconditions:` (alias: `requires:`).
 
+The generated [Requirements and Effects Vocabulary](armory-vocabulary.md)
+defines the complete machine-readable contract. The table below summarizes
+common keys only.
+
 | Key           | Type   | Description                                                                     |
 | ------------- | ------ | ------------------------------------------------------------------------------- |
 | `kind`        | string | Entity type the TTP targets. Common: `Pod`, `ServiceAccount`, `Node`, `System`. |
@@ -199,7 +203,9 @@ Supported step types: `fetch`, `chmod`, `run`.
 
 ## Effects
 
-Effect strings declared in the `effects:` list. Full catalog: [Effect Catalog](effects.md).
+Effect strings declared in the `effects:` list. See the generated
+[Requirements and Effects Vocabulary](armory-vocabulary.md) for the complete
+contract and the [Effect Guide](effects.md) for worked examples.
 
 ```yaml
 effects:

@@ -1,6 +1,9 @@
-# Precondition Types
+# Precondition Guide
 
-Complete reference for all supported precondition keys.
+This page explains common precondition patterns. The generated
+[Requirements and Effects Vocabulary](armory-vocabulary.md) is the canonical
+reference for every bundled requirement, its accepted value types, matching
+semantics, and whether Ran currently enforces it.
 
 ---
 
