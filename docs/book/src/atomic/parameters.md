@@ -17,6 +17,14 @@ parameters:
 
 Common types include `string`, `bool`, `int`, `Namespace`, `ServiceAccount`, and `K8sAuth`. Entity-backed types are populated from campaign knowledge.
 
+Entity-backed parameter types own their procedure representation. Kubernetes
+resource types such as `Namespace`, `Pod`, `Node`, and `ServiceAccount` expose
+resource names. Control and identity types such as `Listener`, `Session`, and
+`K8sAuth` expose stable Ran entity IDs. Resolution retains the canonical entity
+ID under `source.entityId`; API clients only submit `candidate.value`. See the
+[YAML field catalog](../reference/yaml-fields.md#entity-backed-values) for the
+full contract.
+
 Parameters are required by default. Use `required: false` or `optional: true` for optional input.
 
 Built-in values include:

@@ -36,7 +36,8 @@ import type {
 	PlanSummary,
 	KubetierCatalog,
 	UiConfig,
-	ActionResolution
+	ActionResolution,
+	ActionResolutionRequest
 } from '$lib/api';
 
 export type BackendConnectionState = 'connecting' | 'connected' | 'disconnected';
@@ -273,6 +274,18 @@ export class RanAPI {
 		return data;
 	}
 
+	async ResolveAction(
+		actionId: string,
+		request: ActionResolutionRequest
+	): Promise<ActionResolution> {
+		const { data, error } = await this.restClient.POST('/api/armory/{actionId}/resolution', {
+			params: { path: { actionId } },
+			body: request
+		});
+		if (error) throw new Error(error.error || 'Failed to resolve action');
+		return data;
+	}
+
 	async GetApplicableTTPs(targetId: string): Promise<Array<TTP>> {
 		if (!targetId) {
 			console.warn('GetApplicableTTPs called with empty targetId');
@@ -454,6 +467,7 @@ export const GetCampaignState = ranAPI.GetCampaignState.bind(ranAPI);
 export const GetKubetierCatalog = ranAPI.GetKubetierCatalog.bind(ranAPI);
 export const GetArmory = ranAPI.GetArmory.bind(ranAPI);
 export const GetActionResolution = ranAPI.GetActionResolution.bind(ranAPI);
+export const ResolveAction = ranAPI.ResolveAction.bind(ranAPI);
 export const GetApplicableTTPs = ranAPI.GetApplicableTTPs.bind(ranAPI);
 export const GetRecommendations = ranAPI.GetRecommendations.bind(ranAPI);
 export const GetFlow = ranAPI.GetFlow.bind(ranAPI);

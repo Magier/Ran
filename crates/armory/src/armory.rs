@@ -921,6 +921,46 @@ mod tests {
     }
 
     #[test]
+    fn entity_backed_kubernetes_name_params_are_semantically_typed() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+        for (action_id, param_name, param_type) in [
+            (
+                "deploy-container-and-mount-sa-token",
+                "ServiceAccount",
+                "ServiceAccount",
+            ),
+            (
+                "deploy-container-and-mount-sa-token",
+                "Namespace",
+                "Namespace",
+            ),
+            (
+                "create-new-service-account-token",
+                "SERVICEACCOUNT",
+                "ServiceAccount",
+            ),
+            ("disable-psa-on-namespace", "NAMESPACE", "Namespace"),
+            ("deploy-container", "Namespace", "Namespace"),
+            ("deploy-container", "ServiceAccount", "ServiceAccount"),
+            ("deploy-container", "NodeName", "Node"),
+            ("delete-kubernetes-events", "NAMESPACE", "Namespace"),
+            ("get-pods-via-node-proxy", "NODE", "Node"),
+            ("check-token-permissions", "NS", "Namespace"),
+        ] {
+            let ttp = armory
+                .get_ttp(action_id)
+                .unwrap_or_else(|| panic!("repository armory must contain action {action_id}"));
+            let param = ttp
+                .params
+                .iter()
+                .find(|param| param.name == param_name)
+                .unwrap_or_else(|| panic!("{action_id} must declare {param_name}"));
+            assert_eq!(param.param_type, param_type, "{action_id}.{param_name}");
+        }
+    }
+
+    #[test]
     fn configured_ids_disable_matching_ttps() {
         let mut armory = Armory::from_ttps(vec![
             Ttp::new("built-in-action", "Built-in Action", "Discovery"),

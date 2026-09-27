@@ -11,7 +11,7 @@ parameters:
     description: the name of the resulting workload. The name must be RFC 1123 compliant.
     default: ran-${RANDOM}
   Namespace:
-    type: string
+    type: Namespace
     default: ${NS}
     description: the namespace in which the workload will be deployed
   Image:
@@ -41,8 +41,8 @@ parameters:
     required: false
     description: JSON array of Kubernetes container ports, for example [{"containerPort":8080}].
   ServiceAccount:
-    type: string
-    default: ""
+    type: ServiceAccount
+    default: "${NODE_NAME}"
     required: false
     description: the service account used by the workload
   Privileged:
@@ -70,8 +70,9 @@ parameters:
     default: "/host"
     description: the host path mounted into the container with pattern <path on host>:<path in pod>
   NodeName:
-    type: string
-    default: "${NODE_NAME}"
+    type: Node
+    default: ""
+    required: false
     description: the name of the node where the pod should be deployed
 procedures:
   - key: kubectl

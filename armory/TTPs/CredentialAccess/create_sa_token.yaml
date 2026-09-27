@@ -7,7 +7,7 @@ parameters:
     type: K8sAuth
     description: the Kubernetes identity selected by Authenticate As
   SERVICEACCOUNT:
-    type: string
+    type: ServiceAccount
     default: ${TARGET}
     description: the name of the service account for which the token will be created
   DURATION:

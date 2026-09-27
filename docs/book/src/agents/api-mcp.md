@@ -39,8 +39,19 @@ the older applicability filter.
 After choosing an action, call
 `GET /api/armory/{actionId}/resolution?targetId=<entity_id>`. Its `arguments`
 array contains concrete values, candidates, blockers, and a `source` describing
-where each resolved value came from. This is a read-only operation. Submit the
-chosen values through `args` in the existing execution request.
+where each resolved value came from. Submit `candidate.value`, not
+`candidate.label` or `candidate.source.entityId`.
+
+Use `POST /api/armory/{actionId}/resolution` to recompute resolution after a
+partial choice. Send `targetId` plus any selected `args`, `authIdentityId`,
+`procedureId`, and `execSystemId`. Repeat until the status is `ready`, then send
+the same selections to action execution. This matters for dependent parameters:
+choosing a namespace can change the valid ServiceAccount candidates.
+
+The parameter's semantic type determines `candidate.value`. Kubernetes resource
+types expose resource names, while control and identity types expose canonical
+Ran entity IDs. Clients do not choose this representation. The candidate source
+always retains the canonical entity ID as provenance.
 
 ### Invoking a TTP via API
 

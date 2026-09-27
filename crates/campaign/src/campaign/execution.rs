@@ -269,7 +269,7 @@ fn validate_grounded_entity_params(
 /// the listener entity ID. A listener only records its transport and port, and
 /// selecting one of several host addresses would be a guess about the target's
 /// return path, so ambiguous or missing address knowledge is rejected.
-fn ground_listener_defaults(
+pub(crate) fn ground_listener_defaults(
     ttp: &Ttp,
     args: &mut HashMap<String, String>,
     campaign: &Campaign,
@@ -1387,6 +1387,48 @@ impl Campaign {
         mut args: HashMap<String, String>,
         armory: &Armory,
     ) -> Result<ExecTtp, ExecuteActionError> {
+        let resolution = crate::action_resolution::resolve_action(
+            &ttp,
+            self,
+            &target_id,
+            &crate::action_resolution::ActionResolutionInput {
+                args: args.clone(),
+                auth_identity_id: requested_auth_identity_id.clone(),
+                procedure_id: procedure_id.clone(),
+                exec_system_id: exec_system_id.clone(),
+            },
+        )
+        .ok_or_else(|| {
+            ExecuteActionError::NotFound(format!("failed to get target entity: {target_id}"))
+        })?;
+        for argument in resolution.arguments {
+            match argument.status {
+                crate::action_resolution::ArgumentResolutionStatus::Resolved
+                | crate::action_resolution::ArgumentResolutionStatus::Defaulted => {
+                    if let Some(value) = argument.value {
+                        let replace = args.get(&argument.name).is_none_or(|current| {
+                            current.trim().is_empty() || current.trim().starts_with("${")
+                        });
+                        if replace {
+                            args.insert(argument.name, value);
+                        }
+                    }
+                }
+                crate::action_resolution::ArgumentResolutionStatus::Blocked
+                | crate::action_resolution::ArgumentResolutionStatus::NeedsChoice
+                | crate::action_resolution::ArgumentResolutionStatus::NeedsInput
+                    if argument.required =>
+                {
+                    return Err(ExecuteActionError::InvalidInput(
+                        argument.reason.unwrap_or_else(|| {
+                            format!("parameter '{}' is not resolved", argument.name)
+                        }),
+                    ));
+                }
+                _ => {}
+            }
+        }
+
         // Fill param defaults that weren't already in args.
         for p in &ttp.params {
             if !args.contains_key(&p.name) && !p.default.is_empty() {

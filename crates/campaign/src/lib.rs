@@ -1,3 +1,4 @@
+pub mod action_resolution;
 pub mod analyzers;
 mod campaign;
 pub mod effects;

@@ -155,13 +155,31 @@
 		const actionId = ttp?.id;
 		const selectedTargetId = targetId;
 		const executionSystemId = selectedExecSystemId || undefined;
+		const selectedProcedureId = procedureId || undefined;
+		const authIdentityId = selectedAuthIdentityId || undefined;
+		const partialArgs = Object.fromEntries(
+			args.map((argument) => [
+				argument.Name,
+				argument.Type === 'bool'
+					? String(argument.IsTrue)
+					: argument.Type === 'stringList'
+						? JSON.stringify(argument.Values ?? [])
+						: argument.Value
+			])
+		);
 		void campaignState.graph;
 		const requestId = ++resolutionRequestId;
 		actionResolution = null;
 		if (!actionId || !selectedTargetId || !ttp.actionState) return;
 
 		ranAPI
-			.GetActionResolution(actionId, selectedTargetId, executionSystemId)
+			.ResolveAction(actionId, {
+				targetId: selectedTargetId,
+				args: partialArgs,
+				authIdentityId,
+				procedureId: selectedProcedureId,
+				execSystemId: executionSystemId
+			})
 			.then((resolution) => {
 				if (requestId !== resolutionRequestId) return;
 				actionResolution = resolution;
@@ -169,7 +187,7 @@
 				const nextOptions = { ...argOptions };
 				let nextArgs = args;
 				for (const argument of resolution.arguments) {
-					if (argument.candidates.length > 0 && argument.type !== 'K8sAuth') {
+					if (argument.type !== 'K8sAuth') {
 						nextOptions[argument.name] = argument.candidates.map((candidate) => ({
 							label: candidate.label,
 							value: candidate.value
@@ -202,7 +220,7 @@
 					}
 				}
 				argOptions = nextOptions;
-				args = nextArgs;
+				if (JSON.stringify(args) !== JSON.stringify(nextArgs)) args = nextArgs;
 			})
 			.catch(() => {
 				if (requestId === resolutionRequestId) actionResolution = null;
@@ -536,7 +554,7 @@
 						value = currentArgContext[param.name];
 					}
 
-					if (value === '${TARGET}') {
+					if (!ttp.actionState && value === '${TARGET}') {
 						value = currentTargetId;
 						if (param.type === 'string') {
 							// if the type is string, then only the name of ther target is relevant
@@ -544,7 +562,11 @@
 							value = e?.name || '';
 						}
 						console.log('Setting target', param.name, 'to value', value);
-					} else if (value.indexOf('${TARGET.IP}') >= 0 && currentTarget?.ips?.[0]) {
+					} else if (
+						!ttp.actionState &&
+						value.indexOf('${TARGET.IP}') >= 0 &&
+						currentTarget?.ips?.[0]
+					) {
 						value = value.replace('${TARGET.IP}', currentTarget.ips[0]);
 					}
 
