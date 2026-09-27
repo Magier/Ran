@@ -18,7 +18,7 @@ use crate::failure_analyzers::{
 };
 use crate::grounding::{
     detect_ungrounded_vars, ground_args_from_context, ground_entity_parameters,
-    ground_entity_ref_vars, resolve_template,
+    ground_entity_ref_vars, resolve_argument_dependencies, resolve_template,
 };
 use crate::output_parsers::{
     build_no_parser_audit, build_parse_audit, parse_output_effect, ParsedEffect,
@@ -1436,6 +1436,7 @@ impl Campaign {
             }
         }
         ground_listener_defaults(&ttp, &mut args, self)?;
+        resolve_argument_dependencies(&mut args);
         normalize_string_list_params(&ttp, &mut args)?;
         validate_option_params(&ttp, &args)?;
         validate_typed_path_params(&ttp, &args)?;
@@ -1643,6 +1644,7 @@ impl Campaign {
         ground_args_from_context(&mut args, &target_id, self);
         ground_entity_parameters(&ttp, &mut args, &target_id, self)
             .map_err(ExecuteActionError::InvalidInput)?;
+        resolve_argument_dependencies(&mut args);
         validate_grounded_entity_params(&ttp, &args)?;
         if self
             .entities
@@ -1695,6 +1697,7 @@ impl Campaign {
         args.entry("TARGET_ID".to_string())
             .or_insert_with(|| target_id.clone());
         ground_entity_ref_vars(&mut args, self);
+        resolve_argument_dependencies(&mut args);
 
         // Stage 5: ground the procedure command and effects. K8S_AUTH is an
         // ephemeral built-in and is removed from persisted execution args.

@@ -168,6 +168,33 @@ pub fn resolve_runtime_argument(
     }
 }
 
+/// Project the selected target into the concrete value expected by a typed
+/// entity parameter. This is the shared `${TARGET}` contract for advisory
+/// action resolution and execution-time grounding.
+pub fn resolve_target_entity_parameter(
+    param_type: &str,
+    target_id: &str,
+    campaign: &Campaign,
+) -> Option<RuntimeArgumentBinding> {
+    let target = campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == target_id)?;
+
+    if param_type.eq_ignore_ascii_case("Pod") && target.entity_kind().eq_ignore_ascii_case("Pod") {
+        return Some(RuntimeArgumentBinding::new(
+            target.entity_name().to_string(),
+            RuntimeArgumentSource::TargetName,
+        ));
+    }
+    if param_type.eq_ignore_ascii_case("Namespace") {
+        return entity_namespace(&target).map(|namespace| {
+            RuntimeArgumentBinding::new(namespace, RuntimeArgumentSource::TargetNamespace)
+        });
+    }
+    None
+}
+
 /// Fill in context-derived values for the well-known special parameters.
 ///
 /// | Key (case-insensitive match) | Resolution |
@@ -232,11 +259,6 @@ pub fn ground_entity_parameters(
     target_id: &str,
     campaign: &Campaign,
 ) -> Result<(), String> {
-    let target = campaign
-        .get_entities()
-        .into_iter()
-        .find(|entity| entity.entity_id().0 == target_id);
-
     for param in &ttp.params {
         let expected_kind = if param.param_type.eq_ignore_ascii_case("Pod") {
             "Pod"
@@ -255,14 +277,8 @@ pub fn ground_entity_parameters(
             || value == target_id;
 
         let grounded = if targets_selected_entity {
-            match expected_kind {
-                "Pod" => target
-                    .as_ref()
-                    .filter(|entity| entity.entity_kind().eq_ignore_ascii_case("Pod"))
-                    .map(|entity| entity.entity_name().to_string()),
-                "Namespace" => target.as_ref().and_then(entity_namespace),
-                _ => None,
-            }
+            resolve_target_entity_parameter(expected_kind, target_id, campaign)
+                .map(RuntimeArgumentBinding::into_grounded_value)
         } else {
             let canonical = campaign.canonical_entity_id(value);
             campaign
@@ -459,6 +475,62 @@ pub fn ground_entity_ref_vars(args: &mut HashMap<String, String>, campaign: &Cam
             expand_entity_props(value, ref_name, entity_id, campaign);
         }
     }
+}
+
+/// Resolve references from one argument value to another until no additional
+/// value can be grounded. A referenced value is substituted only after it is
+/// concrete, so self references and dependency cycles remain visible instead
+/// of growing or oscillating.
+pub fn resolve_argument_dependencies(args: &mut HashMap<String, String>) {
+    for _ in 0..=args.len() {
+        let snapshot = args.clone();
+        let mut changed = false;
+        for (name, value) in args.iter_mut() {
+            let resolved = substitute_concrete_argument_refs(value, name, &snapshot);
+            if resolved != *value {
+                *value = resolved;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
+fn substitute_concrete_argument_refs(
+    template: &str,
+    current_name: &str,
+    args: &HashMap<String, String>,
+) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut remaining = template;
+
+    while let Some(start) = remaining.find("${") {
+        out.push_str(&remaining[..start]);
+        let after_start = &remaining[start + 2..];
+        let Some(end) = after_start.find('}') else {
+            out.push_str(&remaining[start..]);
+            return out;
+        };
+        let placeholder = &after_start[..end];
+        let replacement = args
+            .iter()
+            .find(|(name, value)| {
+                !name.eq_ignore_ascii_case(current_name)
+                    && name.eq_ignore_ascii_case(placeholder)
+                    && detect_ungrounded_vars(value).is_empty()
+            })
+            .map(|(_, value)| value.as_str());
+        if let Some(replacement) = replacement {
+            out.push_str(replacement);
+        } else {
+            out.push_str(&remaining[start..start + end + 3]);
+        }
+        remaining = &after_start[end + 1..];
+    }
+    out.push_str(remaining);
+    out
 }
 
 /// Replace all `${REF.PROP}` occurrences in `value` in-place.
@@ -1410,5 +1482,36 @@ mod tests {
         ground_entity_ref_vars(&mut args, &campaign);
         // SRC not injected yet - placeholder must survive
         assert_eq!(args["CMD"], "${SRC.MOUNT_PATH}/etc");
+    }
+
+    #[test]
+    fn argument_dependencies_resolve_to_a_fixed_point() {
+        let mut args = HashMap::from([
+            ("SUBJECT".to_string(), "runner".to_string()),
+            ("ROLE_NAME".to_string(), "nsadmin".to_string()),
+            (
+                "BINDING_NAME".to_string(),
+                "${SUBJECT}-${ROLE_NAME}".to_string(),
+            ),
+            ("LABEL".to_string(), "binding/${BINDING_NAME}".to_string()),
+        ]);
+
+        resolve_argument_dependencies(&mut args);
+
+        assert_eq!(args["BINDING_NAME"], "runner-nsadmin");
+        assert_eq!(args["LABEL"], "binding/runner-nsadmin");
+    }
+
+    #[test]
+    fn argument_dependency_cycles_remain_unresolved_without_growth() {
+        let mut args = HashMap::from([
+            ("A".to_string(), "${B}".to_string()),
+            ("B".to_string(), "prefix-${A}".to_string()),
+        ]);
+        let original = args.clone();
+
+        resolve_argument_dependencies(&mut args);
+
+        assert_eq!(args, original);
     }
 }

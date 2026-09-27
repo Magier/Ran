@@ -991,6 +991,23 @@ mod tests {
         assert!(matches!(procedure.operation, ProcedureOperation::Shell));
     }
 
+    #[test]
+    fn execute_in_shell_exposes_only_command_inputs() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+        let ttp = armory
+            .get_ttp("execute-in-shell")
+            .expect("Execute in Shell TTP");
+
+        assert_eq!(
+            ttp.params
+                .iter()
+                .map(|param| param.name.as_str())
+                .collect::<Vec<_>>(),
+            ["COMMAND", "ARGS", "BACKGROUND"]
+        );
+    }
+
     #[cfg(feature = "bundled-armory")]
     #[test]
     fn configured_ids_disable_bundled_ttps() {

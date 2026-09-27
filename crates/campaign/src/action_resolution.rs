@@ -159,11 +159,12 @@ pub fn resolve_action(
     let applicable = !ttp.status.eq_ignore_ascii_case("disabled")
         && ttp_applicable_for_target(ttp, campaign, &target_context);
 
-    let arguments = ttp
+    let mut arguments = ttp
         .params
         .iter()
         .map(|param| resolve_argument(param, ttp, campaign, &target, target_id, input))
         .collect::<Vec<_>>();
+    finalize_argument_dependencies(&mut arguments, ttp, campaign, target_id, input);
     let procedures = ttp
         .procedures
         .iter()
@@ -291,6 +292,93 @@ fn argument_reasons(
         .filter(|argument| argument.status == status)
         .filter_map(|argument| argument.reason.clone())
         .collect()
+}
+
+fn finalize_argument_dependencies(
+    arguments: &mut [ArgumentResolution],
+    ttp: &armory::Ttp,
+    campaign: &crate::Campaign,
+    target_id: &str,
+    input: &ActionResolutionInput,
+) {
+    let declared_names = ttp
+        .params
+        .iter()
+        .map(|param| param.name.as_str())
+        .collect::<Vec<_>>();
+    let mut values = arguments
+        .iter()
+        .filter_map(|argument| {
+            argument
+                .value
+                .as_ref()
+                .map(|value| (argument.name.clone(), value.clone()))
+        })
+        .collect::<HashMap<_, _>>();
+    if ttp.tactic.eq_ignore_ascii_case("Lateral Movement") {
+        if let Some(source_id) = input.exec_system_id.as_deref().filter(|id| {
+            campaign
+                .get_entities()
+                .iter()
+                .any(|entity| entity.entity_id().0 == *id)
+        }) {
+            values.insert("SRC".to_string(), source_id.to_string());
+        }
+    } else {
+        values.insert("SRC".to_string(), target_id.to_string());
+    }
+    values.insert("TARGET_ID".to_string(), target_id.to_string());
+    crate::grounding::ground_entity_ref_vars(&mut values, campaign);
+    crate::grounding::resolve_argument_dependencies(&mut values);
+
+    for argument in arguments {
+        let Some(param) = ttp.params.iter().find(|param| param.name == argument.name) else {
+            continue;
+        };
+        let default_vars = crate::grounding::detect_ungrounded_vars(&param.default);
+        for dependency in default_vars.iter().filter(|variable| {
+            !argument.name.eq_ignore_ascii_case(variable)
+                && declared_names
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(variable))
+        }) {
+            if !argument
+                .depends_on
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(dependency))
+            {
+                argument.depends_on.push(dependency.clone());
+            }
+        }
+
+        if argument.status != ArgumentResolutionStatus::GeneratedAtExecution {
+            continue;
+        }
+        let Some(value) = values.get(&argument.name).cloned() else {
+            continue;
+        };
+        let unresolved = crate::grounding::detect_ungrounded_vars(&value);
+        argument.value = Some(value);
+        if unresolved.is_empty() {
+            argument.status = ArgumentResolutionStatus::Resolved;
+            argument.reason = None;
+            continue;
+        }
+        let runtime_generated = unresolved.iter().all(|variable| {
+            matches!(
+                variable.to_ascii_uppercase().as_str(),
+                "RANDOM" | "LISTENER" | "LISTENER_PORT"
+            )
+        });
+        if !runtime_generated && argument.required {
+            argument.status = ArgumentResolutionStatus::NeedsInput;
+            argument.reason = Some(format!(
+                "{} needs input because its default has unresolved variables: {}",
+                argument.name,
+                unresolved.join(", ")
+            ));
+        }
+    }
 }
 
 fn resolve_argument(
@@ -487,6 +575,25 @@ fn resolve_default(
     }
 
     if default == "${TARGET}" {
+        if let Some(binding) = crate::grounding::resolve_target_entity_parameter(
+            &param.param_type,
+            target_id,
+            campaign,
+        ) {
+            return from_runtime_binding(binding, target_id, base);
+        }
+        if param.param_type.eq_ignore_ascii_case("Pod")
+            || param.param_type.eq_ignore_ascii_case("Namespace")
+        {
+            return ArgumentResolution {
+                status: ArgumentResolutionStatus::NeedsInput,
+                reason: Some(format!(
+                    "{} needs input because the target cannot be projected as {}",
+                    param.name, param.param_type
+                )),
+                ..base
+            };
+        }
         let use_name = param.param_type.eq_ignore_ascii_case("string")
             || (is_entity_param(&param.param_type) && !requires_entity_id(&param.param_type));
         return ArgumentResolution {
@@ -631,23 +738,10 @@ fn resolve_default(
     }
 
     if default.contains("${") {
-        if !param.required {
-            return ArgumentResolution {
-                status: ArgumentResolutionStatus::Omitted,
-                source: Some(source("optional", None, None, None)),
-                ..base
-            };
-        }
-        if !base.candidates.is_empty() {
-            let candidates = base.candidates.clone();
-            return from_candidates(param, candidates, base);
-        }
         return ArgumentResolution {
-            status: ArgumentResolutionStatus::NeedsInput,
-            reason: Some(format!(
-                "{} needs input because its default could not be resolved: {}",
-                param.name, default
-            )),
+            status: ArgumentResolutionStatus::GeneratedAtExecution,
+            value: Some(default.clone()),
+            source: Some(source("argument_dependency", None, None, Some(default))),
             ..base
         };
     }
@@ -1064,7 +1158,7 @@ fn source(
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        AccessLevel, BinaryPresence, Contains, Entity, JwToken, K8sCluster, Namespace, Pod,
+        AccessLevel, BinaryPresence, Contains, Entity, JwToken, K8sCluster, Mount, Namespace, Pod,
         ServiceAccount, ServiceAccountToken, SessionChannel, UnknownSystem,
     };
 
@@ -1379,6 +1473,204 @@ mod tests {
             selected.arguments[1].candidates[0].source.field.as_deref(),
             Some("name")
         );
+    }
+
+    #[test]
+    fn typed_target_defaults_project_a_pod_and_survive_resolution_feedback() {
+        let cluster = K8sCluster::new("dev");
+        let cluster_id = cluster.entity_id().0;
+        let mut campaign = crate::Campaign::bootstrap("Ran", cluster);
+        let namespace = Namespace::new("agent-system");
+        let namespace_id = namespace.entity_id().0;
+        campaign.upsert_entity(namespace, crate::KnowledgeProvenance::Scenario);
+        campaign.upsert_relation(
+            &Contains::new(cluster_id, namespace_id),
+            crate::KnowledgeProvenance::Scenario,
+        );
+        let pod = Pod::new("agent-worker-hsv7z", "agent-system");
+        let target_id = pod.entity_id().0;
+        campaign.upsert_entity(pod, crate::KnowledgeProvenance::Scenario);
+
+        let mut ttp = armory::Ttp::new("pod-context", "Pod context", "Execution");
+        ttp.params = vec![
+            armory::TtpParam {
+                name: "NAMESPACE".to_string(),
+                param_type: "Namespace".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${TARGET}".to_string(),
+                options: Vec::new(),
+            },
+            armory::TtpParam {
+                name: "POD_NAME".to_string(),
+                param_type: "Pod".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${TARGET}".to_string(),
+                options: Vec::new(),
+            },
+        ];
+
+        let initial = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
+        assert_eq!(initial.status, ActionReadinessStatus::Ready);
+        assert_eq!(initial.arguments[0].value.as_deref(), Some("agent-system"));
+        assert_eq!(
+            initial.arguments[1].value.as_deref(),
+            Some("agent-worker-hsv7z")
+        );
+
+        let feedback_args = initial
+            .arguments
+            .into_iter()
+            .filter_map(|argument| argument.value.map(|value| (argument.name, value)))
+            .collect();
+        let feedback = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput {
+                args: feedback_args,
+                ..ActionResolutionInput::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(feedback.status, ActionReadinessStatus::Ready);
+        assert!(feedback
+            .arguments
+            .iter()
+            .all(|argument| argument.status == ArgumentResolutionStatus::Resolved));
+    }
+
+    #[test]
+    fn compound_argument_default_resolves_from_other_arguments() {
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let target = UnknownSystem::new("target");
+        let target_id = target.entity_id().0;
+        campaign.upsert_entity(target, crate::KnowledgeProvenance::Scenario);
+        let mut ttp = armory::Ttp::new("compound", "Compound", "Execution");
+        ttp.params = vec![
+            armory::TtpParam {
+                name: "SUBJECT".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "runner".to_string(),
+                options: Vec::new(),
+            },
+            armory::TtpParam {
+                name: "ROLE_NAME".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "nsadmin".to_string(),
+                options: Vec::new(),
+            },
+            armory::TtpParam {
+                name: "BINDING_NAME".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${SUBJECT}-${ROLE_NAME}".to_string(),
+                options: Vec::new(),
+            },
+        ];
+
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
+
+        assert_eq!(resolution.status, ActionReadinessStatus::Ready);
+        assert_eq!(
+            resolution.arguments[2].value.as_deref(),
+            Some("runner-nsadmin")
+        );
+        assert_eq!(
+            resolution.arguments[2].depends_on,
+            vec!["SUBJECT", "ROLE_NAME"]
+        );
+    }
+
+    #[test]
+    fn entity_reference_default_uses_the_same_target_facts_as_execution() {
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut pod = Pod::new("attacker", "default");
+        pod.volume_mounts.push(Mount {
+            name: "host-proc".to_string(),
+            mount_root: "/proc".to_string(),
+            mount_point: "/mnt/host-proc".to_string(),
+            mount_type: None,
+            is_host_path: true,
+            read_only: true,
+        });
+        let target_id = pod.entity_id().0;
+        campaign.upsert_entity(pod, crate::KnowledgeProvenance::Scenario);
+        let mut ttp = armory::Ttp::new("host-proc", "Host proc", "Privilege Escalation");
+        ttp.params.push(armory::TtpParam {
+            name: "HOST_PROC".to_string(),
+            param_type: "string".to_string(),
+            description: String::new(),
+            required: true,
+            default: "${SRC.HOST_PATH:/proc}".to_string(),
+            options: Vec::new(),
+        });
+
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
+
+        assert_eq!(resolution.status, ActionReadinessStatus::Ready);
+        assert_eq!(
+            resolution.arguments[0].value.as_deref(),
+            Some("/mnt/host-proc")
+        );
+    }
+
+    #[test]
+    fn argument_dependency_cycle_requires_input() {
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let target = UnknownSystem::new("target");
+        let target_id = target.entity_id().0;
+        campaign.upsert_entity(target, crate::KnowledgeProvenance::Scenario);
+        let mut ttp = armory::Ttp::new("cycle", "Cycle", "Execution");
+        ttp.params = [("A", "${B}"), ("B", "${A}")]
+            .into_iter()
+            .map(|(name, default)| armory::TtpParam {
+                name: name.to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: default.to_string(),
+                options: Vec::new(),
+            })
+            .collect();
+
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
+
+        assert_eq!(resolution.status, ActionReadinessStatus::NeedsInput);
+        assert!(resolution
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("unresolved variables")));
     }
 
     #[test]

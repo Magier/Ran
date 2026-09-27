@@ -6,14 +6,6 @@ preconditions:
   accessLevel: user-exec
   kind: System
 parameters:
-  NAMESPACE:
-    type: Namespace
-    default: ${TARGET}
-    description: Kubernetes namespace of the target pod
-  POD_NAME:
-    type: Pod
-    default: ${TARGET}
-    description: Name of the target pod
   COMMAND:
     type: string
     description: the command to execute in the shell

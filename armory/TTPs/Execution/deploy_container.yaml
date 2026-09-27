@@ -42,7 +42,6 @@ parameters:
     description: JSON array of Kubernetes container ports, for example [{"containerPort":8080}].
   ServiceAccount:
     type: ServiceAccount
-    default: "${NODE_NAME}"
     required: false
     description: the service account used by the workload
   Privileged:
