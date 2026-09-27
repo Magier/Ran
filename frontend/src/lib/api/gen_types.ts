@@ -876,6 +876,14 @@ export interface components {
 			rbacPermissions?: components['schemas']['RBACPermission'][];
 			accessLevel?: string;
 			activeSession?: boolean;
+			/** @description Requires a Pod known or not yet determined to be privileged. A known false value makes the action inapplicable. */
+			'Pod.securityContext.privileged'?: boolean;
+			/** @description Requires a Pod known or not yet determined to share the host PID namespace. A known false value makes the action inapplicable. */
+			'Pod.securityContext.hostPID'?: boolean;
+			/** @description Requires one or more exact hostPath source paths. Boolean true accepts any hostPath. */
+			'Pod.hostPath'?: boolean | string | string[];
+			/** @description Linux namespaces required by the action. Unknown access is allowed, while a known denial from the same action makes it inapplicable. */
+			linuxNamespaceAccess?: string[];
 			exists?: (string | components['schemas']['EntityRequirement'])[];
 		};
 		EntityRequirement: {
