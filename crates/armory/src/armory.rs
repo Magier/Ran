@@ -670,6 +670,21 @@ mod tests {
     }
 
     #[test]
+    fn redis_rce_propagates_nested_command_failures() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        let ttp = armory
+            .get_ttp("exploit-redis-cve-2022-0543")
+            .expect("Redis RCE TTP should be in the armory");
+        let command = &ttp.procedures.first().expect("one procedure").command;
+
+        assert!(command.contains("redis-cli -e -h ${TARGET}"));
+        assert!(command.contains("local ok, reason, status = f:close()"));
+        assert!(command.contains("return redis.error_reply('nested command failed'"));
+    }
+
+    #[test]
     fn chroot_escape_targets_pods_with_an_active_session() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
         let armory = Armory::load_from_dir(path).expect("repository armory should load");

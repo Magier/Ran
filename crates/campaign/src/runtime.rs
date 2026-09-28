@@ -251,17 +251,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                 }) => {
                     let action_id = cmd.ttp.id.clone();
                     let target_id = cmd.target_id.clone();
-                    let result_preview = event
-                        .results
-                        .first()
-                        .map(|r| {
-                            if r.len() > 200 {
-                                format!("{}...", &r[..200])
-                            } else {
-                                r.clone()
-                            }
-                        })
-                        .unwrap_or_default();
+                    let result_preview = action_result_preview(&event.results);
 
                     let (processing, session_entity_summary, session_revived) = {
                         let mut campaign_guard = match campaign.write() {
@@ -1582,11 +1572,71 @@ mod listener_event_tests {
     }
 }
 
+fn action_result_preview(results: &[String]) -> String {
+    let Some(result) = results.first() else {
+        return String::new();
+    };
+
+    if contains_jwt(result) {
+        return "[REDACTED: credential-bearing output]".to_string();
+    }
+
+    let mut preview: String = result.chars().take(200).collect();
+    if result.chars().count() > 200 {
+        preview.push_str("...");
+    }
+    preview
+}
+
+fn contains_jwt(value: &str) -> bool {
+    value
+        .split(|character: char| {
+            !(character.is_ascii_alphanumeric()
+                || character == '-'
+                || character == '_'
+                || character == '.')
+        })
+        .any(|candidate| {
+            let mut segments = candidate.split('.');
+            matches!(
+                (segments.next(), segments.next(), segments.next(), segments.next()),
+                (Some(header), Some(payload), Some(signature), None)
+                    if header.len() >= 8 && payload.len() >= 8 && signature.len() >= 8
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use ran_domain::{K8sCluster, Pod, UnknownSystem};
 
     use super::*;
+
+    #[test]
+    fn action_result_preview_redacts_service_account_tokens() {
+        let token =
+            "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQifQ.signature_value";
+
+        assert_eq!(
+            action_result_preview(&[token.to_string()]),
+            "[REDACTED: credential-bearing output]"
+        );
+        assert_eq!(
+            action_result_preview(&[format!("Authorization: Bearer {token}")]),
+            "[REDACTED: credential-bearing output]"
+        );
+    }
+
+    #[test]
+    fn action_result_preview_preserves_normal_output_and_unicode_boundaries() {
+        assert_eq!(action_result_preview(&["root".to_string()]), "root");
+
+        let long = "é".repeat(201);
+        assert_eq!(
+            action_result_preview(&[long]),
+            format!("{}...", "é".repeat(200))
+        );
+    }
 
     /// The variables kubelet injects into every container it starts - enough of
     /// them for `InClusterPodAnalyzer` to promote the system carrying them.
