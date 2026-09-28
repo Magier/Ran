@@ -1006,6 +1006,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["COMMAND", "ARGS", "BACKGROUND"]
         );
+        let procedure = ttp.procedures.first().expect("shell procedure");
+        assert_eq!(procedure.id, "shell");
+        assert_eq!(procedure.tool.as_deref(), Some("sh"));
     }
 
     #[cfg(feature = "bundled-armory")]

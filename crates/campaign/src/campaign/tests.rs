@@ -2727,11 +2727,16 @@ fn prepare_action_grounds_binary_against_target_for_direct_path() {
 }
 
 #[test]
-fn execute_in_shell_grounds_binary_inside_bash_c_script() {
+fn execute_in_shell_grounds_the_submitted_command_directly() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
     let mut target = Pod::new("victim", "agent-system");
     target.system.set_binary("kubectl", "/tmp/kubectl");
+    target.system.set_binary("sh", "/bin/sh");
+    target
+        .system
+        .binaries
+        .insert("bash".to_string(), BinaryPresence::Absent);
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
@@ -2764,8 +2769,10 @@ fn execute_in_shell_grounds_binary_inside_bash_c_script() {
 
     assert_eq!(
         exec.procedure.command,
-        r#"bash -c "/tmp/kubectl -n agent-system get serviceaccounts -o yaml ""#
+        "/tmp/kubectl -n agent-system get serviceaccounts -o yaml"
     );
+    assert_eq!(exec.procedure.id, "shell");
+    assert_eq!(exec.procedure.tool.as_deref(), Some("sh"));
     assert_eq!(
         exec.args.get("NAMESPACE").map(String::as_str),
         Some("agent-system")
@@ -2774,6 +2781,41 @@ fn execute_in_shell_grounds_binary_inside_bash_c_script() {
         exec.args.get("POD_NAME").map(String::as_str),
         Some("victim")
     );
+}
+
+#[test]
+fn execute_in_shell_preserves_nested_shell_variables() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target = Pod::new("victim", "agent-system");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let armory_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+    let armory = Armory::load_from_dir(armory_path).expect("repository armory should load");
+    let command = r#"sh -lc 'for f in /tmp/a; do echo "$f"; done'"#;
+    let request = ExecuteActionRequest {
+        action_id: "execute-in-shell".to_string(),
+        target_id,
+        exec_system_id: None,
+        auth_identity_id: None,
+        procedure_id: None,
+        args: HashMap::from([
+            ("COMMAND".to_string(), command.to_string()),
+            ("ARGS".to_string(), String::new()),
+            ("BACKGROUND".to_string(), "false".to_string()),
+        ]),
+        execution_timeout_seconds: None,
+        reasoning: None,
+    };
+
+    let exec = campaign
+        .prepare_action(request, &armory)
+        .expect("execute-in-shell should prepare");
+
+    assert_eq!(exec.procedure.command, command);
+    assert!(exec.procedure.command.contains("$f"));
+    assert!(!exec.procedure.command.contains(r#"echo """#));
 }
 
 #[test]
