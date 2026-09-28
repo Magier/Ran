@@ -18,7 +18,8 @@ parameters:
     description: whether to run the command in the background
     default: false
 procedures:
-  - key: bash
-    command: bash -c "${COMMAND} ${ARGS}" {% if BACKGROUND %} & {% endif %}
+  - key: shell
+    tool: sh
+    command: ${COMMAND}{% if ARGS %} ${ARGS}{% endif %}{% if BACKGROUND %} &{% endif %}
 # defend: {
 refernces:

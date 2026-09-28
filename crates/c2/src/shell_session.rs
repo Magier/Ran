@@ -49,6 +49,7 @@ struct ShellInner {
 pub(crate) enum SessionHealth {
     Responsive,
     Busy,
+    Recovering,
     Lost,
 }
 
@@ -66,6 +67,15 @@ impl Default for SessionTiming {
         }
     }
 }
+
+struct FrameTiming {
+    timeout: Duration,
+    deadline_at: Instant,
+    recover_after_timeout: bool,
+}
+
+const SESSION_RECOVERING: &str =
+    "shell session is still finishing a timed-out command; retry after it recovers";
 
 enum ShellRequest {
     Raw {
@@ -103,9 +113,10 @@ enum PendingReply {
 /// group, rather than appended to the command: an appended `2>&1` only affects
 /// the final stage of a pipeline, leaving errors from earlier stages on a
 /// socat process's local stderr instead of returning them through the session.
-fn framed_command(command: &str, marker: &str) -> String {
+fn framed_command(command: &str, marker: &str, isolate_stdin: bool) -> String {
+    let stdin = if isolate_stdin { " </dev/null" } else { "" };
     format!(
-        "{{\n{command}\n}} 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '{marker}:%d\\n' \"$__ran_status\"\n"
+        "{{\n{command}\n}}{stdin} 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '{marker}:%d\\n' \"$__ran_status\"\n"
     )
 }
 
@@ -328,7 +339,15 @@ async fn run_session_actor(
                     let _ = reply.send(result);
                     return;
                 }
-                if !run_request(&mut inner, request, &health, &entity_id).await {
+                if !run_request(
+                    &mut inner,
+                    &mut requests,
+                    request,
+                    &health,
+                    &entity_id,
+                )
+                .await
+                {
                     return;
                 }
             }
@@ -351,7 +370,15 @@ async fn run_session_actor(
                 }
             }
             _ = &mut heartbeat_wait => {
-                if !run_heartbeat(&mut inner, &health, timing.heartbeat_timeout, &entity_id).await {
+                if !run_heartbeat(
+                    &mut inner,
+                    &mut requests,
+                    &health,
+                    timing.heartbeat_timeout,
+                    &entity_id,
+                )
+                .await
+                {
                     return;
                 }
             }
@@ -391,6 +418,7 @@ async fn gracefully_close_shell(inner: &mut ShellInner) -> Result<(), String> {
 
 async fn run_request(
     inner: &mut ShellInner,
+    requests: &mut mpsc::Receiver<ShellRequest>,
     request: ShellRequest,
     health: &watch::Sender<SessionHealth>,
     entity_id: &str,
@@ -445,11 +473,25 @@ async fn run_request(
         finish_with_timeout(&mut reply, timeout, &command);
         return true;
     }
-    run_frame(inner, &command, timeout, deadline, reply, health, entity_id).await
+    run_frame(
+        inner,
+        &command,
+        FrameTiming {
+            timeout,
+            deadline_at: deadline,
+            recover_after_timeout: true,
+        },
+        reply,
+        requests,
+        health,
+        entity_id,
+    )
+    .await
 }
 
 async fn run_heartbeat(
     inner: &mut ShellInner,
+    requests: &mut mpsc::Receiver<ShellRequest>,
     health: &watch::Sender<SessionHealth>,
     timeout: Duration,
     entity_id: &str,
@@ -457,9 +499,13 @@ async fn run_heartbeat(
     run_frame(
         inner,
         ":",
-        timeout,
-        Instant::now() + timeout,
+        FrameTiming {
+            timeout,
+            deadline_at: Instant::now() + timeout,
+            recover_after_timeout: false,
+        },
         PendingReply::Heartbeat,
+        requests,
         health,
         entity_id,
     )
@@ -469,15 +515,19 @@ async fn run_heartbeat(
 async fn run_frame(
     inner: &mut ShellInner,
     command: &str,
-    timeout: Duration,
-    deadline_at: Instant,
+    timing: FrameTiming,
     mut reply: PendingReply,
+    requests: &mut mpsc::Receiver<ShellRequest>,
     health: &watch::Sender<SessionHealth>,
     entity_id: &str,
 ) -> bool {
     let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
     let marker = format!("__RAN_{nonce}__");
-    let payload = framed_command(command, &marker);
+    // Execution procedures are non-interactive. Giving them the control
+    // shell's stdin would let an accidental `read`, `cat`, or argument-less
+    // `wc` consume the framing commands that follow the procedure.
+    let isolate_stdin = matches!(reply, PendingReply::Execute { .. });
+    let payload = framed_command(command, &marker, isolate_stdin);
 
     if let Err(error) = inner.tx.write_all(payload.as_bytes()).await {
         finish_with_error(&mut reply, format!("shell write failed: {error}"));
@@ -491,8 +541,9 @@ async fn run_frame(
     }
 
     health.send_replace(SessionHealth::Busy);
-    let deadline = tokio::time::sleep_until(deadline_at);
+    let deadline = tokio::time::sleep_until(timing.deadline_at);
     tokio::pin!(deadline);
+    let mut timed_out = false;
     let mut output = String::new();
     let mut line = Vec::new();
 
@@ -520,21 +571,57 @@ async fn run_frame(
                 let text = String::from_utf8_lossy(&line);
                 let trimmed = text.trim_end_matches(['\r', '\n']);
                 if let Some(code) = trimmed.strip_prefix(&format!("{marker}:")) {
-                    finish_with_success(&mut reply, code.parse().unwrap_or(1), output);
+                    if !timed_out {
+                        finish_with_success(&mut reply, code.parse().unwrap_or(1), output);
+                    }
                     health.send_replace(SessionHealth::Responsive);
                     return true;
                 }
-                if let PendingReply::Execute { output_sink, .. } = &reply {
-                    output_sink.stdout(line.clone());
+                if !timed_out {
+                    if let PendingReply::Execute { output_sink, .. } = &reply {
+                        output_sink.stdout(line.clone());
+                    }
+                    output.push_str(&text);
                 }
-                output.push_str(&text);
                 line.clear();
             }
-            _ = &mut deadline => {
-                finish_with_timeout(&mut reply, timeout, command);
-                health.send_replace(SessionHealth::Lost);
-                warn!(%entity_id, "shell command or heartbeat timed out; invalidating the session because framing cannot be recovered safely");
-                return false;
+            _ = &mut deadline, if !timed_out => {
+                if !timing.recover_after_timeout {
+                    finish_with_timeout(&mut reply, timing.timeout, command);
+                    health.send_replace(SessionHealth::Lost);
+                    warn!(%entity_id, "shell heartbeat timed out; invalidating the session");
+                    return false;
+                }
+                timed_out = true;
+                output.clear();
+                // A foreground command owns this single in-band shell stream,
+                // so its duration cannot establish transport loss. Keep
+                // draining only this frame until its marker or an I/O failure
+                // arrives, and reject other work rather than mixing frames.
+                health.send_replace(SessionHealth::Recovering);
+                finish_with_timeout(&mut reply, timing.timeout, command);
+                warn!(%entity_id, "shell command timed out; draining its frame before reusing the session");
+            }
+            request = requests.recv(), if timed_out => {
+                match request {
+                    Some(ShellRequest::Raw { reply, .. }) => {
+                        let _ = reply.send(Err(SESSION_RECOVERING.to_string()));
+                    }
+                    Some(ShellRequest::Execute { command, reply, .. }) => {
+                        let _ = reply.send(exec_error(&command.id, SESSION_RECOVERING.to_string()));
+                    }
+                    Some(ShellRequest::Close { reply }) => {
+                        let result = inner
+                            .tx
+                            .shutdown()
+                            .await
+                            .map_err(|error| format!("shell shutdown failed: {error}"));
+                        health.send_replace(SessionHealth::Lost);
+                        let _ = reply.send(result);
+                        return false;
+                    }
+                    None => return false,
+                }
             }
         }
     }
@@ -648,7 +735,7 @@ mod tests {
     use tokio::process::Command;
     use tokio::sync::oneshot;
 
-    use super::{SessionHealth, SessionTiming, ShellSession};
+    use super::{SessionHealth, SessionTiming, ShellSession, SESSION_RECOVERING};
     use crate::executor::C2Backend;
     use crate::types::ExecTtp;
 
@@ -904,7 +991,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_timed_out_command_invalidates_the_session_and_rejects_the_next_command() {
+    async fn execute_does_not_expose_the_control_stream_as_stdin() {
+        let mut shell = Command::new("sh")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start POSIX shell");
+        let stdin = shell.stdin.take().expect("shell stdin");
+        let stdout = shell.stdout.take().expect("shell stdout");
+        let session = ShellSession::from_rw(stdout, stdin, "node/test");
+        session.init().await.expect("init");
+
+        // Without stdin isolation, this consumes the completion-marker lines
+        // from the persistent shell stream and then waits forever for input.
+        let mut cmd = make_cmd("wc -c", "session/test");
+        cmd.execution_timeout_seconds = 1;
+        let result = session.execute(&cmd).await;
+
+        assert!(result.success, "{}", result.fail_reason);
+        assert_eq!(result.results.len(), 1);
+        assert_eq!(result.results[0].trim(), "0");
+        assert_eq!(*session.health.borrow(), SessionHealth::Responsive);
+
+        drop(session);
+        let status = tokio::time::timeout(Duration::from_secs(1), shell.wait())
+            .await
+            .expect("shell exits after session closes")
+            .expect("wait for shell");
+        assert!(status.success());
+    }
+
+    #[tokio::test]
+    async fn a_timed_out_command_recovers_before_the_next_command_runs() {
         let (client, server) = tokio::io::duplex(4096);
         let (server_rx, mut server_tx) = tokio::io::split(server);
         let (client_rx, client_tx) = tokio::io::split(client);
@@ -943,20 +1062,75 @@ mod tests {
         let first = session.execute(&first_cmd).await;
         assert!(!first.success);
         assert_eq!(first.fail_reason, "shell command timed out after 1s");
-        assert_eq!(*session.health.borrow(), SessionHealth::Lost);
+        assert_eq!(*session.health.borrow(), SessionHealth::Recovering);
+
+        let mut health = session.subscribe_health();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while *health.borrow_and_update() != SessionHealth::Responsive {
+                health
+                    .changed()
+                    .await
+                    .expect("session actor should stay alive");
+            }
+        })
+        .await
+        .expect("the late marker should recover the session");
 
         let mut second_cmd = make_cmd("next command", "session/test");
         second_cmd.execution_timeout_seconds = 2;
-        let second = tokio::time::timeout(Duration::from_millis(100), session.execute(&second_cmd))
+        let second = tokio::time::timeout(Duration::from_secs(3), session.execute(&second_cmd))
             .await
-            .expect("the closed session should reject the next command promptly");
+            .expect("the queued command should run after framing recovery");
 
-        assert!(!second.success);
-        assert_eq!(
-            second.fail_reason,
-            crate::types::SESSION_CLOSED_UNEXPECTEDLY
+        assert!(second.success, "{}", second.fail_reason);
+        assert_eq!(second.results, vec!["late output"]);
+        assert_eq!(*session.health.borrow(), SessionHealth::Responsive);
+        assert_eq!(command_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_timed_out_command_that_never_finishes_stays_recovering() {
+        let (client, server) = tokio::io::duplex(4096);
+        let (server_rx, _server_tx) = tokio::io::split(server);
+        let (client_rx, client_tx) = tokio::io::split(client);
+        tokio::spawn(async move {
+            let mut reader = tokio::io::BufReader::new(server_rx);
+            let mut line = String::new();
+            while reader.read_line(&mut line).await.unwrap_or(0) != 0 {
+                line.clear();
+            }
+        });
+
+        let session = ShellSession::from_rw_with_timing(
+            client_rx,
+            client_tx,
+            "node/test",
+            SessionTiming {
+                heartbeat_interval: Duration::from_secs(30),
+                heartbeat_timeout: Duration::from_millis(30),
+            },
         );
-        assert_eq!(command_count.load(Ordering::SeqCst), 1);
+        let mut cmd = make_cmd("never finishes", "session/test");
+        cmd.execution_timeout_seconds = 1;
+
+        let result = session.execute(&cmd).await;
+        assert!(!result.success);
+        assert_eq!(result.fail_reason, "shell command timed out after 1s");
+        assert_eq!(*session.health.borrow(), SessionHealth::Recovering);
+
+        let next = make_cmd("next command", "session/test");
+        let next_result = tokio::time::timeout(Duration::from_millis(100), session.execute(&next))
+            .await
+            .expect("a recovering session should reject new work promptly");
+        assert!(!next_result.success);
+        assert_eq!(next_result.fail_reason, SESSION_RECOVERING);
+        assert_eq!(*session.health.borrow(), SessionHealth::Recovering);
+
+        session
+            .close()
+            .await
+            .expect("recovering session should close");
+        assert_eq!(*session.health.borrow(), SessionHealth::Lost);
     }
 
     #[tokio::test]
@@ -1086,8 +1260,16 @@ mod tests {
     #[test]
     fn command_framing_separates_a_marker_from_output_without_a_newline() {
         assert_eq!(
-            super::framed_command("cat /token", "__RAN_42__"),
+            super::framed_command("cat /token", "__RAN_42__", false),
             "{\ncat /token\n} 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '__RAN_42__:%d\\n' \"$__ran_status\"\n"
+        );
+    }
+
+    #[test]
+    fn execution_framing_isolates_the_control_stream_from_command_stdin() {
+        assert_eq!(
+            super::framed_command("wc -c", "__RAN_42__", true),
+            "{\nwc -c\n} </dev/null 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '__RAN_42__:%d\\n' \"$__ran_status\"\n"
         );
     }
 
