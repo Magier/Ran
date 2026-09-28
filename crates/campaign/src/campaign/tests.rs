@@ -2766,6 +2766,73 @@ fn execute_in_shell_grounds_binary_inside_bash_c_script() {
         exec.procedure.command,
         r#"bash -c "/tmp/kubectl -n agent-system get serviceaccounts -o yaml ""#
     );
+    assert_eq!(
+        exec.args.get("NAMESPACE").map(String::as_str),
+        Some("agent-system")
+    );
+    assert_eq!(
+        exec.args.get("POD_NAME").map(String::as_str),
+        Some("victim")
+    );
+}
+
+#[test]
+fn prepare_action_resolves_compound_argument_defaults() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target = Pod::new("victim", "agent-system");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let mut ttp = Ttp::new("compound-default", "Compound default", "Execution");
+    ttp.params = vec![
+        TtpParam {
+            name: "SUBJECT".to_string(),
+            param_type: "string".to_string(),
+            description: String::new(),
+            required: true,
+            default: "runner".to_string(),
+            options: Vec::new(),
+        },
+        TtpParam {
+            name: "ROLE_NAME".to_string(),
+            param_type: "string".to_string(),
+            description: String::new(),
+            required: true,
+            default: "nsadmin".to_string(),
+            options: Vec::new(),
+        },
+        TtpParam {
+            name: "BINDING_NAME".to_string(),
+            param_type: "string".to_string(),
+            description: String::new(),
+            required: true,
+            default: "${SUBJECT}-${ROLE_NAME}".to_string(),
+            options: Vec::new(),
+        },
+    ];
+    ttp.procedures
+        .push(Procedure::new("shell", "echo ${BINDING_NAME}"));
+    let armory = Armory::from_ttps(vec![ttp]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "compound-default".to_string(),
+                target_id,
+                exec_system_id: None,
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                execution_timeout_seconds: None,
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("compound defaults should prepare");
+
+    assert_eq!(exec.args["BINDING_NAME"], "runner-nsadmin");
+    assert_eq!(exec.procedure.command, "echo runner-nsadmin");
 }
 
 #[test]
