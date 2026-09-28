@@ -59,6 +59,7 @@ pub struct CommandNotFoundFailureAnalyzer;
 pub struct NotWriteableFailureAnalyzer;
 pub struct RedisLuaFailureAnalyzer;
 pub struct KubectlUsageFailureAnalyzer;
+pub struct NsenterNamespaceFailureAnalyzer;
 
 impl FailureAnalyzer for InvalidTargetFailureAnalyzer {
     fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
@@ -166,6 +167,22 @@ impl FailureAnalyzer for KubectlUsageFailureAnalyzer {
         ) {
             return Some(FailureClassification::known_failure(
                 "kubectl rejected the supplied arguments",
+            ));
+        }
+
+        None
+    }
+}
+
+impl FailureAnalyzer for NsenterNamespaceFailureAnalyzer {
+    fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
+        let haystack = failure_haystack(event).to_ascii_lowercase();
+        if haystack.lines().any(|line| {
+            line.contains("nsenter: reassociate to namespace")
+                && line.contains("failed: operation not permitted")
+        }) {
+            return Some(FailureClassification::known_failure(
+                "nsenter could not reassociate to the requested namespace: operation not permitted",
             ));
         }
 
@@ -311,6 +328,7 @@ pub fn default_failure_analyzers() -> Vec<Box<dyn FailureAnalyzer>> {
         Box::new(NotWriteableFailureAnalyzer),
         Box::new(RedisLuaFailureAnalyzer),
         Box::new(KubectlUsageFailureAnalyzer),
+        Box::new(NsenterNamespaceFailureAnalyzer),
     ]
 }
 
@@ -549,6 +567,46 @@ mod tests {
                  stop the existing tunnel"
                     .to_string(),
             ],
+            exit_code: 0,
+            fail_reason: String::new(),
+            session_connected: None,
+        };
+
+        assert!(detect_failure_signature(&cmd, &event).is_none());
+    }
+
+    #[test]
+    fn detect_failure_signature_finds_nsenter_denial_with_exit_zero() {
+        let cmd = sample_cmd();
+        let event = TtpExecuted {
+            id: "evt-1".to_string(),
+            success: true,
+            results: vec![
+                "nsenter: reassociate to namespace 'ns/uts' failed: Operation not permitted"
+                    .to_string(),
+            ],
+            exit_code: 0,
+            fail_reason: String::new(),
+            session_connected: None,
+        };
+
+        let classified = detect_failure_signature(&cmd, &event)
+            .expect("nsenter namespace denial should be recognized");
+
+        assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
+        assert_eq!(
+            classified.detail,
+            "nsenter could not reassociate to the requested namespace: operation not permitted"
+        );
+    }
+
+    #[test]
+    fn unrelated_operation_not_permitted_output_is_not_an_nsenter_failure() {
+        let cmd = sample_cmd();
+        let event = TtpExecuted {
+            id: "evt-1".to_string(),
+            success: true,
+            results: vec!["socket: Operation not permitted".to_string()],
             exit_code: 0,
             fail_reason: String::new(),
             session_connected: None,

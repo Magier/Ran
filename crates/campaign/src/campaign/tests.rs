@@ -2155,6 +2155,38 @@ fn command_not_found_in_output_with_exit_zero_marks_binary_absent_and_fails_step
 }
 
 #[test]
+fn nsenter_denial_in_output_with_exit_zero_fails_action() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let pod = Pod::new("redis-pod", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let cmd = nmap_exec_ttp(&target_id);
+    let event = TtpExecuted {
+        id: "evt-1".to_string(),
+        success: true,
+        exit_code: 0,
+        results: vec![
+            "nsenter: reassociate to namespace 'ns/uts' failed: Operation not permitted"
+                .to_string(),
+        ],
+        fail_reason: String::new(),
+        session_connected: None,
+    };
+
+    let processing = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    assert!(!processing.effective_success);
+    assert_eq!(
+        processing.effective_fail_reason,
+        "nsenter could not reassociate to the requested namespace: operation not permitted"
+    );
+    let record = campaign.get_execution_records().last().unwrap();
+    assert!(!record.success, "execution record must show failure");
+    assert_eq!(record.exec_system_id, target_id);
+}
+
+#[test]
 fn redis_lua_error_in_output_with_exit_zero_fails_lateral_movement() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
     let pod = Pod::new("redis-pod", "default");
