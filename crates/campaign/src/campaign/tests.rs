@@ -4324,6 +4324,51 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
 }
 
 #[test]
+fn prepare_action_rejects_explicit_procedure_with_known_absent_tool() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let mut pod = Pod::new("demo", "default");
+    pod.system
+        .binaries
+        .insert("apt".to_string(), BinaryPresence::Absent);
+    pod.system.binaries.insert(
+        "apk".to_string(),
+        BinaryPresence::Present("/sbin/apk".to_string()),
+    );
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let ttp = Ttp {
+        procedures: vec![
+            Procedure {
+                tool: Some("apt".to_string()),
+                ..Procedure::new("ubuntu", "apt-get install -y curl")
+            },
+            Procedure {
+                tool: Some("apk".to_string()),
+                ..Procedure::new("alpine", "apk add curl")
+            },
+        ],
+        ..Ttp::new("install-package", "Install Package", "Execution")
+    };
+
+    assert!(matches!(
+        campaign.prepare_action_with_ttp(
+            target_id,
+            None,
+            None,
+            Some("ubuntu".to_string()),
+            ttp,
+            HashMap::new(),
+            &Armory::from_ttps(vec![]),
+        ),
+        Err(ExecuteActionError::InvalidInput(message))
+            if message.contains("requires tool 'apt'")
+                && message.contains("known to be absent")
+    ));
+}
+
+#[test]
 fn local_kubectl_procedure_uses_default_kubeconfig_without_identity() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let ttp = Ttp {

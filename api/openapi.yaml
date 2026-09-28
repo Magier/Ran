@@ -117,6 +117,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/armory/vocabulary:
+    get:
+      summary: Get the Armory declaration vocabulary
+      description: >-
+        Returns the versioned machine-readable contract for procedure fields,
+        requirements, effects, interpolation, and support levels.
+      operationId: getArmoryVocabulary
+      responses:
+        '200':
+          description: Armory declaration vocabulary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArmoryVocabulary'
+        '500':
+          description: Bundled vocabulary is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/armory/{actionId}/resolution:
     get:
       summary: Resolve an action for a target
@@ -1525,6 +1546,132 @@ components:
           type: string
           description: The full command string sent across this segment - what `fromId` runs.
 
+    ArmoryVocabulary:
+      type: object
+      required:
+        - schemaVersion
+        - title
+        - stability
+        - extensionPolicy
+        - interpolation
+        - supportLevels
+        - procedureFields
+        - requirements
+        - effects
+      properties:
+        schemaVersion:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+        stability:
+          type: string
+        extensionPolicy:
+          type: string
+        interpolation:
+          $ref: '#/components/schemas/ArmoryInterpolationDefinition'
+        supportLevels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArmorySupportLevel'
+        procedureFields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArmoryProcedureFieldDefinition'
+        requirements:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArmoryRequirementDefinition'
+        effects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArmoryEffectDefinition'
+
+    ArmoryInterpolationDefinition:
+      type: object
+      required: [syntax, appliesTo, unknownVariables, description]
+      properties:
+        syntax:
+          type: string
+        appliesTo:
+          type: array
+          items:
+            type: string
+        unknownVariables:
+          type: string
+        description:
+          type: string
+
+    ArmorySupportLevel:
+      type: object
+      required: [id, description]
+      properties:
+        id:
+          type: string
+        description:
+          type: string
+
+    ArmoryJsonValueType:
+      type: string
+      enum: [boolean, string, array, object, number, 'null']
+
+    ArmoryProcedureFieldDefinition:
+      type: object
+      required: [name, valueTypes, required, support, scope, resolution, description]
+      properties:
+        name:
+          type: string
+        valueTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArmoryJsonValueType'
+        required:
+          type: boolean
+        support:
+          type: string
+        scope:
+          type: string
+        resolution:
+          type: string
+        description:
+          type: string
+
+    ArmoryRequirementDefinition:
+      type: object
+      required: [name, aliases, valueTypes, support, matching, description]
+      properties:
+        name:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        valueTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArmoryJsonValueType'
+        support:
+          type: string
+        matching:
+          type: string
+        description:
+          type: string
+
+    ArmoryEffectDefinition:
+      type: object
+      required: [kind, syntax, support, processing, description]
+      properties:
+        kind:
+          type: string
+        syntax:
+          type: string
+        support:
+          type: string
+        processing:
+          type: string
+        description:
+          type: string
+
     TTP:
       type: object
       required:
@@ -1617,6 +1764,10 @@ components:
     ProcedureReadinessStatus:
       type: string
       enum: [ready, unknown, unavailable]
+      description: >-
+        Tool readiness for one procedure on its physical execution system.
+        Unknown availability remains executable; unavailable means the required
+        tool is known to be absent.
 
     ProcedureState:
       type: object
@@ -1628,6 +1779,9 @@ components:
           $ref: '#/components/schemas/ProcedureReadinessStatus'
         requiredTool:
           type: string
+          description: >-
+            Effective binary dependency after applying procedure tool, key, ID,
+            and command fallbacks.
         reason:
           type: string
 
@@ -1741,6 +1895,10 @@ components:
           type: string
         tool:
           type: string
+          description: >-
+            Per-procedure binary dependency on the physical execution system.
+            When omitted in YAML, the procedure key is normalized into this
+            field. Read target-aware availability from actionState.procedures.
         isLocalCommand:
           type: boolean
         runOnTarget:

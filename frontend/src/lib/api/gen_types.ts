@@ -124,6 +124,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/armory/vocabulary': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get the Armory declaration vocabulary
+		 * @description Returns the versioned machine-readable contract for procedure fields, requirements, effects, interpolation, and support levels.
+		 */
+		get: operations['getArmoryVocabulary'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/armory/{actionId}/resolution': {
 		parameters: {
 			query?: never;
@@ -885,6 +905,53 @@ export interface components {
 			/** @description The full command string sent across this segment - what `fromId` runs. */
 			command: string;
 		};
+		ArmoryVocabulary: {
+			schemaVersion: number;
+			title: string;
+			stability: string;
+			extensionPolicy: string;
+			interpolation: components['schemas']['ArmoryInterpolationDefinition'];
+			supportLevels: components['schemas']['ArmorySupportLevel'][];
+			procedureFields: components['schemas']['ArmoryProcedureFieldDefinition'][];
+			requirements: components['schemas']['ArmoryRequirementDefinition'][];
+			effects: components['schemas']['ArmoryEffectDefinition'][];
+		};
+		ArmoryInterpolationDefinition: {
+			syntax: string;
+			appliesTo: string[];
+			unknownVariables: string;
+			description: string;
+		};
+		ArmorySupportLevel: {
+			id: string;
+			description: string;
+		};
+		/** @enum {string} */
+		ArmoryJsonValueType: 'boolean' | 'string' | 'array' | 'object' | 'number' | 'null';
+		ArmoryProcedureFieldDefinition: {
+			name: string;
+			valueTypes: components['schemas']['ArmoryJsonValueType'][];
+			required: boolean;
+			support: string;
+			scope: string;
+			resolution: string;
+			description: string;
+		};
+		ArmoryRequirementDefinition: {
+			name: string;
+			aliases: string[];
+			valueTypes: components['schemas']['ArmoryJsonValueType'][];
+			support: string;
+			matching: string;
+			description: string;
+		};
+		ArmoryEffectDefinition: {
+			kind: string;
+			syntax: string;
+			support: string;
+			processing: string;
+			description: string;
+		};
 		TTP: {
 			id: string;
 			name: string;
@@ -914,11 +981,15 @@ export interface components {
 			needsChoice: number;
 			blocked: number;
 		};
-		/** @enum {string} */
+		/**
+		 * @description Tool readiness for one procedure on its physical execution system. Unknown availability remains executable; unavailable means the required tool is known to be absent.
+		 * @enum {string}
+		 */
 		ProcedureReadinessStatus: 'ready' | 'unknown' | 'unavailable';
 		ProcedureState: {
 			procedureId: string;
 			status: components['schemas']['ProcedureReadinessStatus'];
+			/** @description Effective binary dependency after applying procedure tool, key, ID, and command fallbacks. */
 			requiredTool?: string;
 			reason?: string;
 		};
@@ -974,6 +1045,7 @@ export interface components {
 		Procedure: {
 			id: string;
 			command: string;
+			/** @description Per-procedure binary dependency on the physical execution system. When omitted in YAML, the procedure key is normalized into this field. Read target-aware availability from actionState.procedures. */
 			tool?: string;
 			isLocalCommand?: boolean;
 			/** @description Whether the command physically executes on the selected target. When false, Ran preserves the target context but executes from a different reachable system and excludes the target from the route. */
@@ -1579,6 +1651,35 @@ export interface operations {
 			};
 			/** @description Target not found */
 			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	getArmoryVocabulary: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Armory declaration vocabulary */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ArmoryVocabulary'];
+				};
+			};
+			/** @description Bundled vocabulary is invalid */
+			500: {
 				headers: {
 					[name: string]: unknown;
 				};
