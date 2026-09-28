@@ -256,14 +256,7 @@ fn init_tracing() {
 
     // Keep Ran logs configurable via RAN_LOG while muting very chatty HTTP internals.
     // This prevents flooding from lines like "connecting to 127.0.0.1:5173".
-    for directive in [
-        "hyper=info",
-        "hyper_util=info",
-        "h2=info",
-        "reqwest=info",
-        "tower=info",
-        "tower_http=info",
-    ] {
+    for directive in QUIET_LOG_DIRECTIVES {
         if let Ok(parsed) = directive.parse() {
             filter = filter.add_directive(parsed);
         }
@@ -297,6 +290,16 @@ fn init_tracing() {
     let _ = tracing::subscriber::set_global_default(subscriber);
 }
 
+const QUIET_LOG_DIRECTIVES: &[&str] = &[
+    "hyper=info",
+    "hyper_util=info",
+    "h2=info",
+    "kube_client=info",
+    "reqwest=info",
+    "tower=info",
+    "tower_http=info",
+];
+
 fn resolve_armory_dir(arg: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(path) = arg {
         return Ok(path);
@@ -322,5 +325,10 @@ mod tests {
                 format!("ran {}\n", env!("CARGO_PKG_VERSION"))
             );
         }
+    }
+
+    #[test]
+    fn kube_client_debug_requests_are_suppressed() {
+        assert!(QUIET_LOG_DIRECTIVES.contains(&"kube_client=info"));
     }
 }
