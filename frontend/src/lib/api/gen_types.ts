@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+	'/events': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Stream live campaign events
+		 * @description Opens a Server-Sent Events stream. Each named SSE message contains a JSON SseEvent envelope whose type matches the SSE event name.
+		 */
+		get: operations['streamEvents'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/ui-config': {
 		parameters: {
 			query?: never;
@@ -478,61 +498,219 @@ export interface paths {
 		trace?: never;
 	};
 }
-export interface webhooks {
-	'armory-loaded': {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		get?: never;
-		put?: never;
-		/**
-		 * Armory loaded webhook
-		 * @description Triggered when the armory is successfully loaded
-		 */
-		post: {
-			parameters: {
-				query?: never;
-				header?: never;
-				path?: never;
-				cookie?: never;
-			};
-			requestBody: {
-				content: {
-					'application/json': {
-						/** Format: date-time */
-						timestamp?: string;
-					};
-				};
-			};
-			responses: {
-				/** @description Webhook received successfully */
-				200: {
-					headers: {
-						[name: string]: unknown;
-					};
-					content?: never;
-				};
-				/** @description Invalid webhook payload */
-				400: {
-					headers: {
-						[name: string]: unknown;
-					};
-					content?: never;
-				};
-			};
-		};
-		delete?: never;
-		options?: never;
-		head?: never;
-		patch?: never;
-		trace?: never;
-	};
-}
+export type webhooks = Record<string, never>;
 export interface components {
 	schemas: {
+		/** @description A message sent on the /events Server-Sent Events stream. The SSE event name is always identical to the envelope's type field. */
+		SseEvent:
+			| components['schemas']['ArmoryLoadedSseEvent']
+			| components['schemas']['FactsChangedSseEvent']
+			| components['schemas']['EntityMergedSseEvent']
+			| components['schemas']['ParseAuditedSseEvent']
+			| components['schemas']['TtpDispatchedSseEvent']
+			| components['schemas']['TtpOutputSseEvent']
+			| components['schemas']['TtpExecutedSseEvent']
+			| components['schemas']['SessionChangedSseEvent']
+			| components['schemas']['ResetCampaignSseEvent']
+			| components['schemas']['PlanStepDispatchedSseEvent']
+			| components['schemas']['PlanStepCompletedSseEvent']
+			| components['schemas']['PlanStepSkippedSseEvent']
+			| components['schemas']['PlanStepFailedSseEvent']
+			| components['schemas']['PlanCompleteSseEvent']
+			| components['schemas']['PingSseEvent']
+			| components['schemas']['ErrorMessageSseEvent']
+			| components['schemas']['AlertSseEvent'];
+		ArmoryLoadedSseEvent: {
+			/** @enum {string} */
+			type: 'armory-loaded';
+			data: components['schemas']['ArmoryLoadedSseData'];
+		};
+		ArmoryLoadedSseData: components['schemas']['TTP'][];
+		FactsChangedSseEvent: {
+			/** @enum {string} */
+			type: 'facts-changed';
+			data: components['schemas']['FactsChangedSseData'];
+		};
+		FactsChangedSseData: {
+			cmdId: string;
+			newEntities: components['schemas']['ExecutionEntity'][];
+			newRelations: components['schemas']['ExecutionRelation'][];
+		};
+		EntityMergedSseEvent: {
+			/** @enum {string} */
+			type: 'entity-merged';
+			data: components['schemas']['EntityMergedSseData'];
+		};
+		EntityMergedSseData: {
+			from: string;
+			into: string;
+			kind: string;
+		};
+		ParseAuditedSseEvent: {
+			/** @enum {string} */
+			type: 'parse-audited';
+			data: components['schemas']['ParseAuditedSseData'];
+		};
+		ParseAuditedSseData: {
+			audits: components['schemas']['SseParseAudit'][];
+		};
+		SseParseAudit: {
+			cmdId: string;
+			effectId: string;
+			ttpId: string;
+			targetId: string;
+			parserVersion: string;
+			rawOutputHash: string;
+			rawOutputPreview: string;
+			/** @enum {string} */
+			parseResult: 'Parsed' | 'KnownFailure' | 'UnknownFormat' | 'NoParser' | 'ParserBug';
+			detail: string;
+			inferredFactsWritten: number;
+		};
+		TtpDispatchedSseEvent: {
+			/** @enum {string} */
+			type: 'ttp-dispatched';
+			data: components['schemas']['TtpDispatchedSseData'];
+		};
+		TtpDispatchedSseData: {
+			id: string;
+			/** @description Compatibility alias for id. */
+			cmdId: string;
+			ttp: components['schemas']['TTP'];
+			args: {
+				[key: string]: string;
+			};
+			targetId: string;
+			execSystemId: string;
+			/** Format: int64 */
+			startedAtMs: number;
+		};
+		TtpOutputSseEvent: {
+			/** @enum {string} */
+			type: 'ttp-output';
+			data: components['schemas']['TtpOutputSseData'];
+		};
+		TtpOutputSseData: {
+			cmdId: string;
+			/** Format: int64 */
+			sequence: number;
+			stdout: string;
+			stderr: string;
+			/** Format: int64 */
+			stdoutBytes: number;
+			/** Format: int64 */
+			stderrBytes: number;
+		};
+		TtpExecutedSseEvent: {
+			/** @enum {string} */
+			type: 'ttp-executed';
+			data: components['schemas']['TtpExecutedSseData'];
+		};
+		TtpExecutedSseData: {
+			id: string;
+			/** @description Compatibility alias for id. */
+			cmdId: string;
+			actionId: string;
+			ttp: components['schemas']['TTP'];
+			args: {
+				[key: string]: string;
+			};
+			targetId: string;
+			execSystemId: string;
+			success: boolean;
+			partial: boolean;
+			failReason: string;
+			results: string[];
+			exitCode: number;
+		};
+		SessionChangedSseEvent: {
+			/** @enum {string} */
+			type: 'session-changed';
+			data: components['schemas']['SessionChangedSseData'];
+		};
+		SessionChangedSseData: {
+			backendId: string;
+			entityId: string;
+			entityName: string;
+			/** @enum {string} */
+			state: 'lost' | 'reestablished';
+		};
+		ResetCampaignSseEvent: {
+			/** @enum {string} */
+			type: 'reset-campaign';
+			data: components['schemas']['ResetCampaignSseData'];
+		};
+		ResetCampaignSseData: Record<string, never>;
+		PlanStepDispatchedSseEvent: {
+			/** @enum {string} */
+			type: 'plan-step-dispatched';
+			data: components['schemas']['PlanStepDispatchedSseData'];
+		};
+		PlanStepDispatchedSseData: {
+			planId: string;
+			stepId: string;
+			execCount: number;
+		};
+		PlanStepCompletedSseEvent: {
+			/** @enum {string} */
+			type: 'plan-step-completed';
+			data: components['schemas']['PlanStepCompletedSseData'];
+		};
+		PlanStepCompletedSseData: {
+			planId: string;
+			stepId: string;
+			success: boolean;
+		};
+		PlanStepSkippedSseEvent: {
+			/** @enum {string} */
+			type: 'plan-step-skipped';
+			data: components['schemas']['PlanStepSkippedSseData'];
+		};
+		PlanStepSkippedSseData: {
+			planId: string;
+			stepId: string;
+			reason: string;
+		};
+		PlanStepFailedSseEvent: {
+			/** @enum {string} */
+			type: 'plan-step-failed';
+			data: components['schemas']['PlanStepFailedSseData'];
+		};
+		PlanStepFailedSseData: {
+			planId: string;
+			stepId: string;
+			reason: string;
+		};
+		PlanCompleteSseEvent: {
+			/** @enum {string} */
+			type: 'plan-complete';
+			data: components['schemas']['PlanCompleteSseData'];
+		};
+		PlanCompleteSseData: {
+			planId: string;
+		};
+		PingSseEvent: {
+			/** @enum {string} */
+			type: 'ping';
+			data: components['schemas']['PingSseData'];
+		};
+		/** @enum {string} */
+		PingSseData: 'keepalive';
+		/** @description Legacy error event retained for compatible clients. */
+		ErrorMessageSseEvent: {
+			/** @enum {string} */
+			type: 'error-msg';
+			/** @description JSON-encoded legacy error message. */
+			data: string;
+		};
+		/** @description Legacy alert event retained for compatible clients. */
+		AlertSseEvent: {
+			/** @enum {string} */
+			type: 'alert';
+			data: {
+				[key: string]: unknown;
+			};
+		};
 		PlanSummary: {
 			/** @description File name within the plans directory (pass to /api/plans/load) */
 			filename: string;
@@ -1276,6 +1454,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+	streamEvents: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Live Server-Sent Events stream */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'text/event-stream': components['schemas']['SseEvent'];
+				};
+			};
+		};
+	};
 	getUiConfig: {
 		parameters: {
 			query?: never;

@@ -56,6 +56,8 @@ export default ts.config(
 		// to this list means committing to keeping it clean.
 		files: [
 			'src/types/**/*.d.ts',
+			'src/lib/ran_api.ts',
+			'src/lib/ran_api.test.ts',
 			'src/routes/components/graph.svelte',
 			'src/routes/components/graph_edges.ts',
 			'src/routes/components/graph_edges.svelte.test.ts',

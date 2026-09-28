@@ -83,6 +83,36 @@ fn main() -> Result<()> {
         generated.push('\n');
     }
 
+    generated.push_str(&generate_named_schema_type(schemas, "SseParseAudit")?);
+    generated.push('\n');
+
+    let sse_data_schema_names = [
+        "ArmoryLoadedSseData",
+        "FactsChangedSseData",
+        "EntityMergedSseData",
+        "ParseAuditedSseData",
+        "TtpDispatchedSseData",
+        "TtpOutputSseData",
+        "TtpExecutedSseData",
+        "SessionChangedSseData",
+        "ResetCampaignSseData",
+        "PlanStepDispatchedSseData",
+        "PlanStepCompletedSseData",
+        "PlanStepSkippedSseData",
+        "PlanStepFailedSseData",
+        "PlanCompleteSseData",
+        "PingSseData",
+    ];
+    for schema_name in sse_data_schema_names {
+        generated.push_str(&generate_named_schema_type(schemas, schema_name)?);
+        generated.push('\n');
+    }
+    generated.push_str(&generate_sse_payload_impls(
+        schemas,
+        &sse_data_schema_names.into_iter().collect(),
+    )?);
+    generated.push('\n');
+
     generated.push_str(
         r#"
 #[derive(Debug)]
@@ -371,6 +401,107 @@ fn generate_object_schema_struct(schemas: &Mapping, schema_name: &str) -> Result
     Ok(out)
 }
 
+fn generate_named_schema_type(schemas: &Mapping, schema_name: &str) -> Result<String> {
+    let schema = schemas
+        .get(Value::String(schema_name.to_string()))
+        .and_then(Value::as_mapping)
+        .ok_or_else(|| anyhow!("schema '{}' not found", schema_name))?;
+    let ty = schema
+        .get(Value::String("type".to_string()))
+        .and_then(Value::as_str)
+        .unwrap_or("object");
+
+    if ty == "object" {
+        return generate_object_schema_struct(schemas, schema_name);
+    }
+
+    let rust_type = rust_type_for_schema_inline(schema)?;
+    Ok(format!(
+        "#[derive(Debug, Clone, Serialize, Deserialize)]\n#[serde(transparent)]\npub struct {}(pub {});\n",
+        rust_type_name(schema_name),
+        rust_type
+    ))
+}
+
+fn generate_sse_payload_impls(
+    schemas: &Mapping,
+    generated_data_schemas: &HashSet<&str>,
+) -> Result<String> {
+    let event_union = schemas
+        .get(Value::String("SseEvent".to_string()))
+        .and_then(Value::as_mapping)
+        .ok_or_else(|| anyhow!("schema 'SseEvent' not found"))?;
+    let variants = event_union
+        .get(Value::String("oneOf".to_string()))
+        .and_then(Value::as_sequence)
+        .ok_or_else(|| anyhow!("schema 'SseEvent' must define oneOf"))?;
+
+    let mut out = String::new();
+    let mut generated = HashSet::new();
+    for variant in variants {
+        let event_ref = variant
+            .as_mapping()
+            .and_then(|mapping| mapping.get(Value::String("$ref".to_string())))
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("SseEvent variant must be a $ref"))?;
+        let event_name = event_ref
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| anyhow!("invalid SSE event $ref '{}'", event_ref))?;
+        let event_schema = schemas
+            .get(Value::String(event_name.to_string()))
+            .and_then(Value::as_mapping)
+            .ok_or_else(|| anyhow!("SSE event schema '{}' not found", event_name))?;
+        let properties = event_schema
+            .get(Value::String("properties".to_string()))
+            .and_then(Value::as_mapping)
+            .ok_or_else(|| anyhow!("SSE event schema '{}' missing properties", event_name))?;
+
+        let Some(data_ref) = properties
+            .get(Value::String("data".to_string()))
+            .and_then(Value::as_mapping)
+            .and_then(|mapping| mapping.get(Value::String("$ref".to_string())))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let data_name = data_ref
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| anyhow!("invalid SSE data $ref '{}'", data_ref))?;
+        if !generated_data_schemas.contains(data_name) {
+            continue;
+        }
+
+        let event_type = properties
+            .get(Value::String("type".to_string()))
+            .and_then(Value::as_mapping)
+            .and_then(|mapping| mapping.get(Value::String("enum".to_string())))
+            .and_then(Value::as_sequence)
+            .and_then(|values| values.first())
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("SSE event schema '{}' missing type enum", event_name))?;
+        out.push_str(&format!(
+            "impl crate::SsePayload for {} {{\n    const EVENT_TYPE: &'static str = \"{}\";\n}}\n",
+            rust_type_name(data_name),
+            event_type
+        ));
+        generated.insert(data_name);
+    }
+
+    if generated.len() != generated_data_schemas.len() {
+        let missing: Vec<_> = generated_data_schemas
+            .difference(&generated)
+            .copied()
+            .collect();
+        return Err(anyhow!(
+            "generated SSE data schemas missing event envelopes: {:?}",
+            missing
+        ));
+    }
+    Ok(out)
+}
+
 fn rust_type_for_schema_inline(schema: &Mapping) -> Result<String> {
     if let Some(r) = schema
         .get(Value::String("$ref".to_string()))
@@ -429,6 +560,9 @@ fn rust_type_name(schema_name: &str) -> String {
         "Error" => "ErrorResponse".to_string(),
         "Node" => "GraphNode".to_string(),
         "Edge" => "GraphEdge".to_string(),
+        "TTP" => "armory::Ttp".to_string(),
+        "ExecutionEntity" => "campaign::EntitySummary".to_string(),
+        "ExecutionRelation" => "ran_domain::RelationSummary".to_string(),
         other => other.to_string(),
     }
 }

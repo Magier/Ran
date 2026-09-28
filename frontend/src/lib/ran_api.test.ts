@@ -43,6 +43,17 @@ afterEach(() => {
 });
 
 describe('RanAPI event subscriptions', () => {
+	function deliver(api: RanAPI, type: string, data: unknown) {
+		const testApi = api as unknown as {
+			handleSSEMessage(event: MessageEvent): void;
+		};
+		testApi.handleSSEMessage(
+			new MessageEvent(type, {
+				data: JSON.stringify({ type, data })
+			})
+		);
+	}
+
 	it('notifies listeners when the backend connection changes state', () => {
 		const api = new RanAPI();
 		const statefulApi = api as unknown as {
@@ -70,21 +81,13 @@ describe('RanAPI event subscriptions', () => {
 		api.on('ttp-executed', first);
 		api.on('ttp-executed', second);
 
-		(api as any).handleSSEMessage(
-			new MessageEvent('ttp-executed', {
-				data: JSON.stringify({ type: 'ttp-executed', data: { cmdId: 'cmd-1' } })
-			})
-		);
+		deliver(api, 'ttp-executed', { cmdId: 'cmd-1' });
 
 		expect(first).toHaveBeenCalledWith({ cmdId: 'cmd-1' });
 		expect(second).toHaveBeenCalledWith({ cmdId: 'cmd-1' });
 
 		api.off('ttp-executed', first);
-		(api as any).handleSSEMessage(
-			new MessageEvent('ttp-executed', {
-				data: JSON.stringify({ type: 'ttp-executed', data: { cmdId: 'cmd-2' } })
-			})
-		);
+		deliver(api, 'ttp-executed', { cmdId: 'cmd-2' });
 
 		expect(first).toHaveBeenCalledTimes(1);
 		expect(second).toHaveBeenLastCalledWith({ cmdId: 'cmd-2' });

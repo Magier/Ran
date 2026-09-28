@@ -20,7 +20,7 @@
  * ```
  */
 import createClient from 'openapi-fetch';
-import type { paths } from '$lib/api/gen_types';
+import type { components, paths } from '$lib/api/gen_types';
 import type {
 	Graph,
 	CampaignState,
@@ -41,14 +41,38 @@ import type {
 } from '$lib/api';
 
 export type BackendConnectionState = 'connecting' | 'connected' | 'disconnected';
+export type SseEvent = components['schemas']['SseEvent'];
+export type SseEventType = SseEvent['type'];
+type SseDataFor<K extends SseEventType> =
+	Extract<SseEvent, { type: K }> extends {
+		data: infer Data;
+	}
+		? Data
+		: never;
+export type SseEventMap = { [K in SseEventType]: SseDataFor<K> };
+
+type SseHandlerRegistration = {
+	handler: unknown;
+	invoke: (data: unknown) => void;
+};
+
+function isSseEnvelope(value: unknown): value is { type: string; data: unknown } {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		'type' in value &&
+		typeof value.type === 'string' &&
+		'data' in value
+	);
+}
 
 const SSE_RECONNECT_FALLBACK_MS = 1_000;
 
 export class RanAPI {
 	eventSource?: EventSource;
-	private messageHandlers = new Map<string, Set<(data: any) => void>>();
-	private sseEventListeners = new Set<string>(); // Track registered SSE event types
-	private pendingSSEEventTypes = new Set<string>(); // Event types waiting for SSE connection
+	private messageHandlers = new Map<SseEventType, Set<SseHandlerRegistration>>();
+	private sseEventListeners = new Set<SseEventType>(); // Track registered SSE event types
+	private pendingSSEEventTypes = new Set<SseEventType>(); // Event types waiting for SSE connection
 	private restClient = createClient<paths>({ baseUrl: '' }); // Use relative URLs
 	private connectionState: BackendConnectionState = 'connecting';
 	private connectionStateListeners = new Set<(state: BackendConnectionState) => void>();
@@ -158,21 +182,25 @@ export class RanAPI {
 	}
 
 	private handleSSEMessage(event: MessageEvent) {
-		let msgType: string;
-		let data: any;
+		let message: unknown;
 		try {
-			({ type: msgType, data } = JSON.parse(event.data));
+			message = JSON.parse(event.data) as unknown;
 		} catch (err) {
 			console.error('Failed to parse SSE message:', err, event.data);
 			return;
 		}
+		if (!isSseEnvelope(message)) {
+			console.error('Invalid SSE message envelope:', message);
+			return;
+		}
+		const msgType = message.type as SseEventType;
 
 		// Call registered handler for events
 		const handlers = this.messageHandlers.get(msgType);
 		if (handlers && handlers.size > 0) {
-			for (const handler of handlers) {
+			for (const registration of handlers) {
 				try {
-					handler(data);
+					registration.invoke(message.data);
 				} catch (err) {
 					console.error('Error in SSE message handler for type:', msgType, err);
 				}
@@ -183,9 +211,14 @@ export class RanAPI {
 	}
 
 	// Subscribe to push events (events not triggered by a request)
-	on(type: string, handler: (data: any) => void) {
+	on<K extends SseEventType>(type: K, handler: (data: SseEventMap[K]) => void): () => void {
 		const handlers = this.messageHandlers.get(type) ?? new Set();
-		handlers.add(handler);
+		if (![...handlers].some((registration) => registration.handler === handler)) {
+			handlers.add({
+				handler,
+				invoke: (data) => handler(data as SseEventMap[K])
+			});
+		}
 		this.messageHandlers.set(type, handlers);
 		console.log(`Registered handler for event type: ${type}`);
 
@@ -209,13 +242,15 @@ export class RanAPI {
 		return () => this.off(type, handler);
 	}
 
-	off(type: string, handler?: (data: any) => void) {
+	off<K extends SseEventType>(type: K, handler?: (data: SseEventMap[K]) => void) {
 		if (!handler) {
 			this.messageHandlers.delete(type);
 			return;
 		}
 		const handlers = this.messageHandlers.get(type);
-		handlers?.delete(handler);
+		for (const registration of handlers ?? []) {
+			if (registration.handler === handler) handlers?.delete(registration);
+		}
 		if (handlers?.size === 0) this.messageHandlers.delete(type);
 
 		// Note: EventSource doesn't provide a way to remove specific event listeners

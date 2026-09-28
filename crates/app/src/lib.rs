@@ -2693,22 +2693,19 @@ mod initial_access_target_tests {
 /// symmetric. Emitted from every dispatch path that registers an open step.
 fn publish_ttp_dispatched(exec: &c2::ExecTtp) {
     let differs = !exec.exec_system_id.is_empty() && exec.exec_system_id != exec.target_id;
-    api::publish_sse_event(
-        "ttp-dispatched",
-        serde_json::json!({
-            "type": "ttp-dispatched",
-            "data": {
-                "ID": exec.id,
-                "CmdId": exec.id,
-                "TTP": exec.ttp,
-                "Args": exec.args,
-                "TargetID": exec.target_id,
-                "ExecSystemID": if differs { exec.exec_system_id.clone() } else { String::new() },
-                "StartedAtMs": exec.started_at_ms,
-            },
-        })
-        .to_string(),
-    );
+    api::publish_sse_event(api::TtpDispatchedSseData {
+        id: exec.id.clone(),
+        cmd_id: exec.id.clone(),
+        ttp: exec.ttp.clone(),
+        args: exec.args.clone(),
+        target_id: exec.target_id.clone(),
+        exec_system_id: if differs {
+            exec.exec_system_id.clone()
+        } else {
+            String::new()
+        },
+        started_at_ms: exec.started_at_ms as i64,
+    });
 }
 
 async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<CampaignEvent>) {
@@ -2722,21 +2719,14 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                 stdout_bytes,
                 stderr_bytes,
             }) => {
-                api::publish_sse_event(
-                    "ttp-output",
-                    serde_json::json!({
-                        "type": "ttp-output",
-                        "data": {
-                            "CmdId": cmd_id,
-                            "Sequence": sequence,
-                            "Stdout": stdout,
-                            "Stderr": stderr,
-                            "StdoutBytes": stdout_bytes,
-                            "StderrBytes": stderr_bytes,
-                        },
-                    })
-                    .to_string(),
-                );
+                api::publish_sse_event(api::TtpOutputSseData {
+                    cmd_id,
+                    sequence: sequence as i64,
+                    stdout,
+                    stderr,
+                    stdout_bytes: stdout_bytes as i64,
+                    stderr_bytes: stderr_bytes as i64,
+                });
             }
             Ok(CampaignEvent::TtpExecuted {
                 cmd_id,
@@ -2751,7 +2741,7 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                 results,
                 exit_code,
             }) => {
-                let (event, payload) = ttp_executed_sse_event(
+                let payload = ttp_executed_sse_event(
                     &cmd_id,
                     &action_id,
                     &target_id,
@@ -2764,29 +2754,21 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     &results,
                     exit_code,
                 );
-                api::publish_sse_event(event, payload);
+                api::publish_sse_event(payload);
             }
             Ok(CampaignEvent::FactsChanged {
                 cmd_id,
                 new_entities,
                 new_relations,
             }) => {
-                api::publish_sse_event(
-                    "facts-changed",
-                    serde_json::json!({
-                        "type": "facts-changed",
-                        "data": {
-                            "cmdId": cmd_id,
-                            "newEntities": new_entities,
-                            "newRelations": new_relations,
-                        },
-                    })
-                    .to_string(),
-                );
+                api::publish_sse_event(api::FactsChangedSseData {
+                    cmd_id,
+                    new_entities,
+                    new_relations,
+                });
             }
             Ok(CampaignEvent::EntityMerged { from, into, kind }) => {
-                let (event, payload) = entity_merged_sse_event(&from, &into, &kind);
-                api::publish_sse_event(event, payload);
+                api::publish_sse_event(entity_merged_sse_event(&from, &into, &kind));
             }
             Ok(CampaignEvent::SessionStateChanged {
                 backend_id,
@@ -2794,103 +2776,71 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                 entity_name,
                 state,
             }) => {
-                api::publish_sse_event(
-                    "session-changed",
-                    serde_json::json!({
-                        "type": "session-changed",
-                        "data": {
-                            "backendId": backend_id,
-                            "entityId": entity_id,
-                            "entityName": entity_name,
-                            "state": state,
-                        },
-                    })
-                    .to_string(),
-                );
+                let state = match state {
+                    campaign::runtime::SessionLifecycle::Lost => "lost",
+                    campaign::runtime::SessionLifecycle::Reestablished => "reestablished",
+                };
+                api::publish_sse_event(api::SessionChangedSseData {
+                    backend_id,
+                    entity_id,
+                    entity_name,
+                    state: state.to_string(),
+                });
             }
             Ok(CampaignEvent::ParseAudited { audits, .. }) => {
-                api::publish_sse_event(
-                    "parse-audited",
-                    serde_json::json!({
-                        "type": "parse-audited",
-                        "data": {
-                            "audits": audits,
-                        },
-                    })
-                    .to_string(),
-                );
+                api::publish_sse_event(api::ParseAuditedSseData {
+                    audits: audits.into_iter().map(Into::into).collect(),
+                });
             }
             Ok(CampaignEvent::Reset) => {
-                api::publish_sse_event(
-                    "reset-campaign",
-                    serde_json::json!({ "type": "reset-campaign" }).to_string(),
-                );
+                api::publish_sse_event(api::ResetCampaignSseData {});
             }
             Ok(CampaignEvent::PlanStepDispatched {
                 plan_id,
                 step_id,
                 exec_count,
             }) => {
-                api::publish_sse_event(
-                    "plan-step-dispatched",
-                    serde_json::json!({
-                        "type": "plan-step-dispatched",
-                        "data": { "planId": plan_id, "stepId": step_id, "execCount": exec_count },
-                    })
-                    .to_string(),
-                );
+                api::publish_sse_event(api::PlanStepDispatchedSseData {
+                    plan_id,
+                    step_id,
+                    exec_count: exec_count as i64,
+                });
             }
             Ok(CampaignEvent::PlanStepCompleted {
                 plan_id,
                 step_id,
                 success,
             }) => {
-                api::publish_sse_event(
-                    "plan-step-completed",
-                    serde_json::json!({
-                        "type": "plan-step-completed",
-                        "data": { "planId": plan_id, "stepId": step_id, "success": success },
-                    })
-                    .to_string(),
-                );
+                api::publish_sse_event(api::PlanStepCompletedSseData {
+                    plan_id,
+                    step_id,
+                    success,
+                });
             }
             Ok(CampaignEvent::PlanStepSkipped {
                 plan_id,
                 step_id,
                 reason,
             }) => {
-                api::publish_sse_event(
-                    "plan-step-skipped",
-                    serde_json::json!({
-                        "type": "plan-step-skipped",
-                        "data": { "planId": plan_id, "stepId": step_id, "reason": reason },
-                    })
-                    .to_string(),
-                );
+                api::publish_sse_event(api::PlanStepSkippedSseData {
+                    plan_id,
+                    step_id,
+                    reason,
+                });
             }
             Ok(CampaignEvent::PlanStepFailed {
                 plan_id,
                 step_id,
                 reason,
             }) => {
-                api::publish_sse_event(
-                    "plan-step-failed",
-                    serde_json::json!({
-                        "type": "plan-step-failed",
-                        "data": { "planId": plan_id, "stepId": step_id, "reason": reason },
-                    })
-                    .to_string(),
-                );
+                api::publish_sse_event(api::PlanStepFailedSseData {
+                    plan_id,
+                    step_id,
+                    reason,
+                });
             }
             Ok(CampaignEvent::PlanComplete { plan_id }) => {
-                api::publish_sse_event(
-                    "plan-complete",
-                    serde_json::json!({
-                        "type": "plan-complete",
-                        "data": { "planId": plan_id },
-                    })
-                    .to_string(),
-                );
+                api::publish_sse_event(api::PlanCompleteSseData { plan_id });
             }
             Err(broadcast::error::RecvError::Lagged(skipped)) => {
                 error!(
@@ -2909,50 +2859,36 @@ fn ttp_executed_sse_event(
     action_id: &str,
     target_id: &str,
     exec_system_id: &str,
-    ttp: &impl serde::Serialize,
-    args: &impl serde::Serialize,
+    ttp: &armory::Ttp,
+    args: &std::collections::HashMap<String, String>,
     success: bool,
     partial: bool,
     fail_reason: &str,
     results: &[String],
     exit_code: i32,
-) -> (&'static str, String) {
-    (
-        "ttp-executed",
-        serde_json::json!({
-            "type": "ttp-executed",
-            "data": {
-                "id": cmd_id,
-                "cmdId": cmd_id,
-                "actionId": action_id,
-                "ttp": ttp,
-                "args": args,
-                "targetId": target_id,
-                "execSystemId": exec_system_id,
-                "success": success,
-                "partial": partial,
-                "failReason": fail_reason,
-                "results": results,
-                "exitCode": exit_code,
-            },
-        })
-        .to_string(),
-    )
+) -> api::TtpExecutedSseData {
+    api::TtpExecutedSseData {
+        id: cmd_id.to_string(),
+        cmd_id: cmd_id.to_string(),
+        action_id: action_id.to_string(),
+        ttp: ttp.clone(),
+        args: args.clone(),
+        target_id: target_id.to_string(),
+        exec_system_id: exec_system_id.to_string(),
+        success,
+        partial,
+        fail_reason: fail_reason.to_string(),
+        results: results.to_vec(),
+        exit_code: exit_code as i64,
+    }
 }
 
-fn entity_merged_sse_event(from: &str, into: &str, kind: &str) -> (&'static str, String) {
-    (
-        "entity-merged",
-        serde_json::json!({
-            "type": "entity-merged",
-            "data": {
-                "from": from,
-                "into": into,
-                "kind": kind,
-            },
-        })
-        .to_string(),
-    )
+fn entity_merged_sse_event(from: &str, into: &str, kind: &str) -> api::EntityMergedSseData {
+    api::EntityMergedSseData {
+        from: from.to_string(),
+        into: into.to_string(),
+        kind: kind.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -2961,52 +2897,48 @@ mod campaign_sse_tests {
 
     #[test]
     fn ttp_executed_uses_correlatable_camel_case_payload() {
-        let (event, payload) = ttp_executed_sse_event(
+        let payload = ttp_executed_sse_event(
             "cmd-123",
             "list-pods",
             "ns/default",
             "ns/default/pod/operator",
-            &serde_json::json!({ "id": "list-pods", "name": "List Pods" }),
-            &serde_json::json!({ "NS": "default" }),
+            &armory::Ttp {
+                name: "List Pods".to_string(),
+                ..armory::Ttp::new("list-pods", "List Pods", "Discovery")
+            },
+            &std::collections::HashMap::from([("NS".to_string(), "default".to_string())]),
             true,
             false,
             "",
             &["pod-a".to_string()],
             0,
         );
+        let payload = api::serialize_sse_event(&payload).unwrap();
 
-        assert_eq!(event, "ttp-executed");
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&payload).unwrap(),
-            serde_json::json!({
-                "type": "ttp-executed",
-                "data": {
-                    "id": "cmd-123",
-                    "cmdId": "cmd-123",
-                    "actionId": "list-pods",
-                    "ttp": { "id": "list-pods", "name": "List Pods" },
-                    "args": { "NS": "default" },
-                    "targetId": "ns/default",
-                    "execSystemId": "ns/default/pod/operator",
-                    "success": true,
-                    "partial": false,
-                    "failReason": "",
-                    "results": ["pod-a"],
-                    "exitCode": 0,
-                },
-            })
-        );
+        let event = serde_json::from_str::<serde_json::Value>(&payload).unwrap();
+        assert_eq!(event["type"], "ttp-executed");
+        assert_eq!(event["data"]["id"], "cmd-123");
+        assert_eq!(event["data"]["cmdId"], "cmd-123");
+        assert_eq!(event["data"]["actionId"], "list-pods");
+        assert_eq!(event["data"]["ttp"]["id"], "list-pods");
+        assert_eq!(event["data"]["args"]["NS"], "default");
+        assert_eq!(event["data"]["targetId"], "ns/default");
+        assert_eq!(event["data"]["execSystemId"], "ns/default/pod/operator");
+        assert_eq!(event["data"]["success"], true);
+        assert_eq!(event["data"]["partial"], false);
+        assert_eq!(event["data"]["results"], serde_json::json!(["pod-a"]));
+        assert_eq!(event["data"]["exitCode"], 0);
     }
 
     #[test]
     fn entity_merge_uses_the_public_sse_envelope() {
-        let (event, payload) = entity_merged_sse_event(
+        let payload = entity_merged_sse_event(
             "system/agent-worker-4vnbf",
             "ns/agent-system/pod/agent-worker-4vnbf",
             "Pod",
         );
+        let payload = api::serialize_sse_event(&payload).unwrap();
 
-        assert_eq!(event, "entity-merged");
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&payload).unwrap(),
             serde_json::json!({
