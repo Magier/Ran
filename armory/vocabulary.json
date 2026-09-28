@@ -1,0 +1,251 @@
+{
+  "schemaVersion": 1,
+  "title": "Armory Requirements and Effects Vocabulary",
+  "stability": "experimental",
+  "extensionPolicy": "This vocabulary describes declarations shipped with Ran. Custom Armory content may use additional names, but unknown requirements do not gate applicability and unknown effects have no built-in semantics unless an external parser handles them.",
+  "interpolation": {
+    "syntax": "${NAME}",
+    "appliesTo": ["effects"],
+    "unknownVariables": "preserved unchanged",
+    "description": "Before effects are processed, Ran substitutes execution arguments into every effect string. Argument lookup is ASCII case-insensitive. Interpolation is a property of all effect declarations, not selected effect kinds."
+  },
+  "supportLevels": [
+    {
+      "id": "enforced",
+      "description": "The requirement participates in applicability evaluation."
+    },
+    {
+      "id": "parsed",
+      "description": "The effect has a built-in output parser."
+    },
+    {
+      "id": "structural",
+      "description": "The effect directly changes campaign facts or graph structure."
+    },
+    {
+      "id": "event",
+      "description": "The effect is confirmed through a runtime event rather than stdout."
+    },
+    {
+      "id": "mixed",
+      "description": "Only the documented syntax variants have built-in semantics."
+    },
+    {
+      "id": "declarative-only",
+      "description": "The declaration does not gate applicability or produce campaign facts. It may still be classified for scoring."
+    }
+  ],
+  "requirements": [
+    {
+      "name": "kind",
+      "aliases": [],
+      "valueTypes": ["string", "array"],
+      "support": "enforced",
+      "matching": "A string or any string array member matches the selected entity kind case-insensitively. System also matches any system entity.",
+      "description": "Restricts the semantic target kind."
+    },
+    {
+      "name": "rbacPermissions",
+      "aliases": ["rbac"],
+      "valueTypes": ["array"],
+      "support": "enforced",
+      "matching": "One captured or active Kubernetes identity must satisfy every listed permission. An empty array passes.",
+      "description": "Requires Kubernetes RBAC permissions. The rbac YAML spelling is normalized before API serialization."
+    },
+    {
+      "name": "accessLevel",
+      "aliases": [],
+      "valueTypes": ["string"],
+      "support": "enforced",
+      "matching": "none passes. Any other string requires executable access, except for exempt tactics.",
+      "description": "Requires execution access to a system target."
+    },
+    {
+      "name": "activeSession",
+      "aliases": [],
+      "valueTypes": ["boolean"],
+      "support": "enforced",
+      "matching": "true requires an active session on the selected target. false imposes no restriction.",
+      "description": "Requires a live shell session."
+    },
+    {
+      "name": "filesystemAccess",
+      "aliases": [],
+      "valueTypes": ["boolean"],
+      "support": "enforced",
+      "matching": "true requires direct filesystem execution access or an executable same-node Pod with a hostPath. false imposes no restriction.",
+      "description": "Requires a realizable path to the target filesystem."
+    },
+    {
+      "name": "has-token",
+      "aliases": [],
+      "valueTypes": ["boolean"],
+      "support": "enforced",
+      "matching": "true requires a non-empty token on the selected target. false imposes no restriction.",
+      "description": "Requires captured token material."
+    },
+    {
+      "name": "exists",
+      "aliases": [],
+      "valueTypes": ["array"],
+      "support": "enforced",
+      "matching": "Every entry must match an existing entity. Entries may be kind strings or objects with kind and optional exact name and namespace fields.",
+      "description": "Requires campaign entities to exist."
+    },
+    {
+      "name": "related",
+      "aliases": [],
+      "valueTypes": ["array"],
+      "support": "enforced",
+      "matching": "Every recognized target-kind and related-kind pair must be satisfied. Unknown relationship combinations pass.",
+      "description": "Requires entities related to the selected target."
+    },
+    {
+      "name": "c2.has-listener",
+      "aliases": [],
+      "valueTypes": ["boolean"],
+      "support": "enforced",
+      "matching": "The presence of any listener must equal the declared boolean.",
+      "description": "Requires or forbids a registered C2 listener."
+    },
+    {
+      "name": "c2.has-session",
+      "aliases": [],
+      "valueTypes": ["boolean"],
+      "support": "enforced",
+      "matching": "The selected C2 must own a live, unbroken session exactly when true is declared.",
+      "description": "Requires or forbids a live C2 session."
+    },
+    {
+      "name": "c2.has-tool",
+      "aliases": [],
+      "valueTypes": ["string", "array"],
+      "support": "enforced",
+      "matching": "Every named executable must resolve on the operator host. Invalid array members are ignored.",
+      "description": "Requires operator-host executables."
+    },
+    {
+      "name": "Pod.securityContext.privileged",
+      "aliases": [],
+      "valueTypes": ["boolean"],
+      "support": "enforced",
+      "matching": "Known opposite evidence blocks the action. Unknown security context passes.",
+      "description": "Matches the selected Pod privileged state."
+    },
+    {
+      "name": "Pod.securityContext.hostPID",
+      "aliases": [],
+      "valueTypes": ["boolean"],
+      "support": "enforced",
+      "matching": "Known opposite evidence blocks the action. Unknown security context passes.",
+      "description": "Matches the selected Pod host PID state."
+    },
+    {
+      "name": "Pod.hostPath",
+      "aliases": [],
+      "valueTypes": ["boolean", "string", "array"],
+      "support": "enforced",
+      "matching": "A boolean requires or forbids any hostPath. A string requires one exact normalized source path. An array requires every listed source path.",
+      "description": "Requires hostPath exposure on the selected Pod."
+    },
+    {
+      "name": "linuxNamespaceAccess",
+      "aliases": [],
+      "valueTypes": ["array"],
+      "support": "enforced",
+      "matching": "Unknown access passes. The latest matching action evidence blocks a namespace after a recognized denial and restores it after success.",
+      "description": "Requires access to named Linux namespaces."
+    },
+    {
+      "name": "sys.has-binary",
+      "aliases": [],
+      "valueTypes": ["string"],
+      "support": "declarative-only",
+      "matching": "No applicability predicate currently reads this requirement.",
+      "description": "Legacy declaration of a target-side binary dependency. Procedures should declare their tool instead."
+    },
+    {
+      "name": "Container.securityContext.capabilities",
+      "aliases": [],
+      "valueTypes": ["string", "array"],
+      "support": "declarative-only",
+      "matching": "No applicability predicate currently reads this requirement.",
+      "description": "Declares required Linux capabilities."
+    },
+    {
+      "name": "pkg:golang/k8s.io/ingress-nginx",
+      "aliases": [],
+      "valueTypes": ["array"],
+      "support": "declarative-only",
+      "matching": "No applicability predicate currently reads this package-specific requirement.",
+      "description": "Declares vulnerable ingress-nginx version ranges."
+    }
+  ],
+  "effects": [
+    {"kind": "$c.name", "syntax": "$c.name(${NAME})", "support": "declarative-only", "processing": "none", "description": "Legacy container-name assertion."},
+    {"kind": "$d isa k8s.Deployment", "syntax": "$d isa k8s.Deployment(${TARGET})", "support": "declarative-only", "processing": "none", "description": "Legacy deployment assertion."},
+    {"kind": "$d.hasPod", "syntax": "$d.hasPod($p)", "support": "declarative-only", "processing": "none", "description": "Legacy deployment-to-Pod assertion."},
+    {"kind": "$p isa k8s.Pod", "syntax": "$p isa k8s.Pod(${TARGET})", "support": "declarative-only", "processing": "none", "description": "Legacy Pod assertion."},
+    {"kind": "$p.hasContainer", "syntax": "$p.hasContainer($c)", "support": "declarative-only", "processing": "none", "description": "Legacy Pod-to-container assertion."},
+    {"kind": "GCP.Buckets", "syntax": "GCP.Buckets", "support": "parsed", "processing": "stdout JSON", "description": "Discovers GCP bucket entities."},
+    {"kind": "GCP.projectID", "syntax": "GCP.projectID", "support": "declarative-only", "processing": "none", "description": "Declares discovery of a GCP project ID."},
+    {"kind": "GCP.serviceAccountToken", "syntax": "GCP.serviceAccountToken", "support": "declarative-only", "processing": "none", "description": "Declares discovery of a GCP service-account token."},
+    {"kind": "Namespace", "syntax": "Namespace($ns)", "support": "mixed", "processing": "deploy-container output parser", "description": "The literal Namespace($ns) form contributes namespace facts for Deploy Container."},
+    {"kind": "Namespace.name", "syntax": "Namespace.name", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Declares discovery of a namespace name."},
+    {"kind": "Pod.name", "syntax": "Pod.name", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Declares discovery of a Pod name."},
+    {"kind": "ServiceAccount.name", "syntax": "ServiceAccount.name", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Declares discovery of a ServiceAccount name."},
+    {"kind": "c2.listen", "syntax": "c2.listen(${PORT}, ${PROTOCOL})", "support": "event", "processing": "listener-started event", "description": "Confirms that a C2 listener was registered."},
+    {"kind": "c2.port-forward", "syntax": "c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})", "support": "event", "processing": "redirector-started event", "description": "Confirms that a redirector was registered."},
+    {"kind": "c2.session", "syntax": "c2.session(<backend>, <target>)", "support": "structural", "processing": "graph relation", "description": "Records a live execution session from a C2 backend to a target."},
+    {"kind": "c2.stop-listener", "syntax": "c2.stop-listener(${ListenerID})", "support": "event", "processing": "listener-stopped event", "description": "Confirms that a C2 listener was removed."},
+    {"kind": "c2.stop-port-forward", "syntax": "c2.stop-port-forward(${RedirectorID})", "support": "event", "processing": "redirector-stopped event", "description": "Confirms that a redirector was removed."},
+    {"kind": "can-reach", "syntax": "can-reach(<target>)", "support": "declarative-only", "processing": "none", "description": "Legacy network-reachability declaration."},
+    {"kind": "container.escape", "syntax": "container.escape(<source>)", "support": "structural", "processing": "graph entities and relations", "description": "Records a container-to-node escape path."},
+    {"kind": "create k8s.CronJob", "syntax": "create k8s.CronJob", "support": "structural", "processing": "argument-derived custom resource", "description": "Creates a CronJob custom-resource entity from action arguments."},
+    {"kind": "create k8s.Pod", "syntax": "create k8s.Pod", "support": "parsed", "processing": "deploy-container arguments and events", "description": "Creates the deployed Pod and its immediately known facts."},
+    {"kind": "create k8s.Role", "syntax": "create k8s.Role", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Declares creation of a Kubernetes Role."},
+    {"kind": "create k8s.RoleBinding", "syntax": "create k8s.RoleBinding", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Declares creation of a Kubernetes RoleBinding."},
+    {"kind": "create k8s.ServiceMonitor", "syntax": "create k8s.ServiceMonitor", "support": "structural", "processing": "argument-derived custom resource", "description": "Creates a ServiceMonitor custom-resource entity from action arguments."},
+    {"kind": "created", "syntax": "created(creator:$p1, target:$p2)", "support": "parsed", "processing": "deploy-container output parser", "description": "Marks the Deploy Container result as action-created."},
+    {"kind": "delete k8s.Pod", "syntax": "delete k8s.Pod", "support": "structural", "processing": "target removal", "description": "Removes the target Pod after successful execution."},
+    {"kind": "delete k8s.ServiceAccount", "syntax": "delete k8s.ServiceAccount", "support": "structural", "processing": "target removal", "description": "Removes the target ServiceAccount after successful execution."},
+    {"kind": "delete k8s.deployment", "syntax": "delete k8s.deployment", "support": "declarative-only", "processing": "none", "description": "Declares deletion of a Deployment."},
+    {"kind": "file:content", "syntax": "file:content(${PATH})", "support": "parsed", "processing": "stdout content parser", "description": "Captures file contents and dispatches content-specific parsing."},
+    {"kind": "file:kubeconfig", "syntax": "file:kubeconfig", "support": "parsed", "processing": "stdout kubeconfig parser", "description": "Creates Kubernetes credentials from kubeconfig content."},
+    {"kind": "k8s.Namespace.enforcedPSS=privileged", "syntax": "k8s.Namespace.enforcedPSS=privileged", "support": "declarative-only", "processing": "none", "description": "Declares a namespace Pod Security Standards change."},
+    {"kind": "k8s.Role", "syntax": "k8s.Role", "support": "structural", "processing": "action arguments", "description": "Creates a Kubernetes Role entity from action arguments."},
+    {"kind": "k8s.SelfSubjectRulesReview", "syntax": "k8s.SelfSubjectRulesReview", "support": "parsed", "processing": "stdout JSON", "description": "Records effective Kubernetes permissions for an identity."},
+    {"kind": "k8s.ServiceAccount", "syntax": "k8s.ServiceAccount", "support": "structural", "processing": "action arguments", "description": "Creates a ServiceAccount entity from action arguments."},
+    {"kind": "k8s.can-exec", "syntax": "k8s.can-exec(<source>, <target>)", "support": "structural", "processing": "graph relation", "description": "Records Kubernetes exec capability between entities."},
+    {"kind": "k8s.clusterRoleBindingList", "syntax": "k8s.clusterRoleBindingList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers ClusterRoleBinding entities."},
+    {"kind": "k8s.clusterRoleList", "syntax": "k8s.clusterRoleList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers ClusterRole entities."},
+    {"kind": "k8s.configmaplist", "syntax": "k8s.configmaplist", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers ConfigMap entities."},
+    {"kind": "k8s.deploymentList", "syntax": "k8s.deploymentList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Deployment entities."},
+    {"kind": "k8s.gatewaylist", "syntax": "k8s.gatewaylist", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Gateway API Gateway entities."},
+    {"kind": "k8s.httproutelist", "syntax": "k8s.httproutelist", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Gateway API HTTPRoute entities."},
+    {"kind": "k8s.ingresslist", "syntax": "k8s.ingresslist", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Ingress entities."},
+    {"kind": "k8s.kubelet-exec", "syntax": "k8s.kubelet-exec(<source>, <target-or-all>)", "support": "structural", "processing": "graph relation", "description": "Records kubelet-mediated execution capability."},
+    {"kind": "k8s.namespaceList", "syntax": "k8s.namespaceList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Namespace entities."},
+    {"kind": "k8s.nodeList", "syntax": "k8s.nodeList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Node entities."},
+    {"kind": "k8s.pod.IsRunning=false", "syntax": "k8s.pod.IsRunning=false", "support": "declarative-only", "processing": "none", "description": "Declares a non-running Pod outcome."},
+    {"kind": "k8s.podList", "syntax": "k8s.podList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Pod entities."},
+    {"kind": "k8s.roleBindingList", "syntax": "k8s.roleBindingList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers RoleBinding entities."},
+    {"kind": "k8s.roleList", "syntax": "k8s.roleList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Role entities."},
+    {"kind": "k8s.secretList", "syntax": "k8s.secretList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Secret metadata."},
+    {"kind": "k8s.serviceAccountList", "syntax": "k8s.serviceAccountList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers ServiceAccount entities."},
+    {"kind": "k8s.servicelist", "syntax": "k8s.servicelist", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Service entities and reachability facts."},
+    {"kind": "linux.mounts", "syntax": "linux.mounts", "support": "parsed", "processing": "stdout mount parser", "description": "Records mounted filesystems on the execution system."},
+    {"kind": "network.discovery", "syntax": "network.discovery", "support": "parsed", "processing": "stdout network discovery parser", "description": "Discovers reachable hosts and services from nmap or reverse-DNS output."},
+    {"kind": "ns.contains", "syntax": "ns.contains($p2)", "support": "mixed", "processing": "deploy-container output parser", "description": "Only the literal ns.contains($p2) form contributes facts for Deploy Container; ns.contains($p) is declarative-only."},
+    {"kind": "rawServiceaccountToken", "syntax": "rawServiceaccountToken", "support": "parsed", "processing": "stdout JWT parser", "description": "Validates and records captured Kubernetes service-account tokens."},
+    {"kind": "rce.can-exec", "syntax": "rce.can-exec(<source>, <target>)", "support": "structural", "processing": "graph relation", "description": "Records remote-code-execution capability between entities."},
+    {"kind": "sys.envVar", "syntax": "sys.envVar", "support": "parsed", "processing": "stdout environment parser", "description": "Records environment variables on the execution system."},
+    {"kind": "sys.files", "syntax": "sys.files", "support": "parsed", "processing": "stdout file-list parser", "description": "Records files and directories on the execution system."},
+    {"kind": "sys.has-binary", "syntax": "sys.has-binary(<name-or-path>[, <output-source>])", "support": "parsed", "processing": "arguments and optional stdout", "description": "Records an executable as present on the execution system."},
+    {"kind": "sys.hasBinary", "syntax": "sys.hasBinary", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Legacy binary-presence declaration without an argument."},
+    {"kind": "sys.hasFile", "syntax": "sys.hasFile", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Legacy file-presence declaration without a path argument."},
+    {"kind": "sys.ip", "syntax": "sys.ip", "support": "parsed", "processing": "stdout IP parser", "description": "Records IP addresses on the execution system."},
+    {"kind": "sys.processes", "syntax": "sys.processes", "support": "parsed", "processing": "stdout process-list parser", "description": "Records processes on the execution system."},
+    {"kind": "sys.userID", "syntax": "sys.userID", "support": "parsed", "processing": "stdout identity parser", "description": "Records the user ID and access level on the execution system."}
+  ]
+}

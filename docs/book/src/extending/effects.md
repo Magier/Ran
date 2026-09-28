@@ -3,6 +3,11 @@
 The [Effects](../campaign/effects.md) chapter explains the effects system. This
 chapter is a practical guide to writing effects in your custom TTPs.
 
+Consult the generated
+[Requirements and Effects Vocabulary](../reference/armory-vocabulary.md) before
+depending on an effect. It distinguishes parsed and structural effects from
+declarations that currently produce no campaign facts.
+
 ## When to add effects
 
 Add an `effects:` list whenever the TTP produces something that future techniques

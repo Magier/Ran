@@ -1,7 +1,10 @@
-# Effect Catalog
+# Effect Guide
 
-Complete reference for all built-in effect expressions. Effects are declared in
-a TTP's `effects:` list and are evaluated after a successful run.
+This page explains common built-in effect expressions. The generated
+[Requirements and Effects Vocabulary](armory-vocabulary.md) is the canonical
+reference for every effect kind declared by the bundled Armory, including
+declarative-only and partially supported entries. Effects are declared in a
+TTP's `effects:` list and are evaluated after a successful run.
 
 ---
 
