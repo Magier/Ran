@@ -678,9 +678,13 @@ pub fn resolve_template(template: &str, args: &HashMap<String, String>) -> Strin
     tera.register_filter(
         "shell_quote",
         |value: &JsonValue, _args: &HashMap<String, JsonValue>| -> tera::Result<JsonValue> {
-            let value = value
-                .as_str()
-                .ok_or_else(|| tera::Error::msg("shell_quote requires a string-valued argument"))?;
+            let serialized;
+            let value = if let Some(value) = value.as_str() {
+                value
+            } else {
+                serialized = serde_json::to_string(value).map_err(tera::Error::json)?;
+                &serialized
+            };
             Ok(JsonValue::String(shell_words::quote(value).into_owned()))
         },
     );
@@ -1249,6 +1253,37 @@ mod tests {
         let args = HashMap::from([("Path".to_string(), "/tmp/a folder/it's-here".to_string())]);
         let result = resolve_template("cat -- {{ Path | shell_quote }}", &args);
         assert_eq!(result, "cat -- '/tmp/a folder/it'\\''s-here'");
+    }
+
+    #[test]
+    fn tera_template_json_encodes_then_shell_quotes_command() {
+        let args = HashMap::from([(
+            "CMD".to_string(),
+            "printf '%s\\n' \"hello world\"".to_string(),
+        )]);
+        let result = resolve_template(
+            r#"printf '{\"command\":%s}' {{ CMD | json_encode | shell_quote }}"#,
+            &args,
+        );
+
+        assert_eq!(
+            result,
+            r#"printf '{\"command\":%s}' '"printf '\''%s\\n'\'' \"hello world\""'"#
+        );
+    }
+
+    #[test]
+    fn tera_template_shell_quotes_json_payloads() {
+        let args = HashMap::from([(
+            "PAYLOAD".to_string(),
+            r#"{"command":"printf '%s\\n' hello"}"#.to_string(),
+        )]);
+        let result = resolve_template("--data {{ PAYLOAD | shell_quote }}", &args);
+
+        assert_eq!(
+            result,
+            r#"--data '{"command":"printf '\''%s\\n'\'' hello"}'"#
+        );
     }
 
     #[test]
