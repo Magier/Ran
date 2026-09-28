@@ -17,6 +17,7 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 | `GET`  | `/api/graph`                  | Layout-oriented graph projection used for rendering                             |
 | `GET`  | `/api/campaign-state`         | Campaign entities and relations; `entities` is the canonical target enumeration |
 | `GET`  | `/api/armory`                 | All TTPs; `?targetId=<entity_id>` adds target-aware readiness                   |
+| `GET`  | `/api/armory/vocabulary`      | Versioned procedure, requirement, and effect declaration contract               |
 | `GET`  | `/api/armory/{id}/resolution` | Argument values, choices, blockers, and provenance for one action and target    |
 | `GET`  | `/api/applicable-ttps`        | TTPs filtered by target entity; use `?targetId=<entity_id>`                     |
 | `POST` | `/api/action/execute`         | Invoke a TTP against a target entity                                            |
@@ -35,6 +36,14 @@ Each action includes an `actionState` with one of `ready`, `needs_choice`,
 `needs_input`, `blocked`, or `inapplicable`. The existing
 `GET /api/applicable-ttps` endpoint remains available for clients that only need
 the older applicability filter.
+
+Inspect `actionState.procedures` before choosing a procedure. Each entry reports
+its `requiredTool` and a status of `ready`, `unknown`, or `unavailable` for the
+physical execution system. Both `ready` and `unknown` are runnable. Only
+`unavailable`, which represents explicit absence evidence, excludes a procedure.
+The action remains available while any procedure is runnable. Prefer
+`recommendedProcedureId`; execution rejects an explicitly selected unavailable
+procedure.
 
 After choosing an action, call
 `GET /api/armory/{actionId}/resolution?targetId=<entity_id>`. Its `arguments`

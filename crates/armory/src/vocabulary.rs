@@ -1,12 +1,12 @@
 use crate::Ttp;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use thiserror::Error;
 
 const VOCABULARY_JSON: &str = include_str!("../../../armory/vocabulary.json");
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArmoryVocabulary {
     pub schema_version: u32,
@@ -15,11 +15,12 @@ pub struct ArmoryVocabulary {
     pub extension_policy: String,
     pub interpolation: InterpolationDefinition,
     pub support_levels: Vec<SupportLevel>,
+    pub procedure_fields: Vec<ProcedureFieldDefinition>,
     pub requirements: Vec<RequirementDefinition>,
     pub effects: Vec<EffectDefinition>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InterpolationDefinition {
     pub syntax: String,
@@ -28,13 +29,25 @@ pub struct InterpolationDefinition {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SupportLevel {
     pub id: String,
     pub description: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcedureFieldDefinition {
+    pub name: String,
+    pub value_types: Vec<JsonValueType>,
+    pub required: bool,
+    pub support: String,
+    pub scope: String,
+    pub resolution: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequirementDefinition {
     pub name: String,
@@ -46,7 +59,7 @@ pub struct RequirementDefinition {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum JsonValueType {
     Boolean,
@@ -82,7 +95,7 @@ impl JsonValueType {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EffectDefinition {
     pub kind: String,
@@ -117,6 +130,10 @@ pub enum VocabularyError {
     DuplicateRequirement(String),
     #[error("Armory vocabulary contains duplicate effect kind '{0}'")]
     DuplicateEffect(String),
+    #[error("Armory vocabulary contains duplicate procedure field '{0}'")]
+    DuplicateProcedureField(String),
+    #[error("Armory vocabulary does not define procedure field '{0}'")]
+    UnknownProcedureField(String),
     #[error("Armory vocabulary entry '{entry}' uses unknown support level '{support}'")]
     UnknownSupport { entry: String, support: String },
 }
@@ -134,6 +151,20 @@ fn validate_document(vocabulary: &ArmoryVocabulary) -> Result<(), VocabularyErro
         .map(|level| level.id.as_str())
         .collect();
     let mut requirement_names = HashSet::new();
+
+    let mut procedure_field_names = HashSet::new();
+    for field in &vocabulary.procedure_fields {
+        if !procedure_field_names.insert(field.name.to_ascii_lowercase()) {
+            return Err(VocabularyError::DuplicateProcedureField(field.name.clone()));
+        }
+        if !support_levels.contains(field.support.as_str()) {
+            return Err(VocabularyError::UnknownSupport {
+                entry: format!("procedure.{}", field.name),
+                support: field.support.clone(),
+            });
+        }
+    }
+
     for requirement in &vocabulary.requirements {
         for name in std::iter::once(&requirement.name).chain(&requirement.aliases) {
             if !requirement_names.insert(name.to_ascii_lowercase()) {
@@ -167,6 +198,18 @@ pub fn validate_ttp_vocabulary(
     ttp: &Ttp,
     vocabulary: &ArmoryVocabulary,
 ) -> Result<(), VocabularyError> {
+    if ttp
+        .procedures
+        .iter()
+        .any(|procedure| procedure.tool.is_some())
+        && !vocabulary
+            .procedure_fields
+            .iter()
+            .any(|field| field.name.eq_ignore_ascii_case("tool"))
+    {
+        return Err(VocabularyError::UnknownProcedureField("tool".to_string()));
+    }
+
     for (name, value) in &ttp.requires {
         let definition = vocabulary.requirements.iter().find(|requirement| {
             requirement.name.eq_ignore_ascii_case(name)
@@ -243,6 +286,9 @@ pub fn render_vocabulary_markdown(vocabulary: &ArmoryVocabulary) -> String {
     output.push_str(
         "The machine-readable source is `armory/vocabulary.json`. Regenerate this page with `cargo run -p armory --bin generate-vocabulary-docs`.\n\n",
     );
+    output.push_str(
+        "Live Ran instances serve the same versioned document at `GET /api/armory/vocabulary`.\n\n",
+    );
     output.push_str(&format!(
         "Vocabulary schema version: `{}`. Stability: **{}**.\n\n",
         vocabulary.schema_version, vocabulary.stability
@@ -264,6 +310,27 @@ pub fn render_vocabulary_markdown(vocabulary: &ArmoryVocabulary) -> String {
             "| `{}` | {} |\n",
             level.id,
             table_text(&level.description)
+        ));
+    }
+
+    output.push_str("\n## Procedure fields\n\n");
+    output.push_str("Procedure fields describe how each execution alternative runs. Tool readiness is target-aware and is reported through `actionState.procedures`. Both `ready` and `unknown` procedures are runnable. Only `unavailable`, which means explicit absence is known, excludes a procedure. The action remains available while any procedure is `ready` or `unknown`.\n\n");
+    output.push_str("| Name | Accepted value types | Required | Support | Scope | Meaning |\n| --- | --- | --- | --- | --- | --- |\n");
+    for field in &vocabulary.procedure_fields {
+        output.push_str(&format!(
+            "| `procedure.{}` | {} | {} | `{}` | {} | {} {} |\n",
+            field.name,
+            field
+                .value_types
+                .iter()
+                .map(|value_type| format!("`{}`", value_type.label()))
+                .collect::<Vec<_>>()
+                .join(", "),
+            if field.required { "yes" } else { "no" },
+            field.support,
+            table_text(&field.scope),
+            table_text(&field.description),
+            table_text(&field.resolution)
         ));
     }
 
@@ -381,5 +448,28 @@ mod tests {
             validate_ttp_vocabulary(&ttp, &vocabulary),
             Err(VocabularyError::UnknownEffect { .. })
         ));
+    }
+
+    #[test]
+    fn procedure_tool_is_part_of_the_published_vocabulary() {
+        let vocabulary = bundled_vocabulary().expect("vocabulary must be valid");
+        let tool = vocabulary
+            .procedure_fields
+            .iter()
+            .find(|field| field.name == "tool")
+            .expect("procedure.tool must be documented");
+
+        assert_eq!(tool.value_types, vec![JsonValueType::String]);
+        assert!(!tool.required);
+        assert_eq!(tool.support, "enforced");
+    }
+
+    #[test]
+    fn serialized_vocabulary_matches_the_machine_readable_source() {
+        let vocabulary = bundled_vocabulary().expect("vocabulary must be valid");
+        let expected: Value = serde_json::from_str(VOCABULARY_JSON).unwrap();
+        let actual = serde_json::to_value(vocabulary).unwrap();
+
+        assert_eq!(actual, expected);
     }
 }

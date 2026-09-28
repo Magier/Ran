@@ -178,15 +178,32 @@ pub fn resolve_action(
             )
         })
         .collect::<Vec<_>>();
-    let recommended_procedure_id = input.procedure_id.clone().or_else(|| {
-        crate::recommended_procedure(ttp, campaign, target_id, input.exec_system_id.as_deref())
-            .map(|procedure| procedure.id.clone())
+    let selected_procedure = input.procedure_id.as_deref().and_then(|procedure_id| {
+        procedures
+            .iter()
+            .find(|procedure| procedure.procedure_id == procedure_id)
     });
+    let selected_procedure_unavailable = selected_procedure
+        .is_some_and(|procedure| procedure.status == ProcedureReadinessStatus::Unavailable);
+    let recommended_procedure_id = selected_procedure
+        .filter(|procedure| procedure.status != ProcedureReadinessStatus::Unavailable)
+        .map(|procedure| procedure.procedure_id.clone())
+        .or_else(|| {
+            crate::recommended_procedure(ttp, campaign, target_id, input.exec_system_id.as_deref())
+                .map(|procedure| procedure.id.clone())
+        });
 
     let mut reasons = Vec::new();
     let status = if !applicable {
         reasons.push("Action prerequisites are not satisfied for this target".to_string());
         ActionReadinessStatus::Inapplicable
+    } else if selected_procedure_unavailable {
+        reasons.push(
+            selected_procedure
+                .and_then(|procedure| procedure.reason.clone())
+                .unwrap_or_else(|| "Selected procedure is unavailable".to_string()),
+        );
+        ActionReadinessStatus::Blocked
     } else if arguments
         .iter()
         .any(|argument| argument.status == ArgumentResolutionStatus::Blocked)
@@ -1836,6 +1853,26 @@ mod tests {
         );
         assert_eq!(
             resolution.recommended_procedure_id.as_deref(),
+            Some("hostname")
+        );
+
+        let selected_unavailable = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput {
+                procedure_id: Some("ip".to_string()),
+                ..ActionResolutionInput::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(selected_unavailable.status, ActionReadinessStatus::Blocked);
+        assert!(selected_unavailable.reasons.iter().any(|reason| {
+            reason == "required tool 'ip' is known to be absent from the execution system"
+        }));
+        assert_eq!(
+            selected_unavailable.recommended_procedure_id.as_deref(),
             Some("hostname")
         );
     }

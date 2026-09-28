@@ -1,12 +1,14 @@
 <!-- Generated from armory/vocabulary.json. Do not edit directly. -->
 
-# Armory Requirements and Effects Vocabulary
+# Armory Vocabulary
 
 The machine-readable source is `armory/vocabulary.json`. Regenerate this page with `cargo run -p armory --bin generate-vocabulary-docs`.
 
-Vocabulary schema version: `1`. Stability: **experimental**.
+Live Ran instances serve the same versioned document at `GET /api/armory/vocabulary`.
 
-This vocabulary describes declarations shipped with Ran. Custom Armory content may use additional names, but unknown requirements do not gate applicability and unknown effects have no built-in semantics unless an external parser handles them.
+Vocabulary schema version: `2`. Stability: **experimental**.
+
+This vocabulary describes declarations shipped with Ran. Custom Armory content may use additional names, but unknown procedure fields have no built-in semantics, unknown requirements do not gate applicability, and unknown effects have no built-in semantics unless an external parser handles them.
 
 ## Interpolation
 
@@ -18,12 +20,20 @@ Syntax: `${NAME}`. Applies to: effects. Unknown variables: preserved unchanged.
 
 | Level | Meaning |
 | --- | --- |
-| `enforced` | The requirement participates in applicability evaluation. |
+| `enforced` | The declaration participates in applicability, readiness, or execution validation. |
 | `parsed` | The effect has a built-in output parser. |
 | `structural` | The effect directly changes campaign facts or graph structure. |
 | `event` | The effect is confirmed through a runtime event rather than stdout. |
 | `mixed` | Only the documented syntax variants have built-in semantics. |
 | `declarative-only` | The declaration does not gate applicability or produce campaign facts. It may still be classified for scoring. |
+
+## Procedure fields
+
+Procedure fields describe how each execution alternative runs. Tool readiness is target-aware and is reported through `actionState.procedures`. Both `ready` and `unknown` procedures are runnable. Only `unavailable`, which means explicit absence is known, excludes a procedure. The action remains available while any procedure is `ready` or `unknown`.
+
+| Name | Accepted value types | Required | Support | Scope | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `procedure.tool` | `string` | no | `enforced` | physical execution system | Names the binary dependency for one procedure. Procedure readiness is evaluated independently, so an action remains runnable while any alternative procedure is present or has unknown availability. A known-absent tool makes only that procedure unavailable. An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. For procedures constructed without either value, Ran falls back to a bare procedure ID and then the first command word. |
 
 ## Requirements
 

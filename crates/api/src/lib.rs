@@ -30,6 +30,10 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::get(api_handlers::armory_handler::<S>),
         )
         .route(
+            "/api/armory/vocabulary",
+            axum::routing::get(api_handlers::armory_vocabulary_handler),
+        )
+        .route(
             "/api/armory/{action_id}/resolution",
             axum::routing::get(api_handlers::action_resolution_handler::<S>)
                 .post(api_handlers::resolve_action_handler::<S>),

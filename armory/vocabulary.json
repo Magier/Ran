@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 1,
-  "title": "Armory Requirements and Effects Vocabulary",
+  "schemaVersion": 2,
+  "title": "Armory Vocabulary",
   "stability": "experimental",
-  "extensionPolicy": "This vocabulary describes declarations shipped with Ran. Custom Armory content may use additional names, but unknown requirements do not gate applicability and unknown effects have no built-in semantics unless an external parser handles them.",
+  "extensionPolicy": "This vocabulary describes declarations shipped with Ran. Custom Armory content may use additional names, but unknown procedure fields have no built-in semantics, unknown requirements do not gate applicability, and unknown effects have no built-in semantics unless an external parser handles them.",
   "interpolation": {
     "syntax": "${NAME}",
     "appliesTo": ["effects"],
@@ -12,7 +12,7 @@
   "supportLevels": [
     {
       "id": "enforced",
-      "description": "The requirement participates in applicability evaluation."
+      "description": "The declaration participates in applicability, readiness, or execution validation."
     },
     {
       "id": "parsed",
@@ -33,6 +33,17 @@
     {
       "id": "declarative-only",
       "description": "The declaration does not gate applicability or produce campaign facts. It may still be classified for scoring."
+    }
+  ],
+  "procedureFields": [
+    {
+      "name": "tool",
+      "valueTypes": ["string"],
+      "required": false,
+      "support": "enforced",
+      "scope": "physical execution system",
+      "resolution": "An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. For procedures constructed without either value, Ran falls back to a bare procedure ID and then the first command word.",
+      "description": "Names the binary dependency for one procedure. Procedure readiness is evaluated independently, so an action remains runnable while any alternative procedure is present or has unknown availability. A known-absent tool makes only that procedure unavailable."
     }
   ],
   "requirements": [

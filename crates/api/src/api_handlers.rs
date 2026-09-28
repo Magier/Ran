@@ -254,6 +254,13 @@ pub(crate) async fn armory_handler<S: ApiService>(
     ))
 }
 
+pub(crate) async fn armory_vocabulary_handler(
+) -> Result<axum::Json<armory::ArmoryVocabulary>, ApiError> {
+    armory::bundled_vocabulary()
+        .map(axum::Json)
+        .map_err(|error| ApiError::internal(error.to_string()))
+}
+
 pub(crate) async fn action_resolution_handler<S: ApiService>(
     State(service): State<S>,
     Path(action_id): Path<String>,

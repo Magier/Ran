@@ -3646,17 +3646,26 @@ impl Campaign {
         exec_system_id: Option<&str>,
     ) -> Result<Procedure, ExecuteActionError> {
         if let Some(proc_id) = procedure_id.map(str::trim).filter(|id| !id.is_empty()) {
-            return ttp
+            let procedure = ttp
                 .procedures
                 .iter()
                 .find(|p| p.id == proc_id)
-                .cloned()
                 .ok_or_else(|| {
                     ExecuteActionError::InvalidInput(format!(
                         "procedure '{}' not found for action '{}'",
                         proc_id, ttp.id
                     ))
-                });
+                })?;
+            if procedure_readiness(ttp, procedure, self, target_id, exec_system_id)
+                == ProcedureReadiness::Unavailable
+            {
+                let tool = procedure_required_tool(procedure).unwrap_or("unknown");
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "procedure '{}' requires tool '{}' which is known to be absent from the execution system",
+                    proc_id, tool
+                )));
+            }
+            return Ok(procedure.clone());
         }
 
         recommended_procedure(ttp, self, target_id, exec_system_id)

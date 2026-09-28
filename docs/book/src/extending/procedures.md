@@ -18,8 +18,13 @@ procedures:
 ```
 
 - `key` - display name for the procedure, shown in the UI and used as the procedure
-  ID. Also sets the preferred tool: if `key` matches a known tool TTP (e.g. `curl`,
-  `wget`), that tool's setup steps are prepended automatically.
+  ID. When `tool` is omitted, `key` also becomes the procedure's binary dependency.
+- `tool` - binary dependency for this procedure on its physical execution system.
+  Declare it explicitly when `key` is a label rather than the executable name.
+  Ran reports the dependency and its `ready`, `unknown`, or `unavailable` state
+  through `actionState.procedures`. Unknown availability remains runnable. A
+  known-absent tool disables this procedure, while another runnable procedure
+  keeps the action available.
 - `command` - the shell command to execute. Parameter placeholders (`${VAR}`) are
   resolved at runtime.
 
@@ -129,8 +134,8 @@ through the active Kubernetes client for a selected K8sCredential. This keeps
 both the HTTP transport and its authentication dependency explicit without
 restoring a `TOKEN` parameter.
 
-The `tool:` field on the procedure specifies which CLI tool should handle the
-request (`curl`, `wget`). If omitted, Ran uses its built-in HTTP client.
+For structured HTTP requests, `tool:` selects a CLI adapter such as `curl` or
+`wget`. If omitted, Ran expands the request through the available HTTP adapters.
 
 ## Step sequences
 
