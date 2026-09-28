@@ -50,7 +50,7 @@ procedures:
       %}--ca-certificate='${CA_PATH}' {% endif %}{% else
       %}--no-check-certificate {% endif %} {% for name, value in HEADERS
       %}--header="{{ name }}: {{ value }}" {% endfor %} {% if PAYLOAD
-      %}--body-data='${PAYLOAD}' {% endif %} {% if OUTPUT %}-O '${OUTPUT}' {%
+      %}--body-data={{ PAYLOAD | shell_quote }} {% endif %} {% if OUTPUT %}-O '${OUTPUT}' {%
       else %}-qO- {% endif %} '${URL}'
 effects: []
 references:
