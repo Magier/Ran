@@ -8,6 +8,21 @@ servers:
     description: Development server
 
 paths:
+  /events:
+    get:
+      summary: Stream live campaign events
+      description: >-
+        Opens a Server-Sent Events stream. Each named SSE message contains a
+        JSON SseEvent envelope whose type matches the SSE event name.
+      operationId: streamEvents
+      responses:
+        '200':
+          description: Live Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/SseEvent'
+
   /api/ui-config:
     get:
       summary: Get safe UI configuration
@@ -660,29 +675,427 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-webhooks:
-  armory-loaded:
-    post:
-      summary: Armory loaded webhook
-      description: Triggered when the armory is successfully loaded
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                timestamp:
-                  type: string
-                  format: date-time
-      responses:
-        '200':
-          description: Webhook received successfully
-        '400':
-          description: Invalid webhook payload
-
 components:
   schemas:
+    SseEvent:
+      description: >-
+        A message sent on the /events Server-Sent Events stream. The SSE event
+        name is always identical to the envelope's type field.
+      oneOf:
+        - $ref: '#/components/schemas/ArmoryLoadedSseEvent'
+        - $ref: '#/components/schemas/FactsChangedSseEvent'
+        - $ref: '#/components/schemas/EntityMergedSseEvent'
+        - $ref: '#/components/schemas/ParseAuditedSseEvent'
+        - $ref: '#/components/schemas/TtpDispatchedSseEvent'
+        - $ref: '#/components/schemas/TtpOutputSseEvent'
+        - $ref: '#/components/schemas/TtpExecutedSseEvent'
+        - $ref: '#/components/schemas/SessionChangedSseEvent'
+        - $ref: '#/components/schemas/ResetCampaignSseEvent'
+        - $ref: '#/components/schemas/PlanStepDispatchedSseEvent'
+        - $ref: '#/components/schemas/PlanStepCompletedSseEvent'
+        - $ref: '#/components/schemas/PlanStepSkippedSseEvent'
+        - $ref: '#/components/schemas/PlanStepFailedSseEvent'
+        - $ref: '#/components/schemas/PlanCompleteSseEvent'
+        - $ref: '#/components/schemas/PingSseEvent'
+        - $ref: '#/components/schemas/ErrorMessageSseEvent'
+        - $ref: '#/components/schemas/AlertSseEvent'
+    ArmoryLoadedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [armory-loaded]
+        data:
+          $ref: '#/components/schemas/ArmoryLoadedSseData'
+    ArmoryLoadedSseData:
+      type: array
+      items:
+        $ref: '#/components/schemas/TTP'
+
+    FactsChangedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [facts-changed]
+        data:
+          $ref: '#/components/schemas/FactsChangedSseData'
+    FactsChangedSseData:
+      type: object
+      required: [cmdId, newEntities, newRelations]
+      properties:
+        cmdId:
+          type: string
+        newEntities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExecutionEntity'
+        newRelations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExecutionRelation'
+
+    EntityMergedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [entity-merged]
+        data:
+          $ref: '#/components/schemas/EntityMergedSseData'
+    EntityMergedSseData:
+      type: object
+      required: [from, into, kind]
+      properties:
+        from:
+          type: string
+        into:
+          type: string
+        kind:
+          type: string
+
+    ParseAuditedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [parse-audited]
+        data:
+          $ref: '#/components/schemas/ParseAuditedSseData'
+    ParseAuditedSseData:
+      type: object
+      required: [audits]
+      properties:
+        audits:
+          type: array
+          items:
+            $ref: '#/components/schemas/SseParseAudit'
+    SseParseAudit:
+      type: object
+      required:
+        - cmdId
+        - effectId
+        - ttpId
+        - targetId
+        - parserVersion
+        - rawOutputHash
+        - rawOutputPreview
+        - parseResult
+        - detail
+        - inferredFactsWritten
+      properties:
+        cmdId:
+          type: string
+        effectId:
+          type: string
+        ttpId:
+          type: string
+        targetId:
+          type: string
+        parserVersion:
+          type: string
+        rawOutputHash:
+          type: string
+        rawOutputPreview:
+          type: string
+        parseResult:
+          type: string
+          enum: [Parsed, KnownFailure, UnknownFormat, NoParser, ParserBug]
+        detail:
+          type: string
+        inferredFactsWritten:
+          type: integer
+
+    TtpDispatchedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [ttp-dispatched]
+        data:
+          $ref: '#/components/schemas/TtpDispatchedSseData'
+    TtpDispatchedSseData:
+      type: object
+      required: [id, cmdId, ttp, args, targetId, execSystemId, startedAtMs]
+      properties:
+        id:
+          type: string
+        cmdId:
+          type: string
+          description: Compatibility alias for id.
+        ttp:
+          $ref: '#/components/schemas/TTP'
+        args:
+          type: object
+          additionalProperties:
+            type: string
+        targetId:
+          type: string
+        execSystemId:
+          type: string
+        startedAtMs:
+          type: integer
+          format: int64
+
+    TtpOutputSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [ttp-output]
+        data:
+          $ref: '#/components/schemas/TtpOutputSseData'
+    TtpOutputSseData:
+      type: object
+      required: [cmdId, sequence, stdout, stderr, stdoutBytes, stderrBytes]
+      properties:
+        cmdId:
+          type: string
+        sequence:
+          type: integer
+          format: int64
+        stdout:
+          type: string
+        stderr:
+          type: string
+        stdoutBytes:
+          type: integer
+          format: int64
+        stderrBytes:
+          type: integer
+          format: int64
+
+    TtpExecutedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [ttp-executed]
+        data:
+          $ref: '#/components/schemas/TtpExecutedSseData'
+    TtpExecutedSseData:
+      type: object
+      required:
+        - id
+        - cmdId
+        - actionId
+        - ttp
+        - args
+        - targetId
+        - execSystemId
+        - success
+        - partial
+        - failReason
+        - results
+        - exitCode
+      properties:
+        id:
+          type: string
+        cmdId:
+          type: string
+          description: Compatibility alias for id.
+        actionId:
+          type: string
+        ttp:
+          $ref: '#/components/schemas/TTP'
+        args:
+          type: object
+          additionalProperties:
+            type: string
+        targetId:
+          type: string
+        execSystemId:
+          type: string
+        success:
+          type: boolean
+        partial:
+          type: boolean
+        failReason:
+          type: string
+        results:
+          type: array
+          items:
+            type: string
+        exitCode:
+          type: integer
+
+    SessionChangedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [session-changed]
+        data:
+          $ref: '#/components/schemas/SessionChangedSseData'
+    SessionChangedSseData:
+      type: object
+      required: [backendId, entityId, entityName, state]
+      properties:
+        backendId:
+          type: string
+        entityId:
+          type: string
+        entityName:
+          type: string
+        state:
+          type: string
+          enum: [lost, reestablished]
+
+    ResetCampaignSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [reset-campaign]
+        data:
+          $ref: '#/components/schemas/ResetCampaignSseData'
+    ResetCampaignSseData:
+      type: object
+      additionalProperties: false
+      properties: {}
+
+    PlanStepDispatchedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [plan-step-dispatched]
+        data:
+          $ref: '#/components/schemas/PlanStepDispatchedSseData'
+    PlanStepDispatchedSseData:
+      type: object
+      required: [planId, stepId, execCount]
+      properties:
+        planId:
+          type: string
+        stepId:
+          type: string
+        execCount:
+          type: integer
+
+    PlanStepCompletedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [plan-step-completed]
+        data:
+          $ref: '#/components/schemas/PlanStepCompletedSseData'
+    PlanStepCompletedSseData:
+      type: object
+      required: [planId, stepId, success]
+      properties:
+        planId:
+          type: string
+        stepId:
+          type: string
+        success:
+          type: boolean
+
+    PlanStepSkippedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [plan-step-skipped]
+        data:
+          $ref: '#/components/schemas/PlanStepSkippedSseData'
+    PlanStepSkippedSseData:
+      type: object
+      required: [planId, stepId, reason]
+      properties:
+        planId:
+          type: string
+        stepId:
+          type: string
+        reason:
+          type: string
+
+    PlanStepFailedSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [plan-step-failed]
+        data:
+          $ref: '#/components/schemas/PlanStepFailedSseData'
+    PlanStepFailedSseData:
+      type: object
+      required: [planId, stepId, reason]
+      properties:
+        planId:
+          type: string
+        stepId:
+          type: string
+        reason:
+          type: string
+
+    PlanCompleteSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [plan-complete]
+        data:
+          $ref: '#/components/schemas/PlanCompleteSseData'
+    PlanCompleteSseData:
+      type: object
+      required: [planId]
+      properties:
+        planId:
+          type: string
+
+    PingSseEvent:
+      type: object
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [ping]
+        data:
+          $ref: '#/components/schemas/PingSseData'
+    PingSseData:
+      type: string
+      enum: [keepalive]
+
+    ErrorMessageSseEvent:
+      type: object
+      description: Legacy error event retained for compatible clients.
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [error-msg]
+        data:
+          type: string
+          description: JSON-encoded legacy error message.
+
+    AlertSseEvent:
+      type: object
+      description: Legacy alert event retained for compatible clients.
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [alert]
+        data:
+          type: object
+          additionalProperties: true
+
     PlanSummary:
       type: object
       required:

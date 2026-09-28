@@ -9,7 +9,7 @@ mod state_conversions;
 
 pub use api_handlers::frontend_handler;
 pub use mcp::McpConfig;
-pub use sse::publish_sse_event;
+pub use sse::{publish_sse_event, serialize_sse_event, SsePayload};
 
 pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
     axum::Router::new()

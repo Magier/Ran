@@ -9,7 +9,7 @@ import type {
 } from '$lib/api/index';
 import type { KubetierCatalog, LocalPermissionAssessment, UiConfig } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
-import { getRanAPI, RanAPI } from '$lib/ran_api';
+import { getRanAPI, RanAPI, type SseEventMap } from '$lib/ran_api';
 import { timeline } from '$lib/stores/timelineStore.svelte';
 import { DEFAULT_NAMESPACE_UI_CONFIG } from '$lib/namespace_filter';
 
@@ -78,12 +78,7 @@ type ErrorMsg = {
 	Msg: string;
 };
 
-type ParseAuditUI = {
-	effectId: string;
-	parseResult: string;
-	detail: string;
-	inferredFactsWritten: number;
-};
+type ParseAuditUI = SseEventMap['parse-audited']['audits'][number];
 
 const EXECUTION_FAILURE_EFFECT_ID = 'execution.failure';
 
@@ -104,15 +99,6 @@ export type LiveExecutionOutput = {
 };
 
 const LIVE_OUTPUT_LIMIT = 1024 * 1024;
-
-function normalizeParseAudit(raw: any): ParseAuditUI {
-	return {
-		effectId: raw?.effectId ?? raw?.effect_id ?? 'unknown effect',
-		parseResult: raw?.parseResult ?? raw?.parse_result ?? 'UnknownFormat',
-		detail: raw?.detail ?? 'no additional parser detail',
-		inferredFactsWritten: raw?.inferredFactsWritten ?? raw?.inferred_facts_written ?? 0
-	};
-}
 
 class CampaignState {
 	campaignId: number = $state(0);
@@ -152,8 +138,8 @@ class CampaignState {
 			this.armory = parseArmory(data);
 		});
 		this.api.on('facts-changed', () => this.#queueLiveRefresh());
-		this.api.on('parse-audited', (data: any) => {
-			const audits = (data?.audits ?? []).map(normalizeParseAudit);
+		this.api.on('parse-audited', (data) => {
+			const audits = data.audits;
 			if (audits.length === 0) {
 				// A TTP that declares no effects has nothing to parse, so an empty
 				// audit list is the normal outcome, not a failed action. Keep it in
@@ -196,8 +182,8 @@ class CampaignState {
 				return;
 			}
 		});
-		this.api.on('ttp-output', (data: any) => this.recordExecutionOutput(data));
-		this.api.on('ttp-executed', (data: any) => this.completeExecutionOutput(data));
+		this.api.on('ttp-output', (data) => this.recordExecutionOutput(data));
+		this.api.on('ttp-executed', (data) => this.completeExecutionOutput(data));
 		this.api.onConnectionStateChange((state) => {
 			if (state !== 'connected') return;
 			void this.restoreLiveExecutionOutput();
@@ -271,9 +257,9 @@ class CampaignState {
 		}
 	}
 
-	private recordExecutionOutput(data: any): void {
-		const cmdId = data?.CmdId ?? '';
-		const sequence = Number(data?.Sequence ?? 0);
+	private recordExecutionOutput(data: SseEventMap['ttp-output']): void {
+		const cmdId = data.cmdId;
+		const sequence = data.sequence;
 		if (!cmdId) return;
 		const current = this.executionOutputs.get(cmdId) ?? {
 			sequence: 0,
@@ -289,22 +275,22 @@ class CampaignState {
 			void this.restoreLiveExecutionOutput();
 			return;
 		}
-		const stdout = current.stdout + (data?.Stdout ?? '');
-		const stderr = current.stderr + (data?.Stderr ?? '');
+		const stdout = current.stdout + data.stdout;
+		const stderr = current.stderr + data.stderr;
 		this.setExecutionOutput(cmdId, {
 			sequence,
 			stdout: stdout.slice(-LIVE_OUTPUT_LIMIT),
 			stderr: stderr.slice(-LIVE_OUTPUT_LIMIT),
-			stdoutBytes: Number(data?.StdoutBytes ?? current.stdoutBytes),
-			stderrBytes: Number(data?.StderrBytes ?? current.stderrBytes),
+			stdoutBytes: data.stdoutBytes,
+			stderrBytes: data.stderrBytes,
 			truncated:
 				current.truncated || stdout.length > LIVE_OUTPUT_LIMIT || stderr.length > LIVE_OUTPUT_LIMIT,
 			completed: false
 		});
 	}
 
-	private completeExecutionOutput(data: any): void {
-		const cmdId = data?.cmdId ?? data?.id ?? '';
+	private completeExecutionOutput(data: SseEventMap['ttp-executed']): void {
+		const cmdId = data.cmdId;
 		if (!cmdId) return;
 		const current = this.executionOutputs.get(cmdId) ?? {
 			sequence: 0,
@@ -315,14 +301,14 @@ class CampaignState {
 			truncated: false,
 			completed: false
 		};
-		const results: string[] = data?.results ?? [];
+		const results = data.results;
 		this.setExecutionOutput(cmdId, {
 			...current,
 			stdout: results[0] ?? current.stdout,
 			stderr: results[1] ?? current.stderr,
 			completed: true,
-			success: Boolean(data?.success),
-			failReason: data?.failReason || undefined
+			success: data.success,
+			failReason: data.failReason || undefined
 		});
 	}
 
@@ -343,7 +329,7 @@ class CampaignState {
 	showError(msg: string | object) {
 		if (typeof msg === 'object') {
 			if (Object.hasOwn(msg, 'message')) {
-				msg = (msg as any).message;
+				msg = String((msg as { message: unknown }).message);
 			} else {
 				// fallback handling to show full object (may allow later refinement)
 				msg = JSON.stringify(msg);

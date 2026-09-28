@@ -3,6 +3,7 @@
 	import Icon from '@iconify/svelte';
 	import { showToast } from '$lib/components/toaster';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import type { SseEventMap } from '$lib/ran_api';
 	import {
 		filesystemChildren,
 		filesystemVolumeMountsAt,
@@ -120,7 +121,7 @@
 		}
 	}
 
-	function actionFinished(data: any) {
+	function actionFinished(data: SseEventMap['ttp-executed']) {
 		if (
 			data?.targetId !== objectId ||
 			data?.actionId !== 'list-files' ||
