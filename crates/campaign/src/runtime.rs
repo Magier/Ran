@@ -263,18 +263,6 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         })
                         .unwrap_or_default();
 
-                    info!(
-                        cmd_id = %event.id,
-                        action_id = %action_id,
-                        target_id = %target_id,
-                        success = event.success,
-                        exit_code = event.exit_code,
-                        fail_reason = %event.fail_reason,
-                        results_count = event.results.len(),
-                        result_preview = %result_preview,
-                        "Action result"
-                    );
-
                     let (processing, session_entity_summary, session_revived) = {
                         let mut campaign_guard = match campaign.write() {
                             Ok(guard) => guard,
@@ -322,6 +310,19 @@ pub fn spawn_c2_event_processor_with_external_parser(
 
                         (processing, session_summary, session_revived)
                     };
+
+                    info!(
+                        cmd_id = %event.id,
+                        action_id = %action_id,
+                        target_id = %target_id,
+                        success = processing.effective_success,
+                        transport_success = event.success,
+                        exit_code = event.exit_code,
+                        fail_reason = %processing.effective_fail_reason,
+                        results_count = event.results.len(),
+                        result_preview = %result_preview,
+                        "Action result"
+                    );
 
                     if let Some((backend_id, entity_id, entity_name)) = session_revived {
                         info!(%backend_id, %entity_id, "session re-established");
