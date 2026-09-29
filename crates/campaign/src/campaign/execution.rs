@@ -607,23 +607,12 @@ fn ground_procedure_operation(operation: &mut ProcedureOperation, args: &HashMap
 /// all passes (except `${CMD}`, which is intentionally preserved as the
 /// hop-injection slot).
 ///
-/// Also mints `PROCEDURE_CMD` in `args`: the command template grounded with all
-/// args *except* CMD, so that effect handlers (e.g. `rce.can-exec`) can read
-/// the full executed-command string from the args context.
 fn ground_procedure_and_effects(
     procedure: &mut Procedure,
     effects: &mut [String],
     args: &mut HashMap<String, String>,
     ttp_id: &str,
 ) {
-    let envelope_args: HashMap<_, _> = args
-        .iter()
-        .filter(|(k, _)| k.to_uppercase() != "CMD")
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    let envelope = ground_template(&procedure.command, &envelope_args);
-    args.entry("PROCEDURE_CMD".to_string()).or_insert(envelope);
-
     procedure.command = ground_template(&procedure.command, args);
     if let Some(http_req) = procedure.http_request.as_mut() {
         ground_json_value(http_req, args);
@@ -650,6 +639,57 @@ fn ground_procedure_and_effects(
              check TTP params or target entity context"
         );
     }
+}
+
+/// Materialize the reusable command template stored on execution-channel
+/// effects. Unlike the command that runs now, this keeps an inner-command slot
+/// for later traversals. Structured HTTP bodies use a JSON-aware slot so the
+/// eventual command is encoded before it is inserted into the request body.
+fn materialize_procedure_envelope(
+    procedure: &Procedure,
+    args: &HashMap<String, String>,
+    armory: &Armory,
+    auth_token: Option<&str>,
+    use_kubeconfig: bool,
+) -> Result<String, ExecuteActionError> {
+    let mut envelope_procedure = procedure.clone();
+    let mut envelope_args = args.clone();
+    if envelope_procedure.http_request.is_some() {
+        envelope_args.insert("CMD".to_string(), "${CMD_JSON}".to_string());
+    } else {
+        envelope_args.retain(|key, _| !key.eq_ignore_ascii_case("CMD"));
+    }
+
+    envelope_procedure.command = ground_template(&envelope_procedure.command, &envelope_args);
+    if let Some(http_req) = envelope_procedure.http_request.as_mut() {
+        ground_json_value(http_req, &envelope_args);
+    }
+    if let Some(k8s_req) = envelope_procedure.k8s_request.as_mut() {
+        ground_json_value(k8s_req, &envelope_args);
+    }
+    if let Some(steps) = envelope_procedure.steps.as_mut() {
+        ground_json_value(steps, &envelope_args);
+    }
+    ground_procedure_operation(&mut envelope_procedure.operation, &envelope_args);
+
+    if use_kubeconfig {
+        if envelope_procedure.command.trim().is_empty() {
+            if let Some(request) = envelope_procedure.k8s_request.clone() {
+                envelope_procedure.command = describe_k8s_request(&envelope_procedure.id, request)?;
+            } else if let Some(request) = envelope_procedure.http_request.clone() {
+                envelope_procedure.command =
+                    describe_authenticated_http_request(&envelope_procedure.id, request)?;
+            }
+        }
+    } else {
+        materialize_k8s_request(&mut envelope_procedure, armory, auth_token)?;
+    }
+    materialize_steps(&mut envelope_procedure, armory)?;
+    if !use_kubeconfig {
+        materialize_abstract_http_request(&mut envelope_procedure, armory, auth_token)?;
+    }
+
+    Ok(envelope_procedure.command)
 }
 
 fn parse_operation_port(value: &str, field: &str) -> Result<u16, ExecuteActionError> {
@@ -834,6 +874,23 @@ struct HttpRequestSpec {
     output: String,
     #[serde(default)]
     follow_redirects: bool,
+    /// When set, the response must be a JSON object containing this string
+    /// field. Its value becomes command stdout before failure/effect parsing.
+    #[serde(default)]
+    response_output_field: String,
+}
+
+fn http_response_output_transform(procedure: &Procedure) -> Option<OutputTransform> {
+    let request = procedure.http_request.as_ref()?.clone();
+    let spec: HttpRequestSpec = serde_json::from_value(request).ok()?;
+    let field = spec.response_output_field.trim();
+    if field.is_empty() {
+        None
+    } else {
+        Some(OutputTransform::JsonField {
+            field: field.to_string(),
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1119,6 +1176,7 @@ pub(super) fn materialize_k8s_request(
         ca_path: spec.ca_path,
         output: String::new(),
         follow_redirects: false,
+        response_output_field: String::new(),
     };
 
     // `key: k8s-request` is a procedure selector used throughout the bundled
@@ -1707,8 +1765,24 @@ impl Campaign {
                 auth.kubectl_arg(procedure.is_local_command == Some(true)),
             );
         }
+        let procedure_envelope = materialize_procedure_envelope(
+            &procedure,
+            &args,
+            armory,
+            resolved_auth.as_ref().and_then(ResolvedK8sAuth::token),
+            use_kubeconfig,
+        )?;
+        args.entry("PROCEDURE_CMD".to_string())
+            .or_insert(procedure_envelope);
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
         args.remove("K8S_AUTH");
+        let procedure_output_transform = http_response_output_transform(&procedure);
+        if let Some(OutputTransform::JsonField { field }) = &procedure_output_transform {
+            args.insert(
+                "__RAN_PROCEDURE_RESPONSE_OUTPUT_FIELD".to_string(),
+                field.clone(),
+            );
+        }
         if is_local_control_operation(&procedure.operation)
             && matches!(resolved_auth, Some(ResolvedK8sAuth::ServiceAccount { .. }))
         {
@@ -1750,7 +1824,7 @@ impl Campaign {
         }
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
-        let route = self.route_exec_channel(
+        let mut route = self.route_exec_channel(
             &target_id,
             &ttp.tactic,
             &mut procedure,
@@ -1759,6 +1833,15 @@ impl Campaign {
             exec_hint.as_deref(),
             lateral_src,
         )?;
+        if route.output_transform.is_some() && procedure_output_transform.is_some() {
+            return Err(ExecuteActionError::InvariantViolation(
+                "execution route and procedure both require output transforms; transform composition is not supported"
+                    .to_string(),
+            ));
+        }
+        if procedure_output_transform.is_some() {
+            route.output_transform = procedure_output_transform;
+        }
         let operation = materialize_execution_operation(&procedure, use_kubeconfig)?;
 
         let cmd_id = generate_cmd_id();
@@ -2065,7 +2148,7 @@ impl Campaign {
             ));
         }
 
-        let wrap = self.wrap_command_for_hops(procedure, &channel.hops, &exec_target, args);
+        let wrap = self.wrap_command_for_hops(procedure, &channel.hops, &exec_target, args)?;
         let exec_chain = channel
             .hops
             .into_iter()
@@ -2136,7 +2219,7 @@ impl Campaign {
                         &[hint.to_string()],
                         exec_target.as_str(),
                         args,
-                    );
+                    )?;
                     return Ok(ExecRoute {
                         backend_id: ch.backend_id,
                         target_id: target_id.to_string(),
@@ -2148,7 +2231,7 @@ impl Campaign {
                 }
 
                 let wrap =
-                    self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args);
+                    self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args)?;
                 let exec_chain: Vec<String> = ch
                     .hops
                     .iter()
@@ -2193,7 +2276,7 @@ impl Campaign {
                     ));
                 }
 
-                let wrap = self.wrap_command_for_hops(procedure, &ch.hops, &exec_target, args);
+                let wrap = self.wrap_command_for_hops(procedure, &ch.hops, &exec_target, args)?;
                 let exec_chain: Vec<String> = ch
                     .hops
                     .iter()
@@ -2296,7 +2379,8 @@ impl Campaign {
                 None,
             ))
         } else {
-            let wrap = self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args);
+            let wrap =
+                self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args)?;
             let exec_chain: Vec<String> = ch
                 .hops
                 .iter()
@@ -2448,7 +2532,7 @@ impl Campaign {
         hops: &[String],
         exec_target: &str,
         args: &HashMap<String, String>,
-    ) -> HopWrap {
+    ) -> Result<HopWrap, ExecuteActionError> {
         let full_chain: Vec<&str> = hops
             .iter()
             .map(String::as_str)
@@ -2519,7 +2603,11 @@ impl Campaign {
                     // `kubectl exec ...` (because kubelet-pod-exec has no
                     // envelope), causing token reads to run with a missing
                     // kubectl binary in the target pod.
-                    if rel.name == "kubelet-pod-exec" && rel.envelope.is_none() && i > 1 {
+                    if rel.name == "rce.can-exec" && rel.envelope.is_none() {
+                        return Err(ExecuteActionError::InvariantViolation(format!(
+                            "rce.can-exec channel from '{src}' to '{tgt}' has no command envelope"
+                        )));
+                    } else if rel.name == "kubelet-pod-exec" && rel.envelope.is_none() && i > 1 {
                         let outer_src = full_chain[i - 2];
                         let outer_rel_has_envelope = self
                             .graph
@@ -2546,12 +2634,9 @@ impl Campaign {
                     }
                 }
                 None => {
-                    // Fallback: try kubectl exec via target entity ID.
-                    if let Some((ns, name)) = split_pod_entity_id(tgt) {
-                        format!("kubectl exec -n {} {} -- {}", ns, name, procedure.command)
-                    } else {
-                        procedure.command.clone()
-                    }
+                    return Err(ExecuteActionError::InvariantViolation(format!(
+                        "resolved execution chain has no exec-channel edge from '{src}' to '{tgt}'"
+                    )));
                 }
             };
             let embedded_command = hop_envelope
@@ -2584,11 +2669,11 @@ impl Campaign {
         // both direct and multi-hop commands, in `build_command_traversal`.
         traversal.reverse();
 
-        HopWrap {
+        Ok(HopWrap {
             output_transform,
             traversal,
             inner_command,
-        }
+        })
     }
 
     /// Build a direct ran-ws kubelet exec command for `node -> pod` sink hops.
@@ -2787,15 +2872,22 @@ impl Campaign {
         let mut updates = FactsUpdate::default();
         let mut parse_audits = Vec::new();
 
-        // If the channel wrapped its output (e.g. ran-ws JSON envelope from kubelet-pod-exec),
-        // unwrap it here before any parser sees the result.
+        // If the procedure or channel wrapped its output, unwrap it here before
+        // any failure or effect parser sees the result.
         let event_owned;
-        let event: &TtpExecuted = if cmd.output_transform == Some(OutputTransform::JsonEnvelope)
-            && event.success
-            && !event.results.is_empty()
+        let event: &TtpExecuted = if let Some(transform) = cmd
+            .output_transform
+            .as_ref()
+            .filter(|_| event.success && !event.results.is_empty())
         {
-            let raw = &event.results[0];
-            let (unwrapped, err) = crate::output_parsers::unwrap_kubelet_json_response(raw);
+            let (unwrapped, err) = match transform {
+                OutputTransform::JsonEnvelope => {
+                    crate::output_parsers::unwrap_kubelet_json_response(&event.results[0])
+                }
+                OutputTransform::JsonField { field } => {
+                    crate::output_parsers::unwrap_json_field_response(&event.results[0], field)
+                }
+            };
             let mut patched = event.clone();
             patched.results[0] = unwrapped;
             if let Some(msg) = err {

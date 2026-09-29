@@ -45,7 +45,7 @@ procedures:
   - key: curl
     tool: curl
     command: >-
-      curl -sS {% if FOLLOW_REDIRECTS %}-L {% endif %} -m ${TIMEOUT} -X
+      curl -sS --fail-with-body {% if FOLLOW_REDIRECTS %}-L {% endif %} -m ${TIMEOUT} -X
       ${METHOD} {% if USE_CA %}{% if CA_PATH %}--cacert '${CA_PATH}' {% endif
       %}{% else %}--insecure {% endif %} {% for name, value in HEADERS %}-H "{{
       name }}: {{ value }}" {% endfor %} {% if PAYLOAD %}--data {{ PAYLOAD |

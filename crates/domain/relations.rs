@@ -296,10 +296,13 @@ pub struct RceCanExec {
     pub source_id: EntityId,
     pub target_id: EntityId,
     /// The grounded exploit command template with `${CMD}` as the inner-command
-    /// placeholder, e.g. `redis-cli -h 10.0.0.1 -p 6379 EVAL "..." 0 "${CMD}"`.
+    /// placeholder, or `${CMD_JSON}` when the command occupies a JSON string.
+    /// For example: `redis-cli -h 10.0.0.1 EVAL "..." 0 "${CMD}"`.
     /// Set when the relation is created from a lateral-movement TTP execution so
     /// subsequent commands routed over this edge can re-invoke the exploit.
     pub envelope: Option<String>,
+    /// Output post-processing required for commands routed over this channel.
+    pub output_transform: Option<OutputTransformKind>,
 }
 
 impl RceCanExec {
@@ -308,6 +311,7 @@ impl RceCanExec {
             source_id: EntityId::new(source_id),
             target_id: EntityId::new(target_id),
             envelope: None,
+            output_transform: None,
         }
     }
 
@@ -318,6 +322,11 @@ impl RceCanExec {
 
     pub fn with_opt_envelope(mut self, envelope: Option<String>) -> Self {
         self.envelope = envelope;
+        self
+    }
+
+    pub fn with_output_transform(mut self, transform: OutputTransformKind) -> Self {
+        self.output_transform = Some(transform);
         self
     }
 }
@@ -801,12 +810,17 @@ impl RelationSummary {
                     .and_then(|k| k.envelope.clone())
             });
 
-        // Extract output_transform from KubeletExecSource (the only type that
-        // carries one today; extend here for future channel types).
+        // Extract output_transform from execution-channel relations that wrap
+        // the inner command's stdout.
         let output_transform = r
             .as_any()
-            .downcast_ref::<KubeletExecSource>()
-            .and_then(|k| k.output_transform.clone());
+            .downcast_ref::<RceCanExec>()
+            .and_then(|rce| rce.output_transform.clone())
+            .or_else(|| {
+                r.as_any()
+                    .downcast_ref::<KubeletExecSource>()
+                    .and_then(|k| k.output_transform.clone())
+            });
 
         let session_id = r
             .as_any()
@@ -832,8 +846,8 @@ impl RelationSummary {
     /// Wrap `cmd` with the appropriate execution primitive for this channel.
     ///
     /// - If the relation carries an `envelope` (e.g. a grounded `redis-cli … ${CMD}` exploit
-    ///   template), substitutes `${CMD}` with `cmd`, escaping it for the shell
-    ///   quote context surrounding the placeholder.
+    ///   template), substitutes the command slot with `cmd`, escaping it for the
+    ///   shell quote context. `${CMD_JSON}` additionally JSON-encodes the value.
     /// - Otherwise falls back to `kubectl exec -n <ns> <name> -- <cmd>` by parsing the
     ///   target entity ID in the canonical `ns/<ns>/pod/<name>` format.
     pub fn wrap_command(&self, cmd: &str) -> String {
@@ -879,6 +893,24 @@ enum ShellQuoteContext {
 /// quoted word are escaped only for that quote context.
 fn substitute_envelope_command(envelope: &str, cmd: &str) -> String {
     const PLACEHOLDER: &str = "${CMD}";
+    const JSON_PLACEHOLDER: &str = "${CMD_JSON}";
+
+    fn push_for_shell_context(result: &mut String, value: &str, context: ShellQuoteContext) {
+        match context {
+            ShellQuoteContext::Unquoted => result.push_str(value),
+            ShellQuoteContext::SingleQuoted => {
+                result.push_str(&value.replace('\'', "'\\''"));
+            }
+            ShellQuoteContext::DoubleQuoted => {
+                for ch in value.chars() {
+                    if matches!(ch, '\\' | '"' | '$' | '`') {
+                        result.push('\\');
+                    }
+                    result.push(ch);
+                }
+            }
+        }
+    }
 
     let mut result = String::with_capacity(envelope.len() + cmd.len());
     let mut context = ShellQuoteContext::Unquoted;
@@ -887,21 +919,16 @@ fn substitute_envelope_command(envelope: &str, cmd: &str) -> String {
     while offset < envelope.len() {
         let remaining = &envelope[offset..];
         if remaining.starts_with(PLACEHOLDER) {
-            match context {
-                ShellQuoteContext::Unquoted => result.push_str(cmd),
-                ShellQuoteContext::SingleQuoted => {
-                    result.push_str(&cmd.replace('\'', "'\\''"));
-                }
-                ShellQuoteContext::DoubleQuoted => {
-                    for ch in cmd.chars() {
-                        if matches!(ch, '\\' | '"' | '$' | '`') {
-                            result.push('\\');
-                        }
-                        result.push(ch);
-                    }
-                }
-            }
+            push_for_shell_context(&mut result, cmd, context);
             offset += PLACEHOLDER.len();
+            continue;
+        }
+        if remaining.starts_with(JSON_PLACEHOLDER) {
+            let encoded =
+                serde_json::to_string(cmd).expect("serializing a Rust string as JSON cannot fail");
+            let encoded_without_quotes = &encoded[1..encoded.len() - 1];
+            push_for_shell_context(&mut result, encoded_without_quotes, context);
+            offset += JSON_PLACEHOLDER.len();
             continue;
         }
 
@@ -988,6 +1015,19 @@ mod app_service_relation_tests {
         assert_eq!(
             relation.wrap_command("printf '%s' hello"),
             "nsenter -- printf '%s' hello"
+        );
+    }
+
+    #[test]
+    fn envelope_json_encodes_command_inside_single_quoted_payload() {
+        let relation = RelationSummary::from_relation(
+            &RceCanExec::new("system/source", "system/agent")
+                .with_envelope(r#"curl --data '{"command":"${CMD_JSON}"}' http://agent/run"#),
+        );
+
+        assert_eq!(
+            relation.wrap_command(r#"printf '%s\n' "hello""#),
+            r#"curl --data '{"command":"printf '\''%s\\n'\'' \"hello\""}' http://agent/run"#
         );
     }
 }

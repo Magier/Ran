@@ -34,6 +34,7 @@ Procedure fields describe how each execution alternative runs. Tool readiness is
 | Name | Accepted value types | Required | Support | Scope | Meaning |
 | --- | --- | --- | --- | --- | --- |
 | `procedure.tool` | `string` | no | `enforced` | physical execution system | Names the binary dependency for one procedure. Procedure readiness is evaluated independently, so an action remains runnable while any alternative procedure is present or has unknown availability. A known-absent tool makes only that procedure unavailable. An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. For procedures constructed without either value, Ran falls back to a bare procedure ID and then the first command word. |
+| `procedure.http_request.response_output_field` | `string` | no | `enforced` | structured HTTP response | Declares the JSON response field that contains stdout for an HTTP-backed execution procedure. The transform is retained on any execution channel created by the procedure. When present, Ran requires a successful HTTP response body to be a JSON object containing the named string field. That field becomes stdout before failure detection and effect parsing. Missing, non-string, or malformed response data fails the action. |
 
 ## Requirements
 

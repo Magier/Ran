@@ -1060,7 +1060,17 @@ fn parse_rce_can_exec_relation(
         .get("PROCEDURE_CMD")
         .filter(|v| !v.trim().is_empty())
         .cloned();
-    let rel = RceCanExec::new(args[0], args[1]).with_opt_envelope(envelope);
+    let mut rel = RceCanExec::new(args[0], args[1]).with_opt_envelope(envelope);
+    if let Some(field) = ctx
+        .get("__RAN_PROCEDURE_RESPONSE_OUTPUT_FIELD")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+    {
+        rel = rel.with_output_transform(OutputTransformKind::JsonField {
+            field: field.to_string(),
+        });
+    }
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
