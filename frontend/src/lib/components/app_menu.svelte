@@ -12,6 +12,7 @@
 	} from '$lib/planDownload';
 	import { getRanAPI } from '$lib/ran_api';
 	import { timeline } from '$lib/stores/timelineStore.svelte';
+	import { uiPreferences } from '$lib/stores/uiPreferences.svelte';
 	import type { PlanSummary } from '$lib/api';
 	import Icon from '@iconify/svelte';
 	import { Dialog, Menu, Portal } from '@skeletonlabs/skeleton-svelte';
@@ -101,6 +102,8 @@
 		let { value } = event;
 
 		switch (value) {
+			case 'toggle_auto_open_read_files':
+				break;
 			case 'reset':
 				campaignState.reset();
 				timeline.clear();
@@ -138,6 +141,21 @@
 	<Portal>
 		<Menu.Positioner class="z-[110]">
 			<Menu.Content class="z-[110]">
+				<Menu.ItemGroup>
+					<Menu.ItemGroupLabel>Settings</Menu.ItemGroupLabel>
+					<Menu.OptionItem
+						type="checkbox"
+						value="toggle_auto_open_read_files"
+						checked={uiPreferences.autoOpenReadFiles}
+						onCheckedChange={(checked) => uiPreferences.setAutoOpenReadFiles(checked)}
+					>
+						<Menu.ItemText>Show read files</Menu.ItemText>
+						<Menu.ItemIndicator class="ml-auto hidden data-[state=checked]:block">
+							<span aria-hidden="true">✓</span>
+						</Menu.ItemIndicator>
+					</Menu.OptionItem>
+				</Menu.ItemGroup>
+				<Menu.Separator />
 				<Menu.ItemGroup>
 					<Menu.ItemGroupLabel>Campaign</Menu.ItemGroupLabel>
 					<Menu.Item value="reset">
