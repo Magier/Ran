@@ -840,13 +840,14 @@ export interface components {
 		AttackStep: {
 			id: string;
 			targetId: string;
+			/** @description The full command string sent across this segment - what `fromId` runs. */
 			command: string;
 			/** @description Per-hop breakdown of a multi-system command traversal, ordered from the C2 entry point (outermost envelope) to the final target (innermost). Empty for direct/single-hop commands. */
 			traversal: components['schemas']['TraversalHop'][];
 			/** @description The bare inner command as it runs on the final target system, before any hop envelopes wrap it. Empty when there is no multi-hop traversal. */
 			innerCommand: string;
-			/** @description Short, human-readable explanation of why this execution route was chosen (e.g. a live session vs. a multi-hop path), including a note when a broken session edge to the target was skipped. Empty for direct/local commands with no joined traversal. */
-			routeReason?: string;
+			/** @description Exceptional routing decisions not visible from the hop chain itself. */
+			routeWarnings: components['schemas']['RouteWarning'][];
 			/** @description Free-text rationale supplied by the operator when executing this action. Empty when none was given. */
 			reasoning: string;
 			args: {
@@ -902,8 +903,13 @@ export interface components {
 			relation: string;
 			/** @description The command-wrapping template with `${CMD}` placeholder applied at this hop. Absent for the C2 entry hop and pass-through segments. */
 			envelope?: string;
-			/** @description The full command string sent across this segment - what `fromId` runs. */
 			command: string;
+		};
+		RouteWarning: {
+			/** @enum {string} */
+			kind: 'broken-session-skipped';
+			/** @description Human-readable explanation of the exceptional routing decision. */
+			message: string;
 		};
 		ArmoryVocabulary: {
 			schemaVersion: number;

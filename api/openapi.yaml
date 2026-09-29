@@ -1391,6 +1391,7 @@ components:
         - command
         - traversal
         - innerCommand
+        - routeWarnings
         - reasoning
         - TTP
         - procedureId
@@ -1414,6 +1415,7 @@ components:
           type: string
         command:
           type: string
+          description: The full command string sent across this segment - what `fromId` runs.
         traversal:
           type: array
           description: >-
@@ -1428,13 +1430,11 @@ components:
             The bare inner command as it runs on the final target system,
             before any hop envelopes wrap it. Empty when there is no multi-hop
             traversal.
-        routeReason:
-          type: string
-          description: >-
-            Short, human-readable explanation of why this execution route was
-            chosen (e.g. a live session vs. a multi-hop path), including a note
-            when a broken session edge to the target was skipped. Empty for
-            direct/local commands with no joined traversal.
+        routeWarnings:
+          type: array
+          description: Exceptional routing decisions not visible from the hop chain itself.
+          items:
+            $ref: '#/components/schemas/RouteWarning'
         reasoning:
           type: string
           description: >-
@@ -1544,7 +1544,17 @@ components:
             this hop. Absent for the C2 entry hop and pass-through segments.
         command:
           type: string
-          description: The full command string sent across this segment - what `fromId` runs.
+
+    RouteWarning:
+      type: object
+      required: [kind, message]
+      properties:
+        kind:
+          type: string
+          enum: [broken-session-skipped]
+        message:
+          type: string
+          description: Human-readable explanation of the exceptional routing decision.
 
     ArmoryVocabulary:
       type: object

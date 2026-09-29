@@ -152,8 +152,10 @@
 			<div class="pr-2">Status</div>
 			<div class={['badge', badgeStyle]}>{status}</div>
 		</div>
+	</header>
+	<article class="flex min-h-10 flex-auto flex-col overflow-auto">
 		{#if parameters.length > 0}
-			<details class="mt-4 justify-start">
+			<details class="justify-start">
 				<summary class="cursor-pointer pr-2">Parameters</summary>
 				<dl class="bg-surface-200-800/40 divide-surface-300-700 mt-2 divide-y rounded px-3">
 					{#each parameters as [name, value] (name)}
@@ -165,23 +167,23 @@
 				</dl>
 			</details>
 		{/if}
-	</header>
-	<article class="flex min-h-10 flex-auto flex-col overflow-auto">
 		{#if step.reasoning?.trim()}
-			<details class="mt-4 justify-start">
+			<details class={['justify-start', parameters.length > 0 ? 'mt-1' : 'mt-4']}>
 				<summary class="cursor-pointer pr-2">Reasoning</summary>
 				<p class="mt-2 text-sm whitespace-pre-wrap opacity-80">{step.reasoning}</p>
 			</details>
 		{/if}
-		{#if step.routeReason}
-			<div class="mt-4 justify-start">
-				<div class="mb-1 pr-2">Route</div>
-				<p class="text-xs opacity-80">{step.routeReason}</p>
-			</div>
-		{/if}
 		<div class="mt-4 justify-start">
 			{#if hasTraversal}
 				<div class="mb-2 pr-2">Traversal</div>
+				{#each step.routeWarnings as warning, index (index)}
+					<div
+						class="bg-warning-100-900 text-warning-700-300 mb-2 flex items-start gap-2 rounded p-2 text-xs"
+					>
+						<Icon icon="mdi:alert-outline" width="16" class="mt-px shrink-0" />
+						<span>{warning.message}</span>
+					</div>
+				{/each}
 				<!-- System chain: click a system to inspect the command + envelope at that hop -->
 				<div class="flex flex-wrap items-center gap-y-1">
 					{#each chainNodes as node, i (i)}

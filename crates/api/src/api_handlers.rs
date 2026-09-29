@@ -822,11 +822,8 @@ pub(crate) struct AttackStep {
     /// Empty when there is no multi-hop traversal.
     #[serde(rename = "innerCommand")]
     pub inner_command: String,
-    /// Short, human-readable explanation of why this execution route was chosen
-    /// (e.g. live session vs. multi-hop, or a note that a broken session edge was
-    /// skipped). Empty for direct/local commands with no joined traversal.
-    #[serde(rename = "routeReason")]
-    pub route_reason: String,
+    #[serde(rename = "routeWarnings")]
+    pub route_warnings: Vec<campaign::RouteWarning>,
     /// Free-text rationale supplied by the operator when this action was run.
     /// Empty when none was given.
     pub reasoning: String,
@@ -867,7 +864,7 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
             // Traversal is joined separately from the campaign side map by id.
             traversal: Vec::new(),
             inner_command: String::new(),
-            route_reason: String::new(),
+            route_warnings: Vec::new(),
             reasoning: r.reasoning.clone(),
             args: r.args.clone(),
             procedure_id: r.procedure_id.clone(),
@@ -920,7 +917,7 @@ impl From<&campaign::ExecTtp> for AttackStep {
             // Traversal is joined separately from the campaign side map by id.
             traversal: Vec::new(),
             inner_command: String::new(),
-            route_reason: String::new(),
+            route_warnings: Vec::new(),
             reasoning: exec.reasoning.clone(),
             args: exec.args.clone(),
             procedure_id: exec.procedure.id.clone(),
@@ -1004,7 +1001,7 @@ mod flow_contract_tests {
                 command: "id".to_string(),
                 traversal: Vec::new(),
                 inner_command: String::new(),
-                route_reason: String::new(),
+                route_warnings: Vec::new(),
                 reasoning: "Confirm the action can identify the current user".to_string(),
                 args: HashMap::new(),
                 procedure_id: "shell".to_string(),
@@ -1041,6 +1038,8 @@ mod flow_contract_tests {
             value["steps"][0]["reasoning"],
             "Confirm the action can identify the current user"
         );
+        assert_eq!(value["steps"][0]["routeWarnings"], serde_json::json!([]));
+        assert!(value["steps"][0].get("routeReason").is_none());
         assert_eq!(value["edges"][0]["sourceId"], "cmd-0");
         assert!(value.get("rootNodeId").is_none());
         assert!(value["steps"][0].get("observables").is_none());
@@ -1079,7 +1078,7 @@ pub(crate) async fn flow_handler<S: ApiService>(
         if let Some(ct) = campaign.command_traversal(&step.id) {
             step.traversal = ct.hops.iter().map(AttackStepHop::from).collect();
             step.inner_command = ct.inner_command.clone();
-            step.route_reason = ct.reason.clone();
+            step.route_warnings.clone_from(&ct.warnings);
         }
     }
 

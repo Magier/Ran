@@ -9,6 +9,7 @@ const step: AttackStep = {
 	command: 'id',
 	traversal: [],
 	innerCommand: '',
+	routeWarnings: [],
 	reasoning: '',
 	args: {},
 	procedureId: 'shell',
@@ -93,8 +94,11 @@ describe('AttackStepDrawer', () => {
 		const parameters = screen.getByText('Parameters');
 		const reasoning = screen.getByText('Reasoning');
 		const disclosure = parameters.closest('details');
+		const reasoningDisclosure = reasoning.closest('details');
 		expect(disclosure).not.toBeNull();
 		expect(disclosure).not.toHaveAttribute('open');
+		expect(disclosure?.parentElement).toBe(reasoningDisclosure?.parentElement);
+		expect(reasoningDisclosure).toHaveClass('mt-1');
 		expect(
 			status.compareDocumentPosition(parameters) & Node.DOCUMENT_POSITION_FOLLOWING
 		).toBeTruthy();
@@ -120,6 +124,33 @@ describe('AttackStepDrawer', () => {
 
 		expect(screen.getByLabelText('Follow output')).toBeChecked();
 		expect(screen.getByText(/Nmap scan report for 10\.0\.0\.5/)).toBeInTheDocument();
+	});
+
+	it('shows exceptional route warnings inside traversal without a separate Route section', () => {
+		renderDrawer(vi.fn(), {
+			...step,
+			routeWarnings: [
+				{
+					kind: 'broken-session-skipped',
+					message: 'A broken session edge to the target was skipped.'
+				}
+			],
+			traversal: [
+				{
+					fromId: 'c2/ran',
+					toId: 'target-1',
+					relation: 'exec',
+					command: 'id'
+				}
+			],
+			innerCommand: 'id'
+		});
+
+		expect(screen.getByText('Traversal')).toBeInTheDocument();
+		expect(
+			screen.getByText('A broken session edge to the target was skipped.')
+		).toBeInTheDocument();
+		expect(screen.queryByText('Route')).not.toBeInTheDocument();
 	});
 
 	it('waits for output without showing the follow control', () => {

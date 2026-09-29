@@ -28,7 +28,7 @@ use crate::shell_cmd::ground_binaries;
 use crate::{FactsUpdate, ParseResult};
 
 use crate::execution_record::ExecutionRecord;
-use crate::traversal::{CommandTraversal, TraversalHop};
+use crate::traversal::{CommandTraversal, RouteWarning, TraversalHop};
 
 use super::{
     Campaign, CampaignSystemEntityRef, ExecChannel, ExecuteActionError, ExecuteActionRequest,
@@ -1771,7 +1771,7 @@ impl Campaign {
                 cmd_id = %cmd_id,
                 target_id = %route.target_id,
                 backend_id = %route.backend_id,
-                route_reason = %traversal.reason,
+                route_warning_count = traversal.warnings.len(),
                 "resolved execution route"
             );
             self.command_traversals.insert(cmd_id.clone(), traversal);
@@ -2370,7 +2370,7 @@ impl Campaign {
                 return Some(CommandTraversal {
                     hops: hops.clone(),
                     inner_command: final_command.to_string(),
-                    reason: self.route_reason(route),
+                    warnings: self.route_warnings(route),
                 });
             }
         }
@@ -2403,48 +2403,27 @@ impl Campaign {
         Some(CommandTraversal {
             hops,
             inner_command,
-            reason: self.route_reason(route),
+            warnings: self.route_warnings(route),
         })
     }
 
-    /// Build a short, human-readable explanation of why `route` was chosen, from
-    /// the finalized route shape. Kept honest and derived from the route itself
-    /// (rather than the resolver's internal branch) so it never drifts from what
-    /// actually ran, and flags when a broken session edge to the target was
-    /// skipped - the visible counterpart to the resolver's decision logs.
-    fn route_reason(&self, route: &ExecRoute) -> String {
+    fn route_warnings(&self, route: &ExecRoute) -> Vec<RouteWarning> {
         let exec_target = route
             .exec_chain
             .last()
             .map(String::as_str)
             .unwrap_or(route.target_id.as_str());
 
-        let mut reason = if route.backend_id.starts_with("session/") {
-            format!("Tunneled through live session {}", route.backend_id)
-        } else if route.exec_chain.len() > 1 {
-            format!(
-                "Multi-hop route {}",
-                format_exec_chain(&route.backend_id, &route.exec_chain, exec_target)
-            )
-        } else if route.backend_id.is_empty() {
-            "Local C2-side command (no remote hop)".to_string()
-        } else {
-            format!("Direct exec from {}", route.backend_id)
-        };
-
-        // If a session edge into the exec target exists but is broken, the router
-        // stepped around it - call that out so an operator understands why the
-        // path is not the (now-dead) session they might expect.
         if self.has_broken_exec_edge_into(exec_target) && !route.backend_id.starts_with("session/")
         {
-            reason.push_str(" (a broken session edge to the target was skipped)");
+            vec![RouteWarning::broken_session_skipped()]
+        } else {
+            Vec::new()
         }
-
-        reason
     }
 
     /// Whether any incoming exec-channel edge into `target_id` is currently
-    /// marked broken. Used only to annotate the route reason.
+    /// marked broken. Used only to attach a structured route warning.
     fn has_broken_exec_edge_into(&self, target_id: &str) -> bool {
         let eid = EntityId::new(target_id);
         self.graph
