@@ -204,14 +204,14 @@
 					</div>
 				{/each}
 				<!-- System chain: click a system to inspect the command + envelope at that hop -->
-				<div class="flex flex-wrap items-center gap-y-1">
+				<div class="flex min-h-8 flex-wrap items-center gap-y-1">
 					{#each chainNodes as node, i (i)}
 						{#if selectedHop && i === selectedNodeIdx}
 							{#if i > 0}
 								<Icon icon="material-symbols:chevron-right" width="16" class="opacity-40" />
 							{/if}
 							<div
-								class="bg-surface-200-800/60 flex items-center rounded-md p-1"
+								class="bg-surface-300-700/80 flex items-center rounded-md p-1"
 								role="group"
 								aria-label={`Selected hop from ${shortName(node)} to ${shortName(chainNodes[i + 1])}`}
 							>
@@ -250,12 +250,6 @@
 
 				<!-- Detail for the selected hop (or the target's inner command) -->
 				<div class="bg-surface-100-900 mt-2 space-y-2 rounded p-2">
-					{#if !selectedHop}
-						<div class="flex flex-wrap items-center gap-2 text-sm">
-							<span class="badge preset-filled-success-500 text-xs">runs on target</span>
-							<span class="opacity-70">{shortName(chainNodes[chainNodes.length - 1])}</span>
-						</div>
-					{/if}
 					<div>
 						<div class="label mb-0.5 flex items-center gap-2 text-xs opacity-60">
 							<span>{selectedHop ? 'Command sent over this hop' : 'Command on target'}</span>

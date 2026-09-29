@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { AttackStep } from '$lib/api';
 import AttackStepDrawer from './AttackStepDrawer.svelte';
@@ -153,7 +153,7 @@ describe('AttackStepDrawer', () => {
 		expect(screen.queryByText('Route')).not.toBeInTheDocument();
 	});
 
-	it('shows one rendered hop command with its real nested data highlighted for legacy records', () => {
+	it('shows one rendered hop command with its real nested data highlighted for legacy records', async () => {
 		const command = 'runner --data "printf \\"hello\\""';
 		renderDrawer(vi.fn(), {
 			...step,
@@ -182,6 +182,10 @@ describe('AttackStepDrawer', () => {
 			'data-source',
 			command
 		);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'target-1' }));
+		expect(screen.getByText('Command on target')).toBeInTheDocument();
+		expect(screen.queryByText('runs on target')).not.toBeInTheDocument();
 	});
 
 	it('waits for output without showing the follow control', () => {
