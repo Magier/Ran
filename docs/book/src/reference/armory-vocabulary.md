@@ -12,9 +12,9 @@ This vocabulary describes declarations shipped with Ran. Custom Armory content m
 
 ## Interpolation
 
-Before effects are processed, Ran substitutes execution arguments into every effect string. Argument lookup is ASCII case-insensitive. Interpolation is a property of all effect declarations, not selected effect kinds.
+Titles are rendered with execution arguments when available and may declare a human-readable fallback for Armory views. Before effects are processed, Ran substitutes execution arguments into every effect string. Effect argument lookup is ASCII case-insensitive.
 
-Syntax: `${NAME}`. Applies to: effects. Unknown variables: preserved unchanged.
+Syntax: `${NAME} or ${NAME || fallback}`. Applies to: title, effects. Unknown variables: preserved unchanged.
 
 ## Support levels
 

@@ -4,10 +4,10 @@
   "stability": "experimental",
   "extensionPolicy": "This vocabulary describes declarations shipped with Ran. Custom Armory content may use additional names, but unknown procedure fields have no built-in semantics, unknown requirements do not gate applicability, and unknown effects have no built-in semantics unless an external parser handles them.",
   "interpolation": {
-    "syntax": "${NAME}",
-    "appliesTo": ["effects"],
+    "syntax": "${NAME} or ${NAME || fallback}",
+    "appliesTo": ["title", "effects"],
     "unknownVariables": "preserved unchanged",
-    "description": "Before effects are processed, Ran substitutes execution arguments into every effect string. Argument lookup is ASCII case-insensitive. Interpolation is a property of all effect declarations, not selected effect kinds."
+    "description": "Titles are rendered with execution arguments when available and may declare a human-readable fallback for Armory views. Before effects are processed, Ran substitutes execution arguments into every effect string. Effect argument lookup is ASCII case-insensitive."
   },
   "supportLevels": [
     {

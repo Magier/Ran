@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AttackStep } from '$lib/api';
+	import { actionDisplayName, displayArgumentValue } from '$lib/actionDisplay';
 	import { getCampaignState } from './CampaignState.svelte';
 	import Icon from '@iconify/svelte';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
@@ -37,6 +38,12 @@
 	const stdout = $derived(liveOutput?.stdout ?? step?.stdout ?? step?.results?.[0] ?? '');
 	const stderr = $derived(liveOutput?.stderr ?? step?.stderr ?? step?.results?.[1] ?? '');
 	const outputTruncated = $derived(liveOutput?.truncated ?? step?.outputTruncated ?? false);
+	const actionName = $derived(
+		actionDisplayName(campaignState.getTtpById(step.TTP.id)?.title, step.TTP.name, step.args)
+	);
+	const parameters = $derived(
+		Object.entries(step.args ?? {}).sort(([left], [right]) => left.localeCompare(right))
+	);
 	let followOutput = $state(true);
 	let outputContainer: HTMLDivElement | undefined = $state();
 	$effect(() => {
@@ -104,7 +111,7 @@
 
 {#if step != null}
 	<header class="flex-none justify-between">
-		<h4 class="h4">{step.TTP.name}</h4>
+		<h4 class="h4">{actionName}</h4>
 		<!-- {#if step.TTP.icon}
 				<img src={step.TTP.icon} alt="TTP Icon" class="h-6 w-6" />
 			{/if} -->
@@ -121,6 +128,20 @@
 		<p class="mt-2 opacity-60">
 			{step.TTP.description}
 		</p>
+
+		{#if parameters.length > 0}
+			<div class="mt-4">
+				<div class="mb-1">Parameters</div>
+				<dl class="bg-surface-200-800/40 divide-surface-300-700 divide-y rounded px-3">
+					{#each parameters as [name, value] (name)}
+						<div class="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3 py-2 text-sm">
+							<dt class="truncate font-mono opacity-70" title={name}>{name}</dt>
+							<dd class="min-w-0 font-mono break-all">{displayArgumentValue(name, value)}</dd>
+						</div>
+					{/each}
+				</dl>
+			</div>
+		{/if}
 
 		<div class="mt-4 flex items-center justify-start">
 			<div class="pr-2">Target:</div>

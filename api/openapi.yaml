@@ -1689,6 +1689,12 @@ components:
           type: string
         name:
           type: string
+        title:
+          type: string
+          description: >-
+            Optional execution title template. Placeholders use
+            `${NAME || fallback}` and render the fallback while arguments are
+            unknown.
         description:
           type: string
         tactic:

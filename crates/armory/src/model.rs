@@ -117,6 +117,8 @@ impl Procedure {
 pub struct Ttp {
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
     pub description: String,
     pub tactic: String,
     pub techniques: Vec<String>,
@@ -154,6 +156,7 @@ impl Ttp {
         Self {
             id: id.into(),
             name: name.into(),
+            title: None,
             description: String::new(),
             tactic: tactic.into(),
             techniques: vec![],

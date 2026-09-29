@@ -285,6 +285,16 @@ describe('TimelineStore', () => {
 		}
 	});
 
+	it('enriches a pending action with resolved arguments from its execution event', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.recordExecutedTtp(
+			makeExecutedEntry({ id: 'cmd-abc', status: 'success', args: { PKG: 'nmap' } })
+		);
+
+		const entry = store.topEntries[0] as ActionGroup;
+		expect(entry.action.args).toEqual({ PKG: 'nmap' });
+	});
+
 	it('recordExecutedTtp marks matching pending group as failed with reason', () => {
 		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
 		store.recordExecutedTtp(

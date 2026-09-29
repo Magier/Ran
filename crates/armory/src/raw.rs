@@ -10,6 +10,7 @@ use std::path::Path;
 pub(crate) struct RawTtp {
     id: Option<String>,
     name: String,
+    title: Option<String>,
     description: String,
     tactic: Option<String>,
     techniques: Vec<String>,
@@ -131,6 +132,7 @@ impl RawTtp {
         Some(Ttp {
             id,
             name: self.name,
+            title: self.title,
             description: self.description,
             tactic,
             techniques: self.techniques,

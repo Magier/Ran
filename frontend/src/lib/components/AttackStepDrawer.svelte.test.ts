@@ -44,7 +44,12 @@ function renderDrawer(
 			context: new Map([
 				[
 					'$_campaignState',
-					{ getEntityById: () => ({ name: 'target-pod' }), getExecutionOutput: () => output }
+					{
+						getEntityById: () => ({ name: 'target-pod' }),
+						getExecutionOutput: () => output,
+						getTtpById: (id: string) =>
+							id === 'install-package' ? { title: 'Install ${PKG || package}' } : undefined
+					}
 				]
 			])
 		}),
@@ -73,6 +78,20 @@ describe('AttackStepDrawer', () => {
 		expect(
 			screen.getByText('List pods before selecting a workload to inspect.')
 		).toBeInTheDocument();
+	});
+
+	it('shows resolved parameters and uses the package name in install action titles', () => {
+		renderDrawer(vi.fn(), {
+			...step,
+			args: { PKG: 'nmap', TOKEN: 'eyJheader.payload.signature' },
+			TTP: { ...step.TTP, id: 'install-package', name: 'Install Package' }
+		});
+
+		expect(screen.getByRole('heading', { name: 'Install nmap' })).toBeInTheDocument();
+		expect(screen.getByText('Parameters')).toBeInTheDocument();
+		expect(screen.getByText('nmap')).toBeInTheDocument();
+		expect(screen.getByText('[redacted]')).toBeInTheDocument();
+		expect(screen.queryByText('eyJheader.payload.signature')).not.toBeInTheDocument();
 	});
 
 	it('shows output received while an action is still running', () => {

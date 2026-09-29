@@ -3,6 +3,7 @@
 	import { Combobox, useListCollection } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId } from '$lib/model';
+	import { actionDisplayName } from '$lib/actionDisplay';
 	import type {
 		TTP,
 		TTPParam,
@@ -1005,7 +1006,7 @@
 	onsubmit={onInternalExecute}
 >
 	<header class="flex flex-shrink-0 justify-between">
-		<h4 class="h4 text-sm md:text-base lg:text-lg">{ttp.name}</h4>
+		<h4 class="h4 text-sm md:text-base lg:text-lg">{actionDisplayName(ttp.title, ttp.name)}</h4>
 	</header>
 	<article class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
 		<div class="min-w-0 whitespace-pre-wrap" style="overflow-wrap: anywhere">

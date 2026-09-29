@@ -955,6 +955,8 @@ export interface components {
 		TTP: {
 			id: string;
 			name: string;
+			/** @description Optional execution title template. Placeholders use `${NAME || fallback}` and render the fallback while arguments are unknown. */
+			title?: string;
 			description: string;
 			tactic: string;
 			techniques: string[];
