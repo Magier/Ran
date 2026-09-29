@@ -13,7 +13,7 @@ parameters:
     type: string
     description: the target process ID to attach to
 procedures:
-  - key: gdp
+  - key: gdb
     command: |
       gdb -p ${PID}
       MODULE=ptrace.ko
