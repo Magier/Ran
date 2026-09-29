@@ -14,7 +14,8 @@ pub struct EdgeData {
     /// `true` when traversing this edge grants command execution on the target.
     pub is_exec_channel: bool,
     /// For `rce.can-exec` edges: grounded exploit command template where
-    /// `${CMD}` is the placeholder for the inner command. `None` otherwise.
+    /// `${CMD}` or `${CMD_JSON}` is the placeholder for the inner command.
+    /// `None` otherwise.
     pub envelope: Option<String>,
     /// Output post-processing required after routing commands over this edge.
     pub output_transform: Option<OutputTransformKind>,

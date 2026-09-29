@@ -613,6 +613,51 @@ pub fn unwrap_kubelet_json_response(stdout: &str) -> (String, Option<String>) {
     }
 }
 
+/// Extract a string field from a JSON response envelope.
+///
+/// Structured HTTP execution channels use this to turn an application-level
+/// response such as `{"command":"id","output":"uid=100..."}` back into the
+/// stdout produced by the inner command before effect and failure parsers run.
+pub fn unwrap_json_field_response(stdout: &str, field: &str) -> (String, Option<String>) {
+    let stdout = stdout.trim();
+    if stdout.is_empty() {
+        return (
+            String::new(),
+            Some(format!(
+                "empty JSON response while extracting output field '{field}'"
+            )),
+        );
+    }
+
+    let value: serde_json::Value = match serde_json::from_str(stdout) {
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                stdout.to_string(),
+                Some(format!(
+                    "execution response is not valid JSON while extracting field '{field}': {error}"
+                )),
+            );
+        }
+    };
+
+    match value.get(field) {
+        Some(serde_json::Value::String(output)) => (output.clone(), None),
+        Some(_) => (
+            stdout.to_string(),
+            Some(format!(
+                "execution response field '{field}' is not a string"
+            )),
+        ),
+        None => (
+            stdout.to_string(),
+            Some(format!(
+                "execution response is missing output field '{field}'"
+            )),
+        ),
+    }
+}
+
 fn truncate_preview(payload: &str) -> String {
     if payload.len() <= RAW_PREVIEW_MAX_LEN {
         return payload.to_string();
@@ -877,6 +922,27 @@ mod tests {
             fail_reason: String::new(),
             session_connected: None,
         }
+    }
+
+    #[test]
+    fn unwrap_json_field_response_extracts_inner_stdout() {
+        let (output, error) = unwrap_json_field_response(
+            r#"{"command":"id","output":"uid=100(oops) gid=101(oops)\n"}"#,
+            "output",
+        );
+
+        assert_eq!(output, "uid=100(oops) gid=101(oops)\n");
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn unwrap_json_field_response_rejects_not_found_body() {
+        let (output, error) = unwrap_json_field_response("not found", "output");
+
+        assert_eq!(output, "not found");
+        assert!(error
+            .expect("plain text must not satisfy a structured response contract")
+            .contains("not valid JSON"));
     }
 
     fn parse_and_apply_output_effect(

@@ -369,6 +369,10 @@ pub enum OutputTransformKind {
     /// kubelet-pod-exec).  The actual stdout must be extracted from the JSON
     /// before parsing.
     JsonEnvelope,
+    /// The raw output is a JSON object whose named string field contains the
+    /// command's stdout. Used by structured HTTP RCE channels that wrap the
+    /// executed command's output in an application response.
+    JsonField { field: String },
 }
 
 // ---------------------------------------------------------------------------

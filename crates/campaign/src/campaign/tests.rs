@@ -1683,6 +1683,251 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
 }
 
 #[test]
+fn abstract_http_rce_effect_preserves_reusable_execution_envelope() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let source = Pod::new("agent-worker", "agent-system");
+    let source_id = source.entity_id().0.clone();
+    campaign.entities.insert_typed(source);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &source_id);
+
+    let mut target = Pod::new("oopservability-agent.10-0-1-213", "oopservability");
+    target.system.ips.push("10.0.1.213".parse().unwrap());
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+
+    let mut ttps = curl_armory().ttps().to_vec();
+    ttps.push(Ttp {
+        params: vec![
+            TtpParam {
+                name: "TARGET".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${TARGET.IP}".to_string(),
+                options: vec![],
+            },
+            TtpParam {
+                name: "CMD".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "id".to_string(),
+                options: vec![],
+            },
+        ],
+        effects: vec!["rce.can-exec(${SRC}, ${TARGET_ID})".to_string()],
+        procedures: vec![Procedure {
+            tool: Some("curl".to_string()),
+            run_on_target: Some(false),
+            http_request: Some(serde_json::json!({
+                "method": "POST",
+                "url": "http://${TARGET}:8080/api/v1/diagnostics/run",
+                "headers": {"Content-Type": "application/json"},
+                "body": r#"{"command": {{ CMD | json_encode }}}"#,
+                "timeout_seconds": 30,
+                "follow_redirects": false,
+                "response_output_field": "output"
+            })),
+            ..Procedure::new("curl", "")
+        }],
+        ..Ttp::new(
+            "exploit-oopservability-agent-rce",
+            "Exploit Oopservability Agent RCE",
+            "Lateral Movement",
+        )
+    });
+    let armory = Armory::from_ttps(ttps);
+
+    let exploit = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "exploit-oopservability-agent-rce".to_string(),
+                target_id: target_id.clone(),
+                exec_system_id: None,
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                execution_timeout_seconds: None,
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("abstract HTTP exploit should be prepared");
+
+    let envelope = exploit
+        .args
+        .get("PROCEDURE_CMD")
+        .expect("prepared exploit should retain a reusable command envelope");
+    assert!(
+        envelope.starts_with("curl "),
+        "unexpected envelope: {envelope}"
+    );
+    assert!(
+        envelope.contains("--fail-with-body"),
+        "HTTP errors must make the exploit procedure fail: {envelope}"
+    );
+    assert!(
+        envelope.contains("${CMD_JSON}"),
+        "unexpected envelope: {envelope}"
+    );
+    assert_eq!(
+        exploit.output_transform,
+        Some(OutputTransformKind::JsonField {
+            field: "output".to_string()
+        })
+    );
+
+    let processing = campaign
+        .on_ttp_executed(
+            &exploit,
+            &sample_event(r#"{"command":"id","output":"uid=0(root)\n"}"#),
+        )
+        .expect("successful exploit effect should be parsed");
+    let rce = processing
+        .updates
+        .new_relations
+        .iter()
+        .find_map(|relation| relation.as_any().downcast_ref::<RceCanExec>())
+        .expect("successful exploit should create an RCE channel");
+    assert_eq!(rce.envelope.as_deref(), Some(envelope.as_str()));
+    assert_eq!(
+        rce.output_transform,
+        Some(OutputTransformKind::JsonField {
+            field: "output".to_string()
+        })
+    );
+    campaign.apply_facts(&processing.updates);
+
+    let routed = campaign
+        .prepare_action(
+            action_request(&target_id, None),
+            &minimal_armory("test-ttp"),
+        )
+        .expect("subsequent action should route through the HTTP RCE channel");
+    assert_eq!(routed.exec_chain, vec![source_id, target_id]);
+    assert!(routed.procedure.command.starts_with("curl "));
+    assert!(routed.procedure.command.contains("/api/v1/diagnostics/run"));
+    assert!(
+        routed.procedure.command.contains(r#"{"command": "id"}"#),
+        "unexpected routed command: {}",
+        routed.procedure.command
+    );
+    assert!(!routed.procedure.command.contains("kubectl exec"));
+    assert_eq!(
+        routed.output_transform,
+        Some(OutputTransformKind::JsonField {
+            field: "output".to_string()
+        })
+    );
+}
+
+#[test]
+fn abstract_http_rce_rejects_unexpected_success_body_before_writing_exec_edge() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let source = Pod::new("agent-worker", "agent-system");
+    let source_id = source.entity_id().0.clone();
+    campaign.entities.insert_typed(source);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &source_id);
+
+    let mut target = Pod::new("wrong-target.10-0-1-131", "agent-system");
+    target.system.ips.push("10.0.1.131".parse().unwrap());
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+
+    let mut ttps = curl_armory().ttps().to_vec();
+    ttps.push(Ttp {
+        params: vec![
+            TtpParam {
+                name: "TARGET".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${TARGET.IP}".to_string(),
+                options: vec![],
+            },
+            TtpParam {
+                name: "CMD".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "id".to_string(),
+                options: vec![],
+            },
+        ],
+        effects: vec!["rce.can-exec(${SRC}, ${TARGET_ID})".to_string()],
+        procedures: vec![Procedure {
+            tool: Some("curl".to_string()),
+            run_on_target: Some(false),
+            http_request: Some(serde_json::json!({
+                "method": "POST",
+                "url": "http://${TARGET}:8080/api/v1/diagnostics/run",
+                "body": r#"{"command": {{ CMD | json_encode }}}"#,
+                "response_output_field": "output"
+            })),
+            ..Procedure::new("curl", "")
+        }],
+        ..Ttp::new(
+            "exploit-oopservability-agent-rce",
+            "Exploit Oopservability Agent RCE",
+            "Lateral Movement",
+        )
+    });
+    let armory = Armory::from_ttps(ttps);
+
+    let exploit = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "exploit-oopservability-agent-rce".to_string(),
+                target_id,
+                exec_system_id: None,
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                execution_timeout_seconds: None,
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("abstract HTTP exploit should be prepared");
+
+    let processing = campaign
+        .on_ttp_executed(&exploit, &sample_event("not found"))
+        .expect("unexpected response bodies should be classified as execution failures");
+
+    assert!(!processing.effective_success);
+    assert!(processing.updates.new_relations.is_empty());
+    assert!(processing.effective_fail_reason.contains("not valid JSON"));
+}
+
+#[test]
+fn envelope_less_rce_channel_fails_instead_of_falling_back_to_kubectl() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let source = Pod::new("source", "default");
+    let source_id = source.entity_id().0.clone();
+    campaign.entities.insert_typed(source);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &source_id);
+
+    let target = Pod::new("target", "default");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+    push_relation(&mut campaign, &RceCanExec::new(&source_id, &target_id));
+
+    let error = campaign
+        .prepare_action(
+            action_request(&target_id, None),
+            &minimal_armory("test-ttp"),
+        )
+        .expect_err("an RCE channel without an envelope must not become kubectl exec");
+    assert!(matches!(
+        error,
+        ExecuteActionError::InvariantViolation(message)
+            if message.contains("has no command envelope")
+    ));
+}
+
+#[test]
 fn prepare_action_injects_authenticate_as_token_into_explicit_http_request() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("demo", "default");
@@ -5167,7 +5412,7 @@ fn curl_armory() -> Armory {
             ..Procedure::new(
                 "curl",
                 concat!(
-                    "curl -sS",
+                    "curl -sS --fail-with-body",
                     " {% if FOLLOW_REDIRECTS %}-L {% endif %}",
                     " -m ${TIMEOUT} -X ${METHOD}",
                     " {% if USE_CA %}{% if CA_PATH %}--cacert '${CA_PATH}' {% endif %}",
