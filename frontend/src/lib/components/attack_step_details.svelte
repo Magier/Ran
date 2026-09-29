@@ -217,7 +217,7 @@
 							>
 								<button
 									type="button"
-									class="preset-filled-primary-500 max-w-full truncate rounded px-2 py-1 text-xs"
+									class="bg-surface-400-600 max-w-full truncate rounded px-2 py-1 text-xs"
 									onclick={() => (selectedNodeIdx = i)}
 									title={node || 'C2'}>{nodeLabel(node)}</button
 								>
@@ -238,7 +238,7 @@
 								class={[
 									'max-w-full truncate rounded px-2 py-1 text-xs transition-colors',
 									selectedNodeIdx === i
-										? 'preset-filled-primary-500'
+										? 'bg-surface-400-600'
 										: 'bg-surface-200-800/50 hover:bg-surface-200-800'
 								]}
 								onclick={() => (selectedNodeIdx = i)}
