@@ -1806,7 +1806,9 @@ fn abstract_http_rce_effect_preserves_reusable_execution_envelope() {
         "unexpected envelope: {envelope}"
     );
     assert!(
-        envelope.contains("--fail-with-body"),
+        envelope
+            .split_whitespace()
+            .any(|argument| argument == "--fail"),
         "HTTP errors must make the exploit procedure fail: {envelope}"
     );
     assert!(
@@ -5454,7 +5456,7 @@ fn curl_armory() -> Armory {
             ..Procedure::new(
                 "curl",
                 concat!(
-                    "curl -sS --fail-with-body",
+                    "curl -sS --fail",
                     " {% if FOLLOW_REDIRECTS %}-L {% endif %}",
                     " -m ${TIMEOUT} -X ${METHOD}",
                     " {% if USE_CA %}{% if CA_PATH %}--cacert '${CA_PATH}' {% endif %}",
