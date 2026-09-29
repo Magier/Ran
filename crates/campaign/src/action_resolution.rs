@@ -686,21 +686,48 @@ fn resolve_default(
 
     if default == "${NS}" || default == "${NAMESPACE}" {
         let selected_namespace = selected_namespace(ttp, input)
-            .or_else(|| target.namespace().map(str::to_string))
-            .or_else(|| cluster_default_namespace(ttp, campaign, target_id, input));
+            .map(|namespace| {
+                (
+                    namespace,
+                    source("operator", None, Some("namespace".to_string()), None),
+                )
+            })
+            .or_else(|| {
+                target.namespace().map(|namespace| {
+                    (
+                        namespace.to_string(),
+                        source(
+                            "target_fact",
+                            Some(target_id.to_string()),
+                            Some("namespace".to_string()),
+                            Some(default.clone()),
+                        ),
+                    )
+                })
+            })
+            .or_else(|| {
+                selected_identity_namespace(ttp, campaign, target_id, input).map(
+                    |(namespace, identity_id)| {
+                        (
+                            namespace,
+                            source(
+                                "identity_fact",
+                                Some(identity_id),
+                                Some("namespace".to_string()),
+                                Some(default.clone()),
+                            ),
+                        )
+                    },
+                )
+            });
         return match selected_namespace {
-            Some(namespace) => ArgumentResolution {
+            Some((namespace, namespace_source)) => ArgumentResolution {
                 status: ArgumentResolutionStatus::Resolved,
                 value: Some(namespace),
-                source: Some(source(
-                    "target_fact",
-                    Some(target_id.to_string()),
-                    Some("namespace".to_string()),
-                    Some(default),
-                )),
+                source: Some(namespace_source),
                 ..base
             },
-            None => ArgumentResolution {
+            None if base.candidates.is_empty() => ArgumentResolution {
                 status: ArgumentResolutionStatus::NeedsInput,
                 reason: Some(format!(
                     "{} needs input because the target namespace is not known",
@@ -708,6 +735,10 @@ fn resolve_default(
                 )),
                 ..base
             },
+            None => {
+                let candidates = base.candidates.clone();
+                from_candidates(param, candidates, base)
+            }
         };
     }
 
@@ -894,7 +925,10 @@ fn candidates_for_param(
                 .find(|entity| entity.entity_id().0 == target_id)
                 .and_then(|entity| entity.namespace().map(str::to_string))
         })
-        .or_else(|| cluster_default_namespace(ttp, campaign, target_id, input));
+        .or_else(|| {
+            selected_identity_namespace(ttp, campaign, target_id, input)
+                .map(|(namespace, _)| namespace)
+        });
 
     let mut candidates = campaign
         .get_entities()
@@ -996,12 +1030,12 @@ fn selected_namespace(ttp: &armory::Ttp, input: &ActionResolutionInput) -> Optio
         .map(|value| value.strip_prefix("ns/").unwrap_or(value).to_string())
 }
 
-fn cluster_default_namespace(
+fn selected_identity_namespace(
     ttp: &armory::Ttp,
     campaign: &crate::Campaign,
     target_id: &str,
     input: &ActionResolutionInput,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let eligible = eligible_auth_identities(ttp, campaign, target_id);
     let identity_id = input
         .auth_identity_id
@@ -1022,13 +1056,15 @@ fn cluster_default_namespace(
                 .into_iter()
                 .find(|entity| entity.entity_id().0 == id)
         })
-        .and_then(|entity| match entity {
-            crate::CampaignEntityRef::K8sCredential(credential) => {
-                credential.default_namespace.clone()
-            }
-            _ => None,
+        .and_then(|entity| {
+            let namespace = match entity {
+                crate::CampaignEntityRef::K8sCredential(credential) => {
+                    credential.default_namespace.clone()
+                }
+                _ => entity.namespace().map(str::to_string),
+            }?;
+            Some((namespace, entity.entity_id().0))
         })
-        .or_else(|| Some("default".to_string()))
 }
 
 fn cluster_id_for_target(campaign: &crate::Campaign, target_id: &str) -> Option<String> {
@@ -1457,7 +1493,12 @@ mod tests {
             &ActionResolutionInput::default(),
         )
         .unwrap();
-        assert_eq!(initial.arguments[0].value.as_deref(), Some("default"));
+        assert_eq!(initial.status, ActionReadinessStatus::NeedsChoice);
+        assert_eq!(
+            initial.arguments[0].status,
+            ArgumentResolutionStatus::NeedsChoice
+        );
+        assert_eq!(initial.arguments[0].value, None);
         assert_eq!(
             initial.arguments[0]
                 .candidates
@@ -1470,7 +1511,7 @@ mod tests {
             initial.arguments[1].status,
             ArgumentResolutionStatus::Omitted
         );
-        assert_eq!(initial.arguments[1].candidates[0].value, "default-sa");
+        assert_eq!(initial.arguments[1].candidates.len(), 2);
         assert_eq!(initial.arguments[1].depends_on, vec!["Namespace"]);
 
         let selected = resolve_action(

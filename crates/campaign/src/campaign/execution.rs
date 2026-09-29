@@ -1708,26 +1708,28 @@ impl Campaign {
             .entities
             .contains::<K8sCluster>(&EntityId::new(&target_id))
         {
-            let default_namespace = resolved_auth
-                .as_ref()
-                .and_then(|auth| match auth {
-                    ResolvedK8sAuth::Kubeconfig { id, .. } => self
-                        .entities
-                        .find::<K8sCredential>(&EntityId::new(id))
-                        .and_then(|credential| credential.default_namespace.clone()),
-                    ResolvedK8sAuth::ServiceAccount { .. } => None,
-                })
-                .unwrap_or_else(|| "default".to_string());
-            for param in &ttp.params {
-                let is_namespace_param = param.param_type.eq_ignore_ascii_case("Namespace")
-                    || param.name.eq_ignore_ascii_case("Namespace")
-                    || param.name.eq_ignore_ascii_case("NS");
-                if is_namespace_param
-                    && args
-                        .get(&param.name)
-                        .is_none_or(|value| value.trim().is_empty())
-                {
-                    args.insert(param.name.clone(), default_namespace.clone());
+            let selected_namespace = resolved_auth.as_ref().and_then(|auth| match auth {
+                ResolvedK8sAuth::Kubeconfig { id, .. } => self
+                    .entities
+                    .find::<K8sCredential>(&EntityId::new(id))
+                    .and_then(|credential| credential.default_namespace.clone()),
+                ResolvedK8sAuth::ServiceAccount { id, .. } => self
+                    .entities
+                    .find::<ServiceAccount>(&EntityId::new(id))
+                    .and_then(|account| account.meta.namespace.clone()),
+            });
+            if let Some(selected_namespace) = selected_namespace {
+                for param in &ttp.params {
+                    let is_namespace_param = param.param_type.eq_ignore_ascii_case("Namespace")
+                        || param.name.eq_ignore_ascii_case("Namespace")
+                        || param.name.eq_ignore_ascii_case("NS");
+                    if is_namespace_param
+                        && args
+                            .get(&param.name)
+                            .is_none_or(|value| value.trim().is_empty())
+                    {
+                        args.insert(param.name.clone(), selected_namespace.clone());
+                    }
                 }
             }
         }
