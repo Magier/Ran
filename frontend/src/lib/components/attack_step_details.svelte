@@ -94,7 +94,23 @@
 	});
 	const selectedHop = $derived(selectedNodeIdx < hops.length ? hops[selectedNodeIdx] : null);
 	const selectedCommand = $derived(selectedHop ? selectedHop.command : (step?.innerCommand ?? ''));
-	const embeddedCommand = $derived(selectedHop?.embeddedCommand ?? '');
+	function extractEmbeddedCommand(envelope: string | undefined, command: string): string {
+		if (!envelope) return '';
+
+		const marker = '${CMD}';
+		const markerStart = envelope.indexOf(marker);
+		if (markerStart < 0) return '';
+
+		const prefix = envelope.slice(0, markerStart);
+		const suffix = envelope.slice(markerStart + marker.length);
+		if (!command.startsWith(prefix) || !command.endsWith(suffix)) return '';
+
+		return command.slice(prefix.length, command.length - suffix.length);
+	}
+	const embeddedCommand = $derived(
+		selectedHop?.embeddedCommand ??
+			extractEmbeddedCommand(selectedHop?.envelope, selectedCommand)
+	);
 	const embeddedCommandStart = $derived(
 		embeddedCommand ? selectedCommand.indexOf(embeddedCommand) : -1
 	);

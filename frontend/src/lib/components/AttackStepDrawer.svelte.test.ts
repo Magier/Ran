@@ -153,7 +153,7 @@ describe('AttackStepDrawer', () => {
 		expect(screen.queryByText('Route')).not.toBeInTheDocument();
 	});
 
-	it('shows one rendered hop command with its real nested data highlighted', () => {
+	it('shows one rendered hop command with its real nested data highlighted for legacy records', () => {
 		const command = 'runner --data "printf \\"hello\\""';
 		renderDrawer(vi.fn(), {
 			...step,
@@ -163,7 +163,6 @@ describe('AttackStepDrawer', () => {
 					toId: 'target-1',
 					relation: 'rce.can-exec',
 					envelope: 'runner --data "${CMD}"',
-					embeddedCommand: 'printf \\"hello\\"',
 					command
 				}
 			],
