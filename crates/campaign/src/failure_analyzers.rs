@@ -50,6 +50,14 @@ impl FailureClassification {
 
 pub trait FailureAnalyzer: Send + Sync {
     fn analyze(&self, cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification>;
+
+    /// Whether this analyzer's signature is strong enough to override a
+    /// transport-level success. Most failure text is only meaningful after the
+    /// command has already failed: successful stdout may be arbitrary file
+    /// contents, logs, or source code containing error-like prose.
+    fn can_override_success(&self) -> bool {
+        false
+    }
 }
 
 pub struct InvalidTargetFailureAnalyzer;
@@ -78,13 +86,7 @@ impl FailureAnalyzer for RbacDeniedFailureAnalyzer {
         let haystack = failure_haystack(event);
         if contains_any(
             &haystack,
-            &[
-                "forbidden",
-                "permission denied",
-                "access denied",
-                "cannot",
-                "is forbidden",
-            ],
+            &["forbidden", "permission denied", "access denied"],
         ) {
             return Some(FailureClassification::known_failure(
                 "access denied by RBAC or runtime policy",
@@ -156,6 +158,10 @@ impl FailureAnalyzer for RedisLuaFailureAnalyzer {
 
         None
     }
+
+    fn can_override_success(&self) -> bool {
+        true
+    }
 }
 
 impl FailureAnalyzer for KubectlUsageFailureAnalyzer {
@@ -172,6 +178,10 @@ impl FailureAnalyzer for KubectlUsageFailureAnalyzer {
 
         None
     }
+
+    fn can_override_success(&self) -> bool {
+        true
+    }
 }
 
 impl FailureAnalyzer for NsenterNamespaceFailureAnalyzer {
@@ -187,6 +197,10 @@ impl FailureAnalyzer for NsenterNamespaceFailureAnalyzer {
         }
 
         None
+    }
+
+    fn can_override_success(&self) -> bool {
+        true
     }
 }
 
@@ -317,6 +331,10 @@ impl FailureAnalyzer for CommandNotFoundFailureAnalyzer {
 
         Some(FailureClassification::binary_missing(extracted))
     }
+
+    fn can_override_success(&self) -> bool {
+        true
+    }
 }
 
 pub fn default_failure_analyzers() -> Vec<Box<dyn FailureAnalyzer>> {
@@ -339,6 +357,9 @@ pub fn detect_failure_signature(
     event: &TtpExecuted,
 ) -> Option<FailureClassification> {
     for analyzer in default_failure_analyzers() {
+        if event.success && !analyzer.can_override_success() {
+            continue;
+        }
         if let Some(classified) = analyzer.analyze(cmd, event) {
             return Some(classified);
         }
@@ -553,6 +574,39 @@ mod tests {
 
         assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
         assert!(classified.detail.contains("RBAC"));
+    }
+
+    #[test]
+    fn successful_arbitrary_output_is_not_classified_by_generic_failure_text() {
+        let cmd = sample_cmd();
+        let event = TtpExecuted {
+            id: "evt-1".to_string(),
+            success: true,
+            results: vec![
+                "Documentation: this cannot be changed. Examples may say forbidden, \
+                 permission denied, access denied, connection refused, or timed out."
+                    .to_string(),
+            ],
+            exit_code: 0,
+            fail_reason: String::new(),
+            session_connected: None,
+        };
+
+        assert!(detect_failure_signature(&cmd, &event).is_none());
+    }
+
+    #[test]
+    fn generic_cannot_does_not_imply_rbac_on_failed_execution() {
+        let cmd = sample_cmd();
+        let event = failed_event_fail_reason("cannot parse configuration file");
+
+        let classified = classify_failure(&cmd, &event);
+
+        assert!(matches!(
+            classified.parse_result,
+            ParseResult::UnknownFormat
+        ));
+        assert!(!classified.detail.contains("RBAC"));
     }
 
     #[test]

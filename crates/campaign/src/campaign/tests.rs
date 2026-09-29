@@ -241,6 +241,48 @@ fn partial_execution_is_successful_and_persisted_as_partial() {
 }
 
 #[test]
+fn successful_file_content_with_failure_like_prose_stays_successful() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("redis", "default");
+    let target_id = pod.entity_id().0;
+    campaign.entities.insert_typed(pod);
+
+    let cmd = sample_exec_ttp(&target_id, vec!["file:content(/etc/redis/redis.conf)"]);
+    let event = sample_event(
+        "# Clients cannot change this setting.\n\
+         # Examples of possible errors include forbidden, permission denied,\n\
+         # access denied, connection refused, and timed out.",
+    );
+
+    let processing = campaign
+        .on_ttp_executed(&cmd, &event)
+        .expect("successful file content should be processed");
+
+    assert!(processing.effective_success);
+    assert!(processing.effective_fail_reason.is_empty());
+    assert!(processing
+        .parse_audits
+        .iter()
+        .all(|audit| audit.effect_id != FAILURE_ANALYZER_EFFECT_ID));
+
+    let record = campaign
+        .get_execution_records()
+        .last()
+        .expect("the execution record is retained");
+    assert!(record.success);
+    assert!(record.fail_reason.is_empty());
+
+    let system = campaign
+        .get_system_entity(&target_id)
+        .expect("the target system is retained");
+    assert!(system
+        .entity()
+        .system()
+        .files
+        .contains(&"/etc/redis/redis.conf".to_string()));
+}
+
+#[test]
 fn successful_delete_pod_effect_removes_target_from_campaign_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("victim", "default");
