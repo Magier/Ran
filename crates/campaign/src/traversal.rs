@@ -49,6 +49,11 @@ pub struct TraversalHop {
     /// hop, when the hop wraps the inner command. `None` for the C2 entry hop
     /// and plain pass-through segments.
     pub envelope: Option<String>,
+    /// Exact rendered substring inserted at `${CMD}`, after envelope-specific
+    /// escaping. This lets clients highlight the real nested data inside
+    /// `command` without reconstructing shell quoting rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded_command: Option<String>,
     /// The full command string sent across this segment - what `from_id` runs.
     pub command: String,
 }

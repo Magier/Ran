@@ -153,6 +153,33 @@ describe('AttackStepDrawer', () => {
 		expect(screen.queryByText('Route')).not.toBeInTheDocument();
 	});
 
+	it('shows one rendered hop command with its real nested data highlighted', () => {
+		const command = 'runner --data "printf \\"hello\\""';
+		renderDrawer(vi.fn(), {
+			...step,
+			traversal: [
+				{
+					fromId: 'system/source',
+					toId: 'target-1',
+					relation: 'rce.can-exec',
+					envelope: 'runner --data "${CMD}"',
+					embeddedCommand: 'printf \\"hello\\"',
+					command
+				}
+			],
+			innerCommand: 'printf "hello"'
+		});
+
+		expect(screen.queryByText('Envelope')).not.toBeInTheDocument();
+		expect(screen.queryByText('${CMD}')).not.toBeInTheDocument();
+		expect(screen.getByTitle('Nested command data')).toHaveTextContent('printf \\"hello\\"');
+		expect(screen.getByText('nested data highlighted')).toBeInTheDocument();
+		expect(screen.getByTitle('Nested command data').closest('code')).toHaveAttribute(
+			'data-source',
+			command
+		);
+	});
+
 	it('waits for output without showing the follow control', () => {
 		const ongoing: AttackStep = {
 			...step,

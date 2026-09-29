@@ -94,6 +94,10 @@
 	});
 	const selectedHop = $derived(selectedNodeIdx < hops.length ? hops[selectedNodeIdx] : null);
 	const selectedCommand = $derived(selectedHop ? selectedHop.command : (step?.innerCommand ?? ''));
+	const embeddedCommand = $derived(selectedHop?.embeddedCommand ?? '');
+	const embeddedCommandStart = $derived(
+		embeddedCommand ? selectedCommand.indexOf(embeddedCommand) : -1
+	);
 
 	// Trim an entity id down to a readable chip label, keeping a short type hint.
 	function shortName(id: string): string {
@@ -213,17 +217,6 @@
 							<span class="opacity-70">{shortName(selectedHop.toId)}</span>
 							<span class="badge preset-filled-surface-500 text-xs">{selectedHop.relation}</span>
 						</div>
-						{#if selectedHop.envelope}
-							<div>
-								<div class="label mb-0.5 text-xs opacity-60">Envelope</div>
-								<code class="block text-xs break-all whitespace-pre-wrap"
-									>{#each selectedHop.envelope.split('${CMD}') as part, pi (pi)}{#if pi > 0}<span
-												class="bg-primary-500/30 text-primary-400 mx-0.5 rounded px-1 font-semibold"
-												>{'${CMD}'}</span
-											>{/if}{redactJwt(part)}{/each}</code
-								>
-							</div>
-						{/if}
 					{:else}
 						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<span class="badge preset-filled-success-500 text-xs">runs on target</span>
@@ -231,13 +224,24 @@
 						</div>
 					{/if}
 					<div>
-						<div class="label mb-0.5 text-xs opacity-60">
-							{selectedHop ? 'Command sent over this hop' : 'Command on target'}
+						<div class="label mb-0.5 flex items-center gap-2 text-xs opacity-60">
+							<span>{selectedHop ? 'Command sent over this hop' : 'Command on target'}</span>
+							{#if embeddedCommandStart >= 0}
+								<span class="text-primary-400">nested data highlighted</span>
+							{/if}
 						</div>
 						<div class="bg-surface-50-950 group relative">
 							<code
 								class="block w-full overflow-x-hidden overflow-y-auto text-sm break-all whitespace-pre-wrap"
-								data-source={selectedCommand}>{redactJwt(selectedCommand)}</code
+								data-source={selectedCommand}
+								>{#if embeddedCommandStart >= 0}{redactJwt(
+										selectedCommand.slice(0, embeddedCommandStart)
+									)}<span
+										class="bg-primary-500/30 text-primary-400 rounded px-0.5 font-semibold"
+										title="Nested command data">{redactJwt(embeddedCommand)}</span
+									>{redactJwt(
+										selectedCommand.slice(embeddedCommandStart + embeddedCommand.length)
+									)}{:else}{redactJwt(selectedCommand)}{/if}</code
 							>
 							<button
 								class="btn bg-surface-200-800/40 hover:bg-surface-200-800/70 absolute top-1 right-1 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-90"

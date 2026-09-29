@@ -2390,6 +2390,7 @@ impl Campaign {
             to_id: first.clone(),
             relation: entry_relation(&route.backend_id, first).to_string(),
             envelope: None,
+            embedded_command: None,
             command: final_command.to_string(),
         });
         hops.extend(route.traversal.iter().cloned());
@@ -2504,7 +2505,7 @@ impl Campaign {
                 .map(|r| r.name.clone())
                 .unwrap_or_else(|| "kubectl-exec".to_string());
             let hop_envelope = found.as_ref().and_then(|r| r.envelope.clone());
-            procedure.command = match found {
+            let wrapped_command = match found {
                 Some(ref rel) => {
                     if let Some(ref transform) = rel.output_transform {
                         output_transform = Some(transform.clone());
@@ -2553,6 +2554,10 @@ impl Campaign {
                     }
                 }
             };
+            let embedded_command = hop_envelope
+                .as_deref()
+                .and_then(|envelope| rendered_envelope_payload(envelope, &wrapped_command));
+            procedure.command = wrapped_command;
 
             // After wrapping, ground the outer tool (first word of the wrapped
             // command) against the source system's binary map.
@@ -2568,6 +2573,7 @@ impl Campaign {
                 to_id: tgt.to_string(),
                 relation: hop_relation,
                 envelope: hop_envelope,
+                embedded_command,
                 command: procedure.command.clone(),
             });
         }
@@ -3723,6 +3729,35 @@ fn entry_relation(backend_id: &str, first_hop: &str) -> &'static str {
         "pod-exec"
     } else {
         "exec"
+    }
+}
+
+fn rendered_envelope_payload(envelope: &str, rendered: &str) -> Option<String> {
+    let (prefix, suffix) = envelope.split_once("${CMD}")?;
+    rendered
+        .strip_prefix(prefix)?
+        .strip_suffix(suffix)
+        .map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod rendered_envelope_payload_tests {
+    use super::rendered_envelope_payload;
+
+    #[test]
+    fn extracts_the_exact_rendered_nested_data() {
+        assert_eq!(
+            rendered_envelope_payload(
+                r#"runner --data "${CMD}""#,
+                r#"runner --data "printf \"hello\"""#,
+            ),
+            Some(r#"printf \"hello\""#.to_string())
+        );
+    }
+
+    #[test]
+    fn declines_commands_that_do_not_match_the_envelope() {
+        assert_eq!(rendered_envelope_payload("runner ${CMD}", "other id"), None);
     }
 }
 

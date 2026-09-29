@@ -903,6 +903,8 @@ export interface components {
 			relation: string;
 			/** @description The command-wrapping template with `${CMD}` placeholder applied at this hop. Absent for the C2 entry hop and pass-through segments. */
 			envelope?: string;
+			/** @description Exact rendered substring inserted at `${CMD}`, including escaping applied by the envelope. Absent when this hop has no rendered envelope payload. */
+			embeddedCommand?: string;
 			command: string;
 		};
 		RouteWarning: {

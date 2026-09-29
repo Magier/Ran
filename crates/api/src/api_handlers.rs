@@ -785,6 +785,8 @@ pub(crate) struct AttackStepHop {
     pub relation: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envelope: Option<String>,
+    #[serde(rename = "embeddedCommand", skip_serializing_if = "Option::is_none")]
+    pub embedded_command: Option<String>,
     pub command: String,
 }
 
@@ -795,6 +797,7 @@ impl From<&campaign::TraversalHop> for AttackStepHop {
             to_id: h.to_id.clone(),
             relation: h.relation.clone(),
             envelope: h.envelope.clone(),
+            embedded_command: h.embedded_command.clone(),
             command: h.command.clone(),
         }
     }
