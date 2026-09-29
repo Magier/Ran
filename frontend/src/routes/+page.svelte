@@ -9,6 +9,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { toaster } from '$lib/components/toaster';
 	import { timeline } from '$lib/stores/timelineStore.svelte';
+	import { uiPreferences } from '$lib/stores/uiPreferences.svelte';
 	import OperationTimeline from '$lib/components/OperationTimeline.svelte';
 	import AttackStepDrawer from '$lib/components/AttackStepDrawer.svelte';
 	import EntityInfo from './components/entityInfo.svelte';
@@ -532,7 +533,12 @@
 					timestamp: new Date()
 				});
 
-				if (data.success && data.actionId === 'read-file' && data.args?.PATH) {
+				if (
+					uiPreferences.autoOpenReadFiles &&
+					data.success &&
+					data.actionId === 'read-file' &&
+					data.args?.PATH
+				) {
 					ranAPI
 						.GetFileContent(data.args.PATH)
 						.then((file) => {
