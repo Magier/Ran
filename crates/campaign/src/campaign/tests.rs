@@ -5197,13 +5197,14 @@ fn pod_and_node_kubeconfig_searches_are_bounded_and_configurable() {
 }
 
 #[test]
-fn deploy_container_uses_effective_default_namespace_for_cluster_target() {
+fn deploy_container_uses_selected_identity_namespace_for_cluster_target() {
     let cluster = K8sCluster::new("kubernetes").with_server(Some("https://127.0.0.1:6443".into()));
     let cluster_id = cluster.entity_id().0;
     let mut campaign = Campaign::bootstrap("Ran", cluster);
     let mut credential =
         K8sCredential::new("https://127.0.0.1:6443").with_name("kubernetes-admin@kubernetes");
     credential.active = true;
+    credential.default_namespace = Some("operators".to_string());
     credential
         .entitlements
         .push(RbacPermission::new("create", "pods"));
@@ -5239,9 +5240,12 @@ fn deploy_container_uses_effective_default_namespace_for_cluster_target() {
 
     assert_eq!(
         exec.args.get("Namespace").map(String::as_str),
-        Some("default")
+        Some("operators")
     );
-    assert!(exec.procedure.command.contains(r#""namespace": "default""#));
+    assert!(exec
+        .procedure
+        .command
+        .contains(r#""namespace": "operators""#));
 }
 
 fn valid_accounts_campaign() -> (Campaign, String, String) {
