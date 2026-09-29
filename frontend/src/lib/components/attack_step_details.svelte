@@ -239,11 +239,8 @@
 						</div>
 					{/if}
 					<div>
-						<div class="label mb-0.5 flex items-center gap-2 text-xs opacity-60">
+						<div class="label mb-0.5 text-xs opacity-60">
 							<span>{selectedHop ? 'Command sent over this hop' : 'Command on target'}</span>
-							{#if embeddedCommandStart >= 0}
-								<span class="text-primary-400">nested data highlighted</span>
-							{/if}
 						</div>
 						<div class="bg-surface-50-950 group relative">
 							<code
@@ -252,7 +249,7 @@
 								>{#if embeddedCommandStart >= 0}{redactJwt(
 										selectedCommand.slice(0, embeddedCommandStart)
 									)}<span
-										class="bg-primary-500/30 text-primary-400 rounded px-0.5 font-semibold"
+										class="bg-primary-500/30 text-primary-400 rounded px-0.5"
 										title="Nested command data">{redactJwt(embeddedCommand)}</span
 									>{redactJwt(
 										selectedCommand.slice(embeddedCommandStart + embeddedCommand.length)
