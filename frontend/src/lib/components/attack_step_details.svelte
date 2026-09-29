@@ -108,8 +108,7 @@
 		return command.slice(prefix.length, command.length - suffix.length);
 	}
 	const embeddedCommand = $derived(
-		selectedHop?.embeddedCommand ??
-			extractEmbeddedCommand(selectedHop?.envelope, selectedCommand)
+		selectedHop?.embeddedCommand ?? extractEmbeddedCommand(selectedHop?.envelope, selectedCommand)
 	);
 	const embeddedCommandStart = $derived(
 		embeddedCommand ? selectedCommand.indexOf(embeddedCommand) : -1
