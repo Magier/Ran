@@ -206,41 +206,62 @@
 				<!-- System chain: click a system to inspect the command + envelope at that hop -->
 				<div class="flex flex-wrap items-center gap-y-1">
 					{#each chainNodes as node, i (i)}
-						{#if i > 0}
-							<Icon icon="material-symbols:chevron-right" width="16" class="opacity-40" />
+						{#if selectedHop && i === selectedNodeIdx}
+							{#if i > 0}
+								<Icon icon="material-symbols:chevron-right" width="16" class="opacity-40" />
+							{/if}
+							<div
+								class="bg-surface-200-800/60 flex items-center rounded-md p-1"
+								role="group"
+								aria-label={`Selected hop from ${shortName(node)} to ${shortName(chainNodes[i + 1])}`}
+							>
+								<button
+									type="button"
+									class="preset-filled-primary-500 max-w-full truncate rounded px-2 py-1 text-xs"
+									onclick={() => (selectedNodeIdx = i)}
+									title={node || 'C2'}>{nodeLabel(node)}</button
+								>
+								<Icon icon="material-symbols:arrow-forward" width="16" class="mx-0.5 opacity-50" />
+								<button
+									type="button"
+									class="bg-surface-100-900/60 hover:bg-surface-100-900 max-w-full truncate rounded px-2 py-1 text-xs transition-colors"
+									onclick={() => (selectedNodeIdx = i + 1)}
+									title={chainNodes[i + 1] || 'C2'}>{nodeLabel(chainNodes[i + 1])}</button
+								>
+							</div>
+						{:else if !(selectedHop && i === selectedNodeIdx + 1)}
+							{#if i > 0}
+								<Icon icon="material-symbols:chevron-right" width="16" class="opacity-40" />
+							{/if}
+							<button
+								type="button"
+								class={[
+									'max-w-full truncate rounded px-2 py-1 text-xs transition-colors',
+									selectedNodeIdx === i
+										? 'preset-filled-primary-500'
+										: 'bg-surface-200-800/50 hover:bg-surface-200-800'
+								]}
+								onclick={() => (selectedNodeIdx = i)}
+								title={node || 'C2'}>{nodeLabel(node)}</button
+							>
 						{/if}
-						<button
-							type="button"
-							class={[
-								'max-w-full truncate rounded px-2 py-1 text-xs transition-colors',
-								selectedNodeIdx === i
-									? 'preset-filled-primary-500'
-									: 'bg-surface-200-800/50 hover:bg-surface-200-800'
-							]}
-							onclick={() => (selectedNodeIdx = i)}
-							title={node || 'C2'}>{nodeLabel(node)}</button
-						>
 					{/each}
 				</div>
 
 				<!-- Detail for the selected hop (or the target's inner command) -->
 				<div class="bg-surface-100-900 mt-2 space-y-2 rounded p-2">
-					{#if selectedHop}
-						<div class="flex flex-wrap items-center gap-2 text-sm">
-							<span class="opacity-70">{shortName(selectedHop.fromId)}</span>
-							<Icon icon="material-symbols:arrow-forward" width="14" class="opacity-50" />
-							<span class="opacity-70">{shortName(selectedHop.toId)}</span>
-							<span class="badge preset-filled-surface-500 text-xs">{selectedHop.relation}</span>
-						</div>
-					{:else}
+					{#if !selectedHop}
 						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<span class="badge preset-filled-success-500 text-xs">runs on target</span>
 							<span class="opacity-70">{shortName(chainNodes[chainNodes.length - 1])}</span>
 						</div>
 					{/if}
 					<div>
-						<div class="label mb-0.5 text-xs opacity-60">
+						<div class="label mb-0.5 flex items-center gap-2 text-xs opacity-60">
 							<span>{selectedHop ? 'Command sent over this hop' : 'Command on target'}</span>
+							{#if selectedHop}
+								<span class="badge preset-filled-surface-500 text-xs">{selectedHop.relation}</span>
+							{/if}
 						</div>
 						<div class="bg-surface-50-950 group relative">
 							<code

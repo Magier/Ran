@@ -171,6 +171,11 @@ describe('AttackStepDrawer', () => {
 
 		expect(screen.queryByText('Envelope')).not.toBeInTheDocument();
 		expect(screen.queryByText('${CMD}')).not.toBeInTheDocument();
+		const selectedHop = screen.getByRole('group', {
+			name: 'Selected hop from source to target-1'
+		});
+		expect(selectedHop).toContainElement(screen.getByRole('button', { name: 'source' }));
+		expect(selectedHop).toContainElement(screen.getByRole('button', { name: 'target-1' }));
 		expect(screen.getByTitle('Nested command data')).toHaveTextContent('printf \\"hello\\"');
 		expect(screen.queryByText('nested data highlighted')).not.toBeInTheDocument();
 		expect(screen.getByTitle('Nested command data').closest('code')).toHaveAttribute(
