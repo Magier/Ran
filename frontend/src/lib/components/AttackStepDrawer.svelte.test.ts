@@ -84,11 +84,23 @@ describe('AttackStepDrawer', () => {
 		renderDrawer(vi.fn(), {
 			...step,
 			args: { PKG: 'nmap', TOKEN: 'eyJheader.payload.signature' },
+			reasoning: 'Install the scanner needed for the next step.',
 			TTP: { ...step.TTP, id: 'install-package', name: 'Install Package' }
 		});
 
 		expect(screen.getByRole('heading', { name: 'Install nmap' })).toBeInTheDocument();
-		expect(screen.getByText('Parameters')).toBeInTheDocument();
+		const status = screen.getByText('Status');
+		const parameters = screen.getByText('Parameters');
+		const reasoning = screen.getByText('Reasoning');
+		const disclosure = parameters.closest('details');
+		expect(disclosure).not.toBeNull();
+		expect(disclosure).not.toHaveAttribute('open');
+		expect(
+			status.compareDocumentPosition(parameters) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+		expect(
+			parameters.compareDocumentPosition(reasoning) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
 		expect(screen.getByText('nmap')).toBeInTheDocument();
 		expect(screen.getByText('[redacted]')).toBeInTheDocument();
 		expect(screen.queryByText('eyJheader.payload.signature')).not.toBeInTheDocument();

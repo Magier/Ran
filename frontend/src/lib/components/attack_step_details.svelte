@@ -129,20 +129,6 @@
 			{step.TTP.description}
 		</p>
 
-		{#if parameters.length > 0}
-			<div class="mt-4">
-				<div class="mb-1">Parameters</div>
-				<dl class="bg-surface-200-800/40 divide-surface-300-700 divide-y rounded px-3">
-					{#each parameters as [name, value] (name)}
-						<div class="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3 py-2 text-sm">
-							<dt class="truncate font-mono opacity-70" title={name}>{name}</dt>
-							<dd class="min-w-0 font-mono break-all">{displayArgumentValue(name, value)}</dd>
-						</div>
-					{/each}
-				</dl>
-			</div>
-		{/if}
-
 		<div class="mt-4 flex items-center justify-start">
 			<div class="pr-2">Target:</div>
 			<code class="inline text-base">{target?.name}</code>
@@ -166,6 +152,19 @@
 			<div class="pr-2">Status</div>
 			<div class={['badge', badgeStyle]}>{status}</div>
 		</div>
+		{#if parameters.length > 0}
+			<details class="mt-4 justify-start">
+				<summary class="cursor-pointer pr-2">Parameters</summary>
+				<dl class="bg-surface-200-800/40 divide-surface-300-700 mt-2 divide-y rounded px-3">
+					{#each parameters as [name, value] (name)}
+						<div class="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3 py-2 text-sm">
+							<dt class="truncate font-mono opacity-70" title={name}>{name}</dt>
+							<dd class="min-w-0 font-mono break-all">{displayArgumentValue(name, value)}</dd>
+						</div>
+					{/each}
+				</dl>
+			</details>
+		{/if}
 	</header>
 	<article class="flex min-h-10 flex-auto flex-col overflow-auto">
 		{#if step.reasoning?.trim()}
