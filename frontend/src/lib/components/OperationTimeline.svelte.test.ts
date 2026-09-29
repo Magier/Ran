@@ -75,6 +75,27 @@ describe('OperationTimeline action interactions', () => {
 		expect(ontogglegroup).not.toHaveBeenCalled();
 	});
 
+	it('names an install-package execution after its resolved package argument', () => {
+		renderTimeline([
+			actionEntry({
+				action: {
+					kind: 'ttp-action',
+					id: 'install',
+					ttpId: 'install-package',
+					ttpName: 'Install Package',
+					ttpTitle: 'Install ${PKG || package}',
+					args: { PKG: 'nmap' },
+					targetId: 'target',
+					targetName: 'target-pod',
+					status: 'success'
+				}
+			})
+		]);
+
+		expect(screen.getByRole('button', { name: 'Install nmap' })).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Install Package' })).not.toBeInTheDocument();
+	});
+
 	it('still toggles the group when the action row itself is clicked', async () => {
 		const { onviewaction, ontogglegroup } = renderTimeline([actionEntry()]);
 		const row = screen.getByRole('button', { name: 'List pods' }).closest('[aria-expanded]');

@@ -1,4 +1,5 @@
 name: Install Package
+title: Install ${PKG || package}
 description: Using the OS package manager
 tactic: Execution
 techniques: ["User Execution"]

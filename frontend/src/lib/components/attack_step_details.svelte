@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AttackStep } from '$lib/api';
+	import { actionDisplayName, displayArgumentValue } from '$lib/actionDisplay';
 	import { getCampaignState } from './CampaignState.svelte';
 	import Icon from '@iconify/svelte';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
@@ -37,6 +38,12 @@
 	const stdout = $derived(liveOutput?.stdout ?? step?.stdout ?? step?.results?.[0] ?? '');
 	const stderr = $derived(liveOutput?.stderr ?? step?.stderr ?? step?.results?.[1] ?? '');
 	const outputTruncated = $derived(liveOutput?.truncated ?? step?.outputTruncated ?? false);
+	const actionName = $derived(
+		actionDisplayName(campaignState.getTtpById(step.TTP.id)?.title, step.TTP.name, step.args)
+	);
+	const parameters = $derived(
+		Object.entries(step.args ?? {}).sort(([left], [right]) => left.localeCompare(right))
+	);
 	let followOutput = $state(true);
 	let outputContainer: HTMLDivElement | undefined = $state();
 	$effect(() => {
@@ -87,6 +94,25 @@
 	});
 	const selectedHop = $derived(selectedNodeIdx < hops.length ? hops[selectedNodeIdx] : null);
 	const selectedCommand = $derived(selectedHop ? selectedHop.command : (step?.innerCommand ?? ''));
+	function extractEmbeddedCommand(envelope: string | undefined, command: string): string {
+		if (!envelope) return '';
+
+		const marker = '${CMD}';
+		const markerStart = envelope.indexOf(marker);
+		if (markerStart < 0) return '';
+
+		const prefix = envelope.slice(0, markerStart);
+		const suffix = envelope.slice(markerStart + marker.length);
+		if (!command.startsWith(prefix) || !command.endsWith(suffix)) return '';
+
+		return command.slice(prefix.length, command.length - suffix.length);
+	}
+	const embeddedCommand = $derived(
+		selectedHop?.embeddedCommand ?? extractEmbeddedCommand(selectedHop?.envelope, selectedCommand)
+	);
+	const embeddedCommandStart = $derived(
+		embeddedCommand ? selectedCommand.indexOf(embeddedCommand) : -1
+	);
 
 	// Trim an entity id down to a readable chip label, keeping a short type hint.
 	function shortName(id: string): string {
@@ -104,7 +130,7 @@
 
 {#if step != null}
 	<header class="flex-none justify-between">
-		<h4 class="h4">{step.TTP.name}</h4>
+		<h4 class="h4">{actionName}</h4>
 		<!-- {#if step.TTP.icon}
 				<img src={step.TTP.icon} alt="TTP Icon" class="h-6 w-6" />
 			{/if} -->
@@ -147,75 +173,102 @@
 		</div>
 	</header>
 	<article class="flex min-h-10 flex-auto flex-col overflow-auto">
+		{#if parameters.length > 0}
+			<details class="justify-start">
+				<summary class="cursor-pointer pr-2">Parameters</summary>
+				<dl class="bg-surface-200-800/40 divide-surface-300-700 mt-2 divide-y rounded px-3">
+					{#each parameters as [name, value] (name)}
+						<div class="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3 py-2 text-sm">
+							<dt class="truncate font-mono opacity-70" title={name}>{name}</dt>
+							<dd class="min-w-0 font-mono break-all">{displayArgumentValue(name, value)}</dd>
+						</div>
+					{/each}
+				</dl>
+			</details>
+		{/if}
 		{#if step.reasoning?.trim()}
-			<details class="mt-4 justify-start">
+			<details class={['justify-start', parameters.length > 0 ? 'mt-1' : 'mt-4']}>
 				<summary class="cursor-pointer pr-2">Reasoning</summary>
 				<p class="mt-2 text-sm whitespace-pre-wrap opacity-80">{step.reasoning}</p>
 			</details>
 		{/if}
-		{#if step.routeReason}
-			<div class="mt-4 justify-start">
-				<div class="mb-1 pr-2">Route</div>
-				<p class="text-xs opacity-80">{step.routeReason}</p>
-			</div>
-		{/if}
 		<div class="mt-4 justify-start">
 			{#if hasTraversal}
 				<div class="mb-2 pr-2">Traversal</div>
+				{#each step.routeWarnings as warning, index (index)}
+					<div
+						class="bg-warning-100-900 text-warning-700-300 mb-2 flex items-start gap-2 rounded p-2 text-xs"
+					>
+						<Icon icon="mdi:alert-outline" width="16" class="mt-px shrink-0" />
+						<span>{warning.message}</span>
+					</div>
+				{/each}
 				<!-- System chain: click a system to inspect the command + envelope at that hop -->
-				<div class="flex flex-wrap items-center gap-y-1">
+				<div class="flex min-h-8 flex-wrap items-center gap-y-1">
 					{#each chainNodes as node, i (i)}
-						{#if i > 0}
-							<Icon icon="material-symbols:chevron-right" width="16" class="opacity-40" />
+						{#if selectedHop && i === selectedNodeIdx}
+							{#if i > 0}
+								<Icon icon="material-symbols:chevron-right" width="16" class="opacity-40" />
+							{/if}
+							<div
+								class="bg-surface-300-700/80 flex items-center rounded-md p-1"
+								role="group"
+								aria-label={`Selected hop from ${shortName(node)} to ${shortName(chainNodes[i + 1])}`}
+							>
+								<button
+									type="button"
+									class="bg-surface-400-600 max-w-full truncate rounded px-2 py-1 text-xs"
+									onclick={() => (selectedNodeIdx = i)}
+									title={node || 'C2'}>{nodeLabel(node)}</button
+								>
+								<Icon icon="material-symbols:arrow-forward" width="16" class="mx-0.5 opacity-50" />
+								<button
+									type="button"
+									class="bg-surface-100-900/60 hover:bg-surface-100-900 max-w-full truncate rounded px-2 py-1 text-xs transition-colors"
+									onclick={() => (selectedNodeIdx = i + 1)}
+									title={chainNodes[i + 1] || 'C2'}>{nodeLabel(chainNodes[i + 1])}</button
+								>
+							</div>
+						{:else if !(selectedHop && i === selectedNodeIdx + 1)}
+							{#if i > 0}
+								<Icon icon="material-symbols:chevron-right" width="16" class="opacity-40" />
+							{/if}
+							<button
+								type="button"
+								class={[
+									'max-w-full truncate rounded px-2 py-1 text-xs transition-colors',
+									selectedNodeIdx === i
+										? 'bg-surface-400-600'
+										: 'bg-surface-200-800/50 hover:bg-surface-200-800'
+								]}
+								onclick={() => (selectedNodeIdx = i)}
+								title={node || 'C2'}>{nodeLabel(node)}</button
+							>
 						{/if}
-						<button
-							type="button"
-							class={[
-								'max-w-full truncate rounded px-2 py-1 text-xs transition-colors',
-								selectedNodeIdx === i
-									? 'preset-filled-primary-500'
-									: 'bg-surface-200-800/50 hover:bg-surface-200-800'
-							]}
-							onclick={() => (selectedNodeIdx = i)}
-							title={node || 'C2'}>{nodeLabel(node)}</button
-						>
 					{/each}
 				</div>
 
 				<!-- Detail for the selected hop (or the target's inner command) -->
 				<div class="bg-surface-100-900 mt-2 space-y-2 rounded p-2">
-					{#if selectedHop}
-						<div class="flex flex-wrap items-center gap-2 text-sm">
-							<span class="opacity-70">{shortName(selectedHop.fromId)}</span>
-							<Icon icon="material-symbols:arrow-forward" width="14" class="opacity-50" />
-							<span class="opacity-70">{shortName(selectedHop.toId)}</span>
-							<span class="badge preset-filled-surface-500 text-xs">{selectedHop.relation}</span>
-						</div>
-						{#if selectedHop.envelope}
-							<div>
-								<div class="label mb-0.5 text-xs opacity-60">Envelope</div>
-								<code class="block text-xs break-all whitespace-pre-wrap"
-									>{#each selectedHop.envelope.split('${CMD}') as part, pi (pi)}{#if pi > 0}<span
-												class="bg-primary-500/30 text-primary-400 mx-0.5 rounded px-1 font-semibold"
-												>{'${CMD}'}</span
-											>{/if}{redactJwt(part)}{/each}</code
-								>
-							</div>
-						{/if}
-					{:else}
-						<div class="flex flex-wrap items-center gap-2 text-sm">
-							<span class="badge preset-filled-success-500 text-xs">runs on target</span>
-							<span class="opacity-70">{shortName(chainNodes[chainNodes.length - 1])}</span>
-						</div>
-					{/if}
 					<div>
-						<div class="label mb-0.5 text-xs opacity-60">
-							{selectedHop ? 'Command sent over this hop' : 'Command on target'}
+						<div class="label mb-0.5 flex items-center gap-2 text-xs opacity-60">
+							<span>{selectedHop ? 'Command sent over this hop' : 'Command on target'}</span>
+							{#if selectedHop}
+								<span class="badge preset-filled-surface-500 text-xs">{selectedHop.relation}</span>
+							{/if}
 						</div>
 						<div class="bg-surface-50-950 group relative">
 							<code
 								class="block w-full overflow-x-hidden overflow-y-auto text-sm break-all whitespace-pre-wrap"
-								data-source={selectedCommand}>{redactJwt(selectedCommand)}</code
+								data-source={selectedCommand}
+								>{#if embeddedCommandStart >= 0}{redactJwt(
+										selectedCommand.slice(0, embeddedCommandStart)
+									)}<span
+										class="bg-primary-500/30 text-primary-400 rounded px-0.5"
+										title="Nested command data">{redactJwt(embeddedCommand)}</span
+									>{redactJwt(
+										selectedCommand.slice(embeddedCommandStart + embeddedCommand.length)
+									)}{:else}{redactJwt(selectedCommand)}{/if}</code
 							>
 							<button
 								class="btn bg-surface-200-800/40 hover:bg-surface-200-800/70 absolute top-1 right-1 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-90"

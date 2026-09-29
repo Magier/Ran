@@ -2,6 +2,7 @@
 	import Icon from '@iconify/svelte';
 	import { Tooltip } from '@skeletonlabs/skeleton-svelte';
 	import type { TTP, ConsiderationScore } from '$lib/api';
+	import { actionDisplayName } from '$lib/actionDisplay';
 	import ConsiderationBreakdown from './consideration_breakdown.svelte';
 
 	interface ActionCardProps {
@@ -163,6 +164,7 @@
 				? 'bg-surface-200-800 text-surface-500'
 				: 'bg-warning-100-900 text-warning-700-300'
 	);
+	let displayName = $derived(actionDisplayName(ttp.title, ttp.name));
 </script>
 
 <div
@@ -182,7 +184,7 @@
 		style="overflow: visible;"
 	>
 		<Icon icon={displayIcon()} class="inline-block flex-shrink-0" />
-		<span class="truncate">{ttp.name}</span>
+		<span class="truncate">{displayName}</span>
 	</button>
 
 	{#if readiness || requirementDetails.length > 0}

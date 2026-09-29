@@ -7,6 +7,27 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RouteWarningKind {
+    BrokenSessionSkipped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RouteWarning {
+    pub kind: RouteWarningKind,
+    pub message: String,
+}
+
+impl RouteWarning {
+    pub fn broken_session_skipped() -> Self {
+        Self {
+            kind: RouteWarningKind::BrokenSessionSkipped,
+            message: "A broken session edge to the target was skipped.".to_string(),
+        }
+    }
+}
+
 /// One segment of a multi-hop command traversal.
 ///
 /// As a command is routed across intermediate systems, each hop wraps the inner
@@ -28,6 +49,11 @@ pub struct TraversalHop {
     /// hop, when the hop wraps the inner command. `None` for the C2 entry hop
     /// and plain pass-through segments.
     pub envelope: Option<String>,
+    /// Exact rendered substring inserted at `${CMD}`, after envelope-specific
+    /// escaping. This lets clients highlight the real nested data inside
+    /// `command` without reconstructing shell quoting rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded_command: Option<String>,
     /// The full command string sent across this segment - what `from_id` runs.
     pub command: String,
 }
@@ -40,11 +66,31 @@ pub struct CommandTraversal {
     /// The bare inner command as it runs on the final target system, before any
     /// hop envelopes wrap it.
     pub inner_command: String,
-    /// Short, human-readable explanation of *why* this route was chosen - e.g.
-    /// "Tunneled through live session …", "Direct exec from c2/ran", or a
-    /// multi-hop path - including a note when a broken session edge to the
-    /// target was skipped. Surfaced to the timeline UI and the logs so the
-    /// routing decision is legible rather than implicit. Empty when unknown.
     #[serde(default)]
-    pub reason: String,
+    pub warnings: Vec<RouteWarning>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_traversal_reason_deserializes_without_a_warning() {
+        let traversal: CommandTraversal = serde_json::from_value(serde_json::json!({
+            "hops": [],
+            "inner_command": "id",
+            "reason": "Direct exec from c2/ran"
+        }))
+        .expect("legacy traversal should remain readable");
+
+        assert!(traversal.warnings.is_empty());
+    }
+
+    #[test]
+    fn broken_session_warning_has_a_stable_wire_kind() {
+        let warning = RouteWarning::broken_session_skipped();
+        let value = serde_json::to_value(warning).expect("warning should serialize");
+
+        assert_eq!(value["kind"], "broken-session-skipped");
+    }
 }

@@ -37,5 +37,5 @@ pub use runtime::{
     spawn_c2_event_processor, spawn_c2_event_processor_with_external_parser, CampaignEvent,
     CampaignEventBus, EntitySummary,
 };
-pub use traversal::{CommandTraversal, TraversalHop};
+pub use traversal::{CommandTraversal, RouteWarning, RouteWarningKind, TraversalHop};
 pub use ttp_applicability::AuthIdentitySummary;

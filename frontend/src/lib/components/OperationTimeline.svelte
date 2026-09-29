@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte';
+	import { actionDisplayName } from '$lib/actionDisplay';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import type {
 		TopEntry,
@@ -295,6 +296,11 @@
 			{#each ordered as entry (entry.kind === 'action-group' ? entry.action.id : entry.id)}
 				{#if entry.kind === 'action-group'}
 					{@const counts = effectCounts(entry)}
+					{@const actionName = actionDisplayName(
+						entry.action.ttpTitle,
+						entry.action.ttpName,
+						entry.action.args
+					)}
 					<!-- Action group header row -->
 					<div
 						class="border-surface-200-800 hover:bg-surface-200-800 relative flex cursor-pointer items-start gap-2 border-b px-3 py-2 text-sm select-none"
@@ -334,7 +340,7 @@
 						<div class="min-w-0 flex-1">
 							<div class="flex flex-wrap items-center gap-1 leading-tight">
 								{#if entry.action.startup}
-									<span class="font-medium">{entry.action.ttpName}</span>
+									<span class="font-medium">{actionName}</span>
 								{:else}
 									<button
 										type="button"
@@ -344,7 +350,7 @@
 											onviewaction(entry.action.id);
 										}}
 									>
-										{entry.action.ttpName}
+										{actionName}
 									</button>
 								{/if}
 								{#if entry.action.startup}

@@ -5,6 +5,8 @@ export type TtpActionEntry = {
 	id: string;
 	ttpId: string;
 	ttpName: string;
+	ttpTitle?: string;
+	args?: Record<string, string>;
 	targetId: string;
 	targetName: string;
 	execSystemId?: string;
@@ -86,6 +88,8 @@ export type BackfillRecord = {
 	id: string;
 	ttpId: string;
 	ttpName: string;
+	ttpTitle?: string;
+	args?: Record<string, string>;
 	targetId: string;
 	targetName: string;
 	execSystemId?: string;
@@ -133,6 +137,8 @@ export class TimelineStore {
 		if (existing) {
 			existing.action.ttpId = entry.ttpId;
 			existing.action.ttpName = entry.ttpName;
+			if (entry.ttpTitle) existing.action.ttpTitle = entry.ttpTitle;
+			if (entry.args) existing.action.args = entry.args;
 			existing.action.targetId = entry.targetId;
 			existing.action.targetName = entry.targetName;
 			if (entry.execSystemId) {
@@ -214,6 +220,7 @@ export class TimelineStore {
 	recordExecutedTtp(entry: Omit<TtpActionEntry, 'kind'>): void {
 		const existing = this.index.get(entry.id);
 		if (existing) {
+			if (entry.args) existing.action.args = entry.args;
 			if (existing.action.status === 'pending') {
 				existing.action.status = entry.status;
 				if (entry.status === 'failed') existing.action.failReason = entry.failReason;
@@ -240,6 +247,8 @@ export class TimelineStore {
 				id: r.id,
 				ttpId: r.ttpId,
 				ttpName: r.ttpName,
+				ttpTitle: r.ttpTitle,
+				args: r.args,
 				targetId: r.targetId,
 				targetName: r.targetName,
 				execSystemId: r.execSystemId,
@@ -280,6 +289,8 @@ export class TimelineStore {
 				id: r.id,
 				ttpId: r.ttpId,
 				ttpName: r.ttpName,
+				ttpTitle: r.ttpTitle,
+				args: r.args,
 				targetId: r.targetId,
 				targetName: r.targetName,
 				execSystemId: r.execSystemId,
