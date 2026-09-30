@@ -154,7 +154,7 @@ pub fn run_analyzers(campaign: &Campaign, analyzers: &[Box<dyn Analyzer>], base:
 |---|---|---|
 | `KubeletExecSinkAnalyzer` | New `kubelet-exec` relation (source pod → node) | `KubeletExecSink(node → pod)` for each running pod co-located on that node (excluding source) |
 
-This analyzer only fans out `KubeletExecSink` edges - it does **not** create the `KubeletExecSource` relation. `KubeletExecSource` (the precondition: a pod with `ran-ws` + a SA with `GET nodes/proxy`) is exclusively created by `KubeletExecSourceRule` in the rules layer. See the [Analyzer vs Rule Duplication](#analyzer-vs-rule-duplication) section for why both layers cover the sink side.
+This analyzer only fans out `KubeletExecSink` edges - it does **not** create the `KubeletExecSource` relation. `KubeletExecSource` (the precondition: a pod with Ranplant + a SA with `GET nodes/proxy`) is exclusively created by `KubeletExecSourceRule` in the rules layer. See the [Analyzer vs Rule Duplication](#analyzer-vs-rule-duplication) section for why both layers cover the sink side.
 
 #### Node IP Propagation
 
@@ -253,7 +253,7 @@ pub enum RuleTrigger {
 
 | Rule | Trigger | What it does |
 |---|---|---|
-| `KubeletExecSourceRule` | `EntityKind("Pod")`, `EntityKind("Node")`, `EntityKind("ServiceAccount")` | Fires when any SA has `GET nodes/proxy` AND any pod has the `ran-ws` binary present. Emits `KubeletExecSource(pod → node)` for all qualifying pods × all known nodes. |
+| `KubeletExecSourceRule` | `EntityKind("Pod")`, `EntityKind("Node")`, `EntityKind("ServiceAccount")` | Fires when any SA has `GET nodes/proxy` AND any pod has the Ranplant binary present. Emits `KubeletExecSource(pod → node)` for all qualifying pods × all known nodes. |
 | `KubeletExecSinkRule` | `RelationName("kubelet-exec")`, `RelationName("runs-on")` | For each `kubelet-exec` (pod → node), emits `KubeletExecSink(node → pod)` for each co-located running pod |
 
 **Three components, two layers**: `KubeletExecSourceRule` creates the source relation (requires binary + SA permission); `KubeletExecSinkRule` fans out sink edges from a source relation; `KubeletExecSinkAnalyzer` does the same fan-out in the analyzer layer for facts arriving via output parsers. There is no `KubeletExecSourceAnalyzer` - source creation only happens in the rules layer.

@@ -1,0 +1,8 @@
+[package]
+name = "ranplant-protocol"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+ciborium = "0.2"
+serde = { workspace = true }

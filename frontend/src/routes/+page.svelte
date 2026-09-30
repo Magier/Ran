@@ -8,7 +8,7 @@
 	import FileViewerModal from '$lib/modals/FileViewerModal.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { toaster } from '$lib/components/toaster';
-	import { timeline } from '$lib/stores/timelineStore.svelte';
+	import { timeline, timelineResultDetail } from '$lib/stores/timelineStore.svelte';
 	import { uiPreferences } from '$lib/stores/uiPreferences.svelte';
 	import OperationTimeline from '$lib/components/OperationTimeline.svelte';
 	import AttackStepDrawer from '$lib/components/AttackStepDrawer.svelte';
@@ -530,6 +530,7 @@
 						: undefined,
 					status: data.partial ? 'partial' : data.success ? 'success' : 'failed',
 					failReason: data.success ? undefined : data.failReason,
+					detail: timelineResultDetail(data.actionId, data.success, data.results),
 					timestamp: new Date()
 				});
 
@@ -654,6 +655,7 @@
 							success: r.success,
 							partial: r.partial,
 							failReason: r.fail_reason,
+							detail: timelineResultDetail(r.ttp_id, r.success, r.results),
 							timestampMs: r.completed_at_ms || r.started_at_ms,
 							effects: [
 								...r.discovered_entities.map((entity) => ({

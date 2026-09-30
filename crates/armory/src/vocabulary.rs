@@ -408,7 +408,7 @@ mod tests {
         let vocabulary = bundled_vocabulary().expect("vocabulary must be valid");
         let armory = Armory::load_from_dir(workspace_root().join("armory/TTPs"))
             .expect("bundled TTPs must load");
-        assert_eq!(armory.ttps().len(), 87, "unexpected bundled TTP count");
+        assert_eq!(armory.ttps().len(), 88, "unexpected bundled TTP count");
         for ttp in armory.ttps() {
             validate_ttp_vocabulary(ttp, &vocabulary).unwrap_or_else(|error| panic!("{error}"));
         }

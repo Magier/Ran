@@ -66,6 +66,15 @@ describe('OperationTimeline action interactions', () => {
 		expect(screen.getByText('second host')).toBeInTheDocument();
 	});
 
+	it('shows a successful structured action result as operational detail', () => {
+		const entry = actionEntry();
+		entry.action.detail =
+			'Ranplant session session/new established; superseded and closed source session session/old';
+		renderTimeline([entry]);
+
+		expect(screen.getByText(/closed source session session\/old/)).toBeInTheDocument();
+	});
+
 	it('opens details from the TTP name without toggling the group', async () => {
 		const { onviewaction, ontogglegroup } = renderTimeline([actionEntry()]);
 

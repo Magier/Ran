@@ -388,6 +388,13 @@
 								<div class="text-surface-500 mt-0.5 truncate text-xs" title={preview}>
 									{preview || 'Waiting for output…'}
 								</div>
+							{:else if entry.action.detail}
+								<div
+									class="text-surface-500 mt-0.5 text-xs break-words"
+									title={entry.action.detail}
+								>
+									{entry.action.detail}
+								</div>
 							{/if}
 						</div>
 

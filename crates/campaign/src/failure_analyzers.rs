@@ -62,6 +62,8 @@ pub trait FailureAnalyzer: Send + Sync {
 
 pub struct InvalidTargetFailureAnalyzer;
 pub struct RbacDeniedFailureAnalyzer;
+pub struct ExecutionTimeoutFailureAnalyzer;
+pub struct SessionRecoveringFailureAnalyzer;
 pub struct ConnectivityFailureAnalyzer;
 pub struct CommandNotFoundFailureAnalyzer;
 pub struct NotWriteableFailureAnalyzer;
@@ -93,6 +95,38 @@ impl FailureAnalyzer for RbacDeniedFailureAnalyzer {
             ));
         }
 
+        None
+    }
+}
+
+impl FailureAnalyzer for ExecutionTimeoutFailureAnalyzer {
+    fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
+        let haystack = failure_haystack(event);
+        if contains_any(
+            &haystack,
+            &[
+                "shell command timed out after",
+                "ranplant command timed out",
+                "kubectl command timed out after",
+            ],
+        ) {
+            return Some(FailureClassification::known_failure(
+                "procedure exceeded its execution deadline",
+            ));
+        }
+        None
+    }
+}
+
+impl FailureAnalyzer for SessionRecoveringFailureAnalyzer {
+    fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
+        if failure_haystack(event).contains(
+            "shell session is still finishing a timed-out command; retry after it recovers",
+        ) {
+            return Some(FailureClassification::known_failure(
+                "shell session is draining a previously timed-out command",
+            ));
+        }
         None
     }
 }
@@ -341,6 +375,8 @@ pub fn default_failure_analyzers() -> Vec<Box<dyn FailureAnalyzer>> {
     vec![
         Box::new(InvalidTargetFailureAnalyzer),
         Box::new(RbacDeniedFailureAnalyzer),
+        Box::new(ExecutionTimeoutFailureAnalyzer),
+        Box::new(SessionRecoveringFailureAnalyzer),
         Box::new(ConnectivityFailureAnalyzer),
         Box::new(CommandNotFoundFailureAnalyzer),
         Box::new(NotWriteableFailureAnalyzer),
@@ -607,6 +643,33 @@ mod tests {
             ParseResult::UnknownFormat
         ));
         assert!(!classified.detail.contains("RBAC"));
+    }
+
+    #[test]
+    fn execution_timeout_is_not_classified_as_network_failure() {
+        let cmd = sample_cmd();
+        let event = failed_event_fail_reason("Ranplant command timed out");
+
+        let classified = classify_failure(&cmd, &event);
+
+        assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
+        assert_eq!(
+            classified.detail,
+            "procedure exceeded its execution deadline"
+        );
+    }
+
+    #[test]
+    fn recovering_shell_has_a_specific_failure_classification() {
+        let cmd = sample_cmd();
+        let event = failed_event_fail_reason(
+            "shell session is still finishing a timed-out command; retry after it recovers",
+        );
+
+        let classified = classify_failure(&cmd, &event);
+
+        assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
+        assert!(classified.detail.contains("draining"));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 mod builtin;
 mod executor;
 mod output;
+mod runner_session;
 mod shell_session;
 mod types;
 
@@ -9,6 +10,7 @@ pub use executor::{
     DEFAULT_MAX_CONCURRENT_EXECUTIONS,
 };
 pub use output::{OutputSink, OutputStream};
+pub use runner_session::RunnerSession;
 pub use shell_session::ShellSession;
 pub use types::{
     C2Event, ExecTtp, ExecutionOperation, OutputTransform, SessionConnectedData, TtpExecuted,

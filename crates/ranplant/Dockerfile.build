@@ -1,0 +1,11 @@
+FROM rust:1.97-alpine AS builder
+
+WORKDIR /src
+RUN apk add --no-cache musl-dev
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN cargo build --locked --release --package ranplant
+
+FROM scratch
+COPY --from=builder /src/target/release/ranplant /ranplant

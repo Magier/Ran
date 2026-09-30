@@ -628,6 +628,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     hostname,
                     user,
                     os,
+                    kind,
                     port,
                 }) => {
                     info!(%backend_id, %target_entity_id, %hostname, %user, %os, port, "session connected");
@@ -652,7 +653,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         &hostname,
                         &user,
                         &os,
-                        port,
+                        ConnectedSessionTransport::new(&kind, port),
                     );
 
                     // If the target already has an exec-channel edge, mark it as
@@ -776,6 +777,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         }
                     };
                     let removed = guard.remove_session_channel(&backend_id);
+                    guard.deactivate_session(&backend_id);
                     info!(%backend_id, removed, "session killed; c2.session edge(s) removed");
                     drop(guard);
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
@@ -932,6 +934,18 @@ struct AttachedSession {
     revived: bool,
 }
 
+#[derive(Clone, Copy)]
+struct ConnectedSessionTransport<'a> {
+    kind: &'a str,
+    port: Option<u16>,
+}
+
+impl<'a> ConnectedSessionTransport<'a> {
+    fn new(kind: &'a str, port: Option<u16>) -> Self {
+        Self { kind, port }
+    }
+}
+
 /// Attach a freshly connected C2 session to the system entity it exits into,
 /// returning that entity's id.
 ///
@@ -948,13 +962,12 @@ fn attach_connected_session(
     hostname: &str,
     user: &str,
     os: &str,
-    port: Option<u16>,
+    transport: ConnectedSessionTransport<'_>,
 ) -> AttachedSession {
-    let session_kind = if port.is_some() {
-        "tcp"
-    } else {
-        "kubectl-exec"
-    };
+    let ConnectedSessionTransport {
+        kind: session_kind,
+        port,
+    } = transport;
     let session_short_id = backend_id
         .strip_prefix("session/")
         .unwrap_or(backend_id)
@@ -1011,7 +1024,9 @@ fn attach_connected_session(
         .collect::<Vec<_>>();
     if matching_pods.len() == 1 {
         let pod_id = matching_pods.remove(0);
-        return attach_connected_session(campaign, backend_id, &pod_id, hostname, user, os, port);
+        return attach_connected_session(
+            campaign, backend_id, &pod_id, hostname, user, os, transport,
+        );
     }
 
     // Nothing answers to that id - a shell from a host we have never seen.
@@ -1330,6 +1345,7 @@ mod listener_event_tests {
             hostname: "victim".to_string(),
             user: "root".to_string(),
             os: "Linux".to_string(),
+            kind: "tcp".to_string(),
             port: Some(4444),
         };
 
@@ -1407,6 +1423,7 @@ mod listener_event_tests {
                 hostname: "victim".to_string(),
                 user: "root".to_string(),
                 os: "Linux".to_string(),
+                kind: "tcp".to_string(),
                 port: Some(4444),
             })
             .await
@@ -1433,6 +1450,16 @@ mod listener_event_tests {
         assert!(
             guard.get_system_entity("system/victim").is_some(),
             "facts discovered through the session must remain"
+        );
+        assert!(
+            guard
+                .get_system_entity("system/victim")
+                .expect("the foothold system remains")
+                .entity()
+                .system()
+                .sessions
+                .is_empty(),
+            "operator closure must remove the stored session entry"
         );
     }
 
@@ -1513,6 +1540,7 @@ mod listener_event_tests {
                 hostname: "worker-1".to_string(),
                 user: "root".to_string(),
                 os: "linux".to_string(),
+                kind: "tcp".to_string(),
                 port: Some(4444),
             })
             .await
@@ -1549,6 +1577,7 @@ mod listener_event_tests {
                 hostname: "worker-1".to_string(),
                 user: "root".to_string(),
                 os: "linux".to_string(),
+                kind: "tcp".to_string(),
                 port: Some(4444),
             })
             .await
@@ -1668,7 +1697,7 @@ mod tests {
             "netshoot",
             "root",
             "Linux",
-            Some(4444),
+            ConnectedSessionTransport::new("tcp", Some(4444)),
         );
         let system_id = system_id.entity_id;
         assert_eq!(system_id, "system/netshoot");
@@ -1738,7 +1767,7 @@ mod tests {
             "debug-bridge",
             "root",
             "Linux",
-            Some(4444),
+            ConnectedSessionTransport::new("ranplant", Some(4444)),
         );
 
         assert_eq!(attached.entity_id, pod_id);
@@ -1749,6 +1778,13 @@ mod tests {
                 .sessions[0]
                 .id,
             "debug-bridge"
+        );
+        assert_eq!(
+            campaign.entities.get::<Pod>()[&EntityId::new(&pod_id)]
+                .system
+                .sessions[0]
+                .kind,
+            "ranplant"
         );
     }
 
@@ -1762,7 +1798,7 @@ mod tests {
             "debug-bridge",
             "root",
             "Linux",
-            Some(4444),
+            ConnectedSessionTransport::new("tcp", Some(4444)),
         );
         assert_eq!(attached.entity_id, "system/debug-bridge");
 
@@ -1893,7 +1929,7 @@ mod tests {
             "netshoot",
             "root",
             "Linux",
-            Some(4444),
+            ConnectedSessionTransport::new("tcp", Some(4444)),
         );
 
         assert_eq!(
@@ -1936,7 +1972,7 @@ mod tests {
             "api",
             "root",
             "Linux",
-            None,
+            ConnectedSessionTransport::new("kubectl-exec", None),
         );
 
         assert_eq!(channel_id.entity_id, "ns/default/pod/api");

