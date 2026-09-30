@@ -250,7 +250,7 @@ pub fn ttp_applicable_for_target(
 ) -> bool {
     ttp_target_scope_satisfied(ttp, tc)
         && ttp_auth_satisfied_for_target(ttp, campaign, tc)
-        && ttp_execution_source_satisfied(ttp, campaign)
+        && ttp_execution_source_satisfied(ttp, campaign, tc)
         && ttp_exists_satisfied(ttp, campaign)
         && ttp_has_listener_satisfied(ttp, campaign)
         && ttp_has_session_satisfied(ttp, campaign, &tc.target_id)
@@ -267,19 +267,38 @@ pub fn ttp_applicable_for_target(
         && ttp_operator_tool_satisfied(ttp)
 }
 
-/// Non-Kubernetes lateral movement must originate from an existing execution
-/// foothold. Merely discovering a possible remote target is not enough to make
-/// exploit actions runnable.
-fn ttp_execution_source_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
+/// Require a physical execution source when the procedure cannot run on its
+/// semantic target. This covers source-side lateral movement and authenticated
+/// Kubernetes actions against API resources or identity entities.
+fn ttp_execution_source_satisfied(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    tc: &TargetContext,
+) -> bool {
     let tactic = ttp
         .tactic
         .chars()
         .filter(|c| !c.is_whitespace())
         .collect::<String>();
 
-    !tactic.eq_ignore_ascii_case("LateralMovement")
-        || ttp_uses_k8s_auth(ttp)
-        || campaign.resolve_exec_source().is_ok()
+    if tactic.eq_ignore_ascii_case("LateralMovement") && !ttp_uses_k8s_auth(ttp) {
+        return campaign.resolve_exec_source().is_ok();
+    }
+
+    // Authenticated Kubernetes procedures against API resources and identity
+    // entities run from a controlled system, not on the semantic target. A
+    // locally usable kubeconfig is the exception because BuiltinC2 can realize
+    // it without a remote execution source.
+    if ttp_uses_k8s_auth(ttp) && campaign.get_system_entity(&tc.target_id).is_none() {
+        let has_local_identity = eligible_auth_identities(ttp, campaign, &tc.target_id)
+            .iter()
+            .any(|identity| identity.kind == "K8sCredential");
+        return has_local_identity
+            || ttp_can_use_default_kubeconfig(ttp)
+            || campaign.resolve_exec_source().is_ok();
+    }
+
+    true
 }
 
 /// Keep the selected entity as the semantic target. Kubernetes actions without
@@ -1293,6 +1312,35 @@ mod tests {
         assert!(identities
             .iter()
             .any(|identity| identity.kind == "ServiceAccount"));
+    }
+
+    #[test]
+    fn token_execution_requires_a_controlled_execution_source() {
+        let mut campaign = campaign_with_sa("list", "pods");
+        let service_account_id = campaign
+            .entities
+            .values::<ServiceAccount>()
+            .next()
+            .expect("fixture service account")
+            .entity_id()
+            .0;
+        let mut ttp = kubernetes_ttp_with_rbac("list", "pods");
+        ttp.requires
+            .insert("kind".to_string(), json!("ServiceAccount"));
+        let target = resolve_target_context(&campaign, &service_account_id)
+            .expect("service account target context");
+
+        assert!(
+            !ttp_applicable_for_target(&ttp, &campaign, &target),
+            "captured authentication alone cannot execute a client command"
+        );
+
+        let source = Pod::new("agent-worker", "agent-system");
+        let source_id = source.entity_id().0;
+        campaign.entities.insert_typed(source);
+        campaign.insert_relation(&ran_domain::PodExec::new(c2::BUILTIN_C2_ID, source_id));
+
+        assert!(ttp_applicable_for_target(&ttp, &campaign, &target));
     }
 
     use super::kind_matches_target_kind;

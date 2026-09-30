@@ -2079,6 +2079,18 @@ impl Campaign {
             return self.route_caller_supplied(hint, target_id, procedure, args);
         }
 
+        // Kubernetes API resources and authentication identities are semantic
+        // targets, not systems where a client command can run. When the caller
+        // does not select an execution system, run the authenticated client
+        // command from any controlled source while retaining the original
+        // target for grounding, attribution, and effect parsing.
+        if auth_identity_id.is_some()
+            && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
+            && self.get_system_entity(target_id).is_none()
+        {
+            return self.route_source_side(target_id, procedure, args, None);
+        }
+
         if needs_remote_channel(procedure, tactic) {
             return self.route_remote(target_id, procedure, args);
         }

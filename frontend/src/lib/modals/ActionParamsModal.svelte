@@ -341,9 +341,11 @@
 		);
 		if (linkedSystem) return linkedSystem.id;
 
-		// With a single foothold there is no routing ambiguity, and retaining an
-		// empty selection would prevent tool readiness from being evaluated.
-		return systems.length === 1 ? systems[0].id : '';
+		// Keep the semantic target separate from the physical execution system.
+		// The backend can also choose a source when callers omit this hint, but the
+		// modal should never submit an apparently ready remote action with no
+		// execution system selected.
+		return systems[0]?.id ?? '';
 	}
 
 	let selectedNamespace = $derived.by(() => {
@@ -643,13 +645,14 @@
 			// Also reset procedureId when TTP changes
 			procedureId = ttp.actionState?.recommendedProcedureId ?? ttpProcedures?.[0]?.id ?? '';
 
-			// Select the physical execution system as well as the semantic target.
-			// This is especially important for ServiceAccount actions: the backend
-			// executes them on a linked pod, whose binary facts control procedure
-			// availability.
+			// Select the physical execution system separately from the semantic
+			// target. Local and explicitly source-side procedures retain their own
+			// routing behavior.
 			const systems = campaignState.getCompromisedSystems();
+			const initialProcedure =
+				ttpProcedures?.find((procedure) => procedure.id === procedureId) ?? ttpProcedures?.[0];
 			selectedExecSystemId =
-				ttpProcedures?.[0]?.runOnTarget === false
+				initialProcedure?.runOnTarget === false || initialProcedure?.isLocalCommand
 					? ''
 					: defaultExecutionSystemId(currentTargetId, systems);
 
