@@ -100,7 +100,7 @@ export type LiveExecutionOutput = {
 
 const LIVE_OUTPUT_LIMIT = 1024 * 1024;
 
-class CampaignState {
+export class CampaignState {
 	campaignId: number = $state(0);
 	entities = $state<Entity[]>([]);
 	relations = $state<Map<string, Relation>>(new Map());
@@ -108,7 +108,7 @@ class CampaignState {
 	pods = $state<Entity[]>([]);
 	serviceAccounts = $state<Entity[]>([]);
 	armory = $state<ArmoryType>(new Map());
-	graph = $state<Graph>({} as Graph);
+	graph = $state<Graph>({ nodes: [], edges: [], rootNodeId: '' });
 	kubetier = $state<KubetierCatalog | null>(null);
 	permissionAssessments = $state<LocalPermissionAssessment[]>([]);
 	uiConfig = $state<UiConfig>({ namespaces: DEFAULT_NAMESPACE_UI_CONFIG });
@@ -124,6 +124,7 @@ class CampaignState {
 	private liveRefreshQueued = false;
 	private initPromise: Promise<void> | null = null;
 	private hasConnectedToBackend = false;
+	private snapshotReady = $state(false);
 
 	init(): Promise<void> {
 		if (this.initPromise) return this.initPromise;
@@ -131,7 +132,7 @@ class CampaignState {
 		return this.initPromise;
 	}
 
-	private initialize(): Promise<void> {
+	private async initialize(): Promise<void> {
 		// The API URL is constructed from window.location.
 
 		this.api.on('armory-loaded', (data) => {
@@ -211,29 +212,39 @@ class CampaignState {
 			showToast('Error', msg.Msg, toastType);
 		});
 		console.log('CampaignState connecting to backend...');
-		return this.api.connect().then(() => {
-			this.api
-				.GetUiConfig()
-				.then((config) => {
-					this.uiConfig = config;
-				})
-				.catch((err) => console.warn('Failed to load UI configuration', err));
-			this.api
-				.GetKubetierCatalog()
-				.then((catalog) => {
-					this.kubetier = catalog;
-				})
-				.catch((err) => console.warn('Failed to load offline KubeTier catalog', err));
-			this.api.GetGraph().then((g: Graph) => {
-				this.graph = g;
-			});
-			this.api.GetCampaignState().then((s: State) => {
-				this.#setState(s);
-			});
-			this.api.GetArmory().then((a: TTP[]) => {
-				this.armory = parseArmory(a);
-			});
-		});
+		await this.api.connect();
+
+		void this.api
+			.GetUiConfig()
+			.then((config) => {
+				this.uiConfig = config;
+			})
+			.catch((err) => console.warn('Failed to load UI configuration', err));
+		void this.api
+			.GetKubetierCatalog()
+			.then((catalog) => {
+				this.kubetier = catalog;
+			})
+			.catch((err) => console.warn('Failed to load offline KubeTier catalog', err));
+		void this.api
+			.GetArmory()
+			.then((armory: TTP[]) => {
+				this.armory = parseArmory(armory);
+			})
+			.catch((err) => console.warn('Failed to load armory', err));
+
+		const [graph, state] = await this.#fetchSnapshot();
+		this.#installSnapshot(graph, state);
+	}
+
+	async #fetchSnapshot(): Promise<[Graph, State]> {
+		return Promise.all([this.api.GetGraph(), this.api.GetCampaignState()]);
+	}
+
+	#installSnapshot(graph: Graph, state: State): void {
+		this.graph = graph;
+		this.#setState(state);
+		this.snapshotReady = true;
 	}
 
 	private async restoreLiveExecutionOutput(): Promise<void> {
@@ -323,7 +334,7 @@ class CampaignState {
 	}
 
 	isReady(): boolean {
-		return this.graph && this.entities.length > 0;
+		return this.snapshotReady;
 	}
 
 	showError(msg: string | object) {
@@ -343,20 +354,20 @@ class CampaignState {
 	}
 
 	reset() {
+		this.snapshotReady = false;
 		this.entities = [];
 		this.namespaces = [];
 		this.pods = [];
 		this.serviceAccounts = [];
 		this.campaignId += 1; // Increment campaign ID, to trigger changes based on new campaign
 		this.api.ResetCampaign().then(() => {
-			this.api.GetGraph().then((g: Graph) => {
-				this.graph = g;
-			});
+			this.#fetchSnapshot().then(([graph, state]) => this.#installSnapshot(graph, state));
 		});
 	}
 
 	async onReset(): Promise<void> {
 		console.log('Received reset-campaign event from backend');
+		this.snapshotReady = false;
 		// Clear the in-memory operation timeline so a reset/restart from any path
 		// (backend restart, autonomous loop, CLI) doesn't carry previous
 		// iterations' logs into the new campaign. The app-menu Reset clears it
@@ -364,12 +375,8 @@ class CampaignState {
 		// this reset-campaign handler keeps the state and timeline refresh together.
 		timeline.clear();
 		this.executionOutputs = new Map();
-		await this.api.GetGraph().then((g: Graph) => {
-			this.graph = g;
-		});
-		await this.api.GetCampaignState().then((s: State) => {
-			this.#setState(s);
-		});
+		const [graph, state] = await this.#fetchSnapshot();
+		this.#installSnapshot(graph, state);
 	}
 
 	/**
@@ -398,12 +405,8 @@ class CampaignState {
 				const eventId = ++this.factsChangedCounter;
 				const stateCallId = ++this.getCampaignStateCounter;
 				try {
-					const [graph, state] = await Promise.all([
-						this.api.GetGraph(),
-						this.api.GetCampaignState()
-					]);
-					this.graph = graph;
-					this.#setState(state);
+					const [graph, state] = await this.#fetchSnapshot();
+					this.#installSnapshot(graph, state);
 				} catch (err) {
 					console.error(
 						`Live campaign refresh failed [Event ${eventId}->Call ${stateCallId}]:`,
@@ -539,11 +542,7 @@ class CampaignState {
 		if (id === '') {
 			return undefined;
 		}
-		const found = this.entities.find((entity) => entity.id === id);
-		if (!found) {
-			console.warn(`❌ Entity not found for id: ${id}, available entities:`);
-		}
-		return found;
+		return this.entities.find((entity) => entity.id === id);
 	}
 
 	getRelationById(id: string): Relation | undefined {

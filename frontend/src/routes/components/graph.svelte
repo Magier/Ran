@@ -144,6 +144,9 @@
 
 	let previousNodeIds: Set<string> = new Set();
 	let previousWorkloadCompoundIds: Set<string> = new Set();
+	let layoutPending = false;
+	let layoutRetryVersion = $state(0);
+	let graphResizeObserver: ResizeObserver | undefined;
 	let layoutParams: LayoutParams = $state({ ...DEFAULT_LAYOUT_PARAMS });
 	const expansionSnapshots = new Map<string, ExpansionSnapshot>();
 	let isRestoringCollapsedState = false;
@@ -253,6 +256,14 @@
 		if (prevPan) {
 			cy.pan(prevPan);
 		}
+		if (typeof ResizeObserver !== 'undefined') {
+			graphResizeObserver = new ResizeObserver(([entry]) => {
+				if (!entry || entry.contentRect.width === 0 || entry.contentRect.height === 0) return;
+				cy.resize();
+				if (layoutPending) layoutRetryVersion += 1;
+			});
+			graphResizeObserver.observe(graphContainer);
+		}
 
 		// Initialize expand-collapse extension
 		let api: cytoscape.ExpandCollapseApi | null;
@@ -313,6 +324,7 @@
 
 	onDestroy(() => {
 		saveGraphLayout();
+		graphResizeObserver?.disconnect();
 		if (browser) {
 			window.removeEventListener('keydown', handleKeyPress);
 		}
@@ -354,6 +366,7 @@
 	});
 
 	$effect(() => {
+		void layoutRetryVersion;
 		cy.invalidateDimensions();
 		const graph = campaignState.graph;
 
@@ -637,8 +650,8 @@
 
 						const containerRect = graphContainer.getBoundingClientRect();
 						if (containerRect.width === 0 || containerRect.height === 0) {
-							console.warn('Graph container has zero dimensions, skipping layout');
-							previousNodeIds = currentNodeIds;
+							console.warn('Graph container has zero dimensions, deferring layout');
+							layoutPending = true;
 							return;
 						}
 
@@ -669,6 +682,7 @@
 							console.log('ELK layout complete');
 						});
 
+						layoutPending = false;
 						l.run();
 						previousNodeIds = currentNodeIds;
 					} else {
