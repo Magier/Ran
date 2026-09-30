@@ -85,6 +85,10 @@
 	let entityInfoRafId: number | null = null;
 	let entityInfoContainer: HTMLDivElement | undefined = $state();
 
+	function resolveEntityName(id: string, eventNames?: ReadonlyMap<string, string>): string {
+		return eventNames?.get(id) ?? campaignState.getEntityById(id)?.name ?? id;
+	}
+
 	// Get responsive default armory width based on screen size
 	function getResponsiveDefaultWidth(): number {
 		if (!browser) return 300;
@@ -496,10 +500,7 @@
 			window.addEventListener('mouseup', stopResizeEntityInfo);
 		}
 
-		// Initialize campaign if not already done
-		if (campaignState.armory.size === 0) {
-			campaignState.init();
-		}
+		const campaignReady = campaignState.init();
 
 		// TODO: check if this alert handle is still useful
 		pageEventUnsubscribers.push(
@@ -557,6 +558,7 @@
 		// message and handler invocation for every discovered entity.
 		pageEventUnsubscribers.push(
 			ranAPI.on('facts-changed', (data) => {
+				const eventNames = new Map(data.newEntities.map((entity) => [entity.id, entity.name]));
 				for (const entity of data.newEntities) {
 					timeline.addEntityEvent({
 						kind: entity.category ?? 'discovery',
@@ -575,9 +577,9 @@
 						id: `relation:${data.cmdId}:${relation.name}:${relation.source_id}:${relation.target_id}`,
 						relationName: relation.name,
 						sourceId: relation.source_id,
-						sourceName: campaignState.getEntityById(relation.source_id)?.name ?? relation.source_id,
+						sourceName: resolveEntityName(relation.source_id, eventNames),
 						targetId: relation.target_id,
-						targetName: campaignState.getEntityById(relation.target_id)?.name ?? relation.target_id,
+						targetName: resolveEntityName(relation.target_id, eventNames),
 						isExecChannel: relation.is_exec_channel,
 						cmdId: data.cmdId,
 						timestamp: new Date()
@@ -596,7 +598,7 @@
 					lost: data.state === 'lost',
 					backendId: data.backendId,
 					entityId: data.entityId,
-					entityName: campaignState.getEntityById(data.entityId)?.name ?? data.entityName,
+					entityName: data.entityName,
 					timestamp: new Date()
 				});
 			})
@@ -634,8 +636,8 @@
 		// to an already-running campaign isn't blank: completed actions from the
 		// execution log, then any in-flight (Ongoing) steps as pending on top. The
 		// id-index dedup makes this safe alongside the live handlers above.
-		ranAPI
-			.GetExecutionRecords()
+		void campaignReady
+			.then(() => ranAPI.GetExecutionRecords())
 			.then((records) => {
 				timeline.backfill(
 					records.map((r) => {
@@ -686,8 +688,7 @@
 					})
 				);
 			})
-			.catch((err) => console.error('Timeline backfill failed', err))
-			.finally(() => {
+			.then(() => {
 				ranAPI
 					.GetFlow()
 					.then((flow) => {
@@ -714,7 +715,8 @@
 						);
 					})
 					.catch((err) => console.error('Timeline pending backfill failed', err));
-			});
+			})
+			.catch((err) => console.error('Timeline backfill failed', err));
 	});
 
 	onDestroy(() => {
