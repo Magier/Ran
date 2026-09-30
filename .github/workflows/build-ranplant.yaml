@@ -1,0 +1,172 @@
+name: Build Ranplant
+
+on:
+  push:
+    branches: [main]
+    tags: ['ranplant-v*']
+    paths:
+      - '.github/workflows/build-ranplant.yaml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'crates/c2/**'
+      - 'crates/ranplant/**'
+      - 'crates/ranplant-protocol/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-ranplant.yaml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'crates/c2/**'
+      - 'crates/ranplant/**'
+      - 'crates/ranplant-protocol/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-ranplant-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-ranplant-test-
+
+      - name: Verify release tag matches package version
+        if: startsWith(github.ref, 'refs/tags/ranplant-v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(
+            cargo metadata --locked --no-deps --format-version 1 |
+              jq -r '[.packages[] | select(.name == "ranplant") | .version] | if length == 1 then .[0] else empty end'
+          )"
+          expected_tag="ranplant-v${version}"
+          if [[ -z "$version" || "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "::error::Release tag ${GITHUB_REF_NAME} does not match Ranplant version ${expected_tag}"
+            exit 1
+          fi
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint Ranplant and protocol integration
+        run: cargo clippy -p ranplant-protocol -p ranplant -p c2 --all-targets --locked -- -D warnings
+
+      - name: Test Ranplant and protocol integration
+        run: cargo test -p ranplant-protocol -p ranplant -p c2 --locked
+
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            asset: ranplant-linux-amd64
+          - target: aarch64-unknown-linux-musl
+            asset: ranplant-linux-arm64
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Install Rust target
+        run: |
+          rustup target add ${{ matrix.target }}
+          rustup component add llvm-tools-preview
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.14.1
+
+      - name: Install cargo-zigbuild
+        run: cargo install --locked --version 0.23.4 cargo-zigbuild
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-ranplant-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-ranplant-${{ matrix.target }}-
+
+      - name: Build static Ranplant binary
+        run: cargo zigbuild --locked --release --package ranplant --target ${{ matrix.target }}
+
+      - name: Strip Ranplant binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/ranplant"
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          llvm_strip="$(rustc --print sysroot)/lib/rustlib/${host}/bin/llvm-strip"
+          "$llvm_strip" --strip-all "$binary"
+          description="$(file -b "$binary")"
+          echo "$description"
+          if [[ "$description" != *", stripped" ]]; then
+            echo "::error::Ranplant release binary was not stripped"
+            exit 1
+          fi
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/ranplant dist/${{ matrix.asset }}
+          chmod +x dist/${{ matrix.asset }}
+          sha256sum dist/${{ matrix.asset }}
+
+      - name: Upload Ranplant binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/ranplant-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Download Ranplant binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: ranplant-linux-*
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum ranplant-linux-* > ranplant-SHA256SUMS
+
+      - name: Create Ranplant release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          if gh release view "$tag" &>/dev/null; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" \
+              --title "$tag" \
+              --generate-notes \
+              dist/*
+          fi

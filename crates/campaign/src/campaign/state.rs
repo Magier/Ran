@@ -966,6 +966,28 @@ impl Campaign {
                     relation.target_id,
                 ));
         }
+
+        for pod in self.entities.get_mut::<Pod>().values_mut() {
+            pod.system
+                .sessions
+                .retain(|session| session.backend_id() != backend_id);
+        }
+        for node in self.entities.get_mut::<K8sNode>().values_mut() {
+            node.system
+                .sessions
+                .retain(|session| session.backend_id() != backend_id);
+        }
+        for system in self.entities.get_mut::<UnknownSystem>().values_mut() {
+            system
+                .system
+                .sessions
+                .retain(|session| session.backend_id() != backend_id);
+        }
+        for host in self.entities.get_mut::<OperatorHost>().values_mut() {
+            host.system
+                .sessions
+                .retain(|session| session.backend_id() != backend_id);
+        }
         count
     }
 

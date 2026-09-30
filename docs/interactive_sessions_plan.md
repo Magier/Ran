@@ -1,5 +1,11 @@
 # Interactive Sessions - Design & Implementation Plan
 
+> Status: the session domain and routing model described here have evolved into
+> `SessionInfo`, active execution-channel relations, and runtime C2 backends.
+> Raw shell marker framing remains as a compatibility fallback. New structured
+> sessions use the target-side Ranplant binary and the versioned
+> `ranplant-protocol` contract.
+
 ## Context
 
 Ran today executes every TTP as a fresh, stateless invocation: the builtin C2
@@ -154,8 +160,7 @@ on its stdin anymore).
 // crates/c2/src/session/transport.rs
 #[async_trait]
 pub trait SessionTransport: Send + Sync {
-    /// Send stdin for a single logical command and read framed output.
-    /// Implementations are responsible for injecting sentinels and parsing.
+    /// Execute one logical command and return its structured outcome.
     async fn run(&self, cmd: &str) -> Result<CommandOutput, SessionError>;
 
     /// Probe liveness without running a command. Default impl: run `true`.
@@ -176,32 +181,23 @@ pub struct CommandOutput {
 
 | Transport | Crate location | Notes |
 |---|---|---|
-| `TcpShellTransport` | `crates/c2/src/session/tcp_shell.rs` | Raw TCP. Framing via `echo __RAN_END_<uuid>__:$?` sentinel. Used for reverse + bind shells. |
-| `KubectlExecTransport` | `crates/c2/src/session/kubectl_exec.rs` | Long-lived `Api::exec` with `stdin(true).tty(true)`. Same sentinel-based framing. |
-| `ImplantTransport` | future | Sliver/Mythic/etc. RPC. Exit code is native, no framing. |
+| `ShellSession` | `crates/c2/src/shell_session.rs` | Compatibility backend for raw reverse and bind shells. Uses marker framing and cannot reliably cancel a child. |
+| `RunnerSession` | `crates/c2/src/runner_session.rs` | Structured Ranplant protocol with separate output streams, explicit completion, heartbeats, and process-group cancellation. |
+| `ImplantTransport` | future | Sliver/Mythic/etc. RPC. Exit code is native, no shell framing. |
 
-### Framing for stream-based transports (TCP, kubectl-exec)
+### Ranplant protocol
 
-Commands run by the C2 are intended to be deterministic and machine-parsed.
-A raw shell stream has no built-in boundaries. Protocol:
+Ranplant starts each action as an isolated child process group. Ran and the
+target exchange length-prefixed CBOR messages defined by
+`crates/ranplant-protocol`. The target reports `Started`, sequenced `Output`,
+and one authoritative `Exited` message. A timeout or `Cancel` terminates the
+child process group without terminating the session. Heartbeats continue while
+the child runs.
 
-1. Generate a per-command nonce: `N = uuid()`.
-2. Write to stdin:
-   `{cmd} 2> >(sed "s/^/__STDERR__ /"); printf '__RAN_END_%s__:%d\n' "{N}" $?\n`
-3. Read stdout until a line matching `__RAN_END_{N}__:(\d+)` appears.
-4. Lines prefixed with `__STDERR__ ` are stripped and routed to stderr;
-   remainder is stdout.
-5. Exit code is captured from the sentinel.
-
-**Caveats.**
-- Prompt banners must be drained on session open before the first command.
-  Send `stty -echo; unset PROMPT_COMMAND; PS1=''` early.
-- TTY sessions may CR/LF-translate; `stty raw -echo` mitigates.
-- `sed` isn't universal on minimal containers (`busybox sh` is fine, but
-  truly hostile shells need a fallback - tee the whole stream as stdout
-  and best-effort parse).
-- Commands containing the sentinel are not supported. Make the nonce long
-  and random.
+The listener detects the `RANP` protocol preface before consuming the stream.
+Connections without that preface continue through `ShellSession`, preserving
+compatibility with basic reverse shells. `socat` may remain the byte transport
+for either form.
 
 ### Kubectl exec specifics
 

@@ -75,6 +75,14 @@ ifndef RUST_TARGET
 endif
 	cargo build --locked --release $(RUST_RELEASE_FLAGS) --target $(RUST_TARGET)
 
+.PHONY: build-ranplant
+build-ranplant:
+ifdef RUST_TARGET
+	cargo build --locked --release --package ranplant --target $(RUST_TARGET)
+else
+	cargo build --locked --release --package ranplant
+endif
+
 # === Containers ===
 .PHONY: docker-local
 docker-local:

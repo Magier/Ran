@@ -57,6 +57,10 @@ pub enum ExecutionOperation {
     KillSession {
         session: String,
     },
+    StartRanplantSession {
+        command: String,
+        listener_port: u16,
+    },
     StartRedirector {
         play_id: String,
         remote_port: u16,
@@ -73,7 +77,8 @@ impl ExecutionOperation {
         match self {
             Self::Shell { command }
             | Self::LocalShell { command }
-            | Self::KubernetesCommand { command } => Some(command),
+            | Self::KubernetesCommand { command }
+            | Self::StartRanplantSession { command, .. } => Some(command),
             _ => None,
         }
     }
@@ -215,7 +220,7 @@ pub enum C2Event {
         play_id: String,
         remote_port: u16,
     },
-    /// A reverse-shell connected, probed, and the session backend is now live.
+    /// A remote session connected, identified itself, and is now live.
     SessionConnected {
         backend_id: String,
         /// `node/{hostname}` - the entity this session exits into.
@@ -223,6 +228,8 @@ pub enum C2Event {
         hostname: String,
         user: String,
         os: String,
+        /// Target-side session implementation, such as `tcp` or `ranplant`.
+        kind: String,
         port: Option<u16>,
     },
     /// A session backend lost its connection.

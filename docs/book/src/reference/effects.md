@@ -161,8 +161,8 @@ subsequent commands are routed via this path automatically.
 
 ```yaml
 procedures:
-  - key: ran-ws
-    command: ran-ws -- ${CMD}
+  - key: ranplant
+    command: ranplant kubelet-exec --url "wss://node:10250/exec/...?command=${CMD}"
 
 effects:
   - k8s.kubelet-exec(sys, all(k8s.node))

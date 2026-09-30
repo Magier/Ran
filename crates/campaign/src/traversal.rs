@@ -31,7 +31,7 @@ impl RouteWarning {
 /// One segment of a multi-hop command traversal.
 ///
 /// As a command is routed across intermediate systems, each hop wraps the inner
-/// command in an envelope (e.g. `ran-ws … -- ${CMD}`, `kubectl exec … --
+/// command in an envelope (e.g. `ranplant kubelet-exec …`, `kubectl exec … --
 /// ${CMD}`). A `TraversalHop` records a single such segment: the command as it
 /// is handed from `from_id` to `to_id`, plus the envelope template applied at
 /// this layer. Hops are ordered from the C2 entry point (outermost) to the

@@ -569,14 +569,14 @@ fn hash_results(results: &[String]) -> String {
         .collect()
 }
 
-/// Unwrap the JSON envelope emitted by `ran-ws` after a kubelet-pod-exec call.
+/// Unwrap the JSON envelope emitted by Ranplant after a kubelet-pod-exec call.
 ///
-/// `ran-ws` always writes a single JSON line:
+/// Ranplant writes a single JSON line:
 /// `{"result":"<stdout>","status":"Success|Failure","message":"..."}`.
 ///
 /// Returns `(unwrapped_stdout, Some(err))` when the command failed inside the
 /// kubelet API, or `(raw, Some(err))` when the output is not valid JSON
-/// (the `ran-ws` binary itself likely failed to start).
+/// (the Ranplant binary itself likely failed to start).
 /// Returns `(unwrapped_stdout, None)` on clean success.
 ///
 pub fn unwrap_kubelet_json_response(stdout: &str) -> (String, Option<String>) {
@@ -594,7 +594,7 @@ pub fn unwrap_kubelet_json_response(stdout: &str) -> (String, Option<String>) {
     if stdout.is_empty() {
         return (
             String::new(),
-            Some("empty response from ran-ws (binary may have failed)".to_string()),
+            Some("empty response from Ranplant (binary may have failed)".to_string()),
         );
     }
 
@@ -606,7 +606,7 @@ pub fn unwrap_kubelet_json_response(stdout: &str) -> (String, Option<String>) {
         Err(_) => (
             stdout.to_string(),
             Some(format!(
-                "ran-ws output is not valid JSON (binary may have failed): {}",
+                "Ranplant output is not valid JSON (binary may have failed): {}",
                 stdout
             )),
         ),

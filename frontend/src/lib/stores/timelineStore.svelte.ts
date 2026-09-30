@@ -1,5 +1,32 @@
 import type { BootstrapOperation } from '$lib/api';
 
+const RESULT_DETAIL_ACTIONS = new Set(['start-ranplant-session']);
+
+/**
+ * Select concise, semantic action results that belong directly in the
+ * operational timeline. Most action results are arbitrary command output and
+ * stay in the action drawer; structured lifecycle actions opt in here because
+ * their result describes an operational state transition.
+ */
+export function timelineResultDetail(
+	actionId: string,
+	success: boolean,
+	results: string[] | undefined
+): string | undefined {
+	if (!success || !RESULT_DETAIL_ACTIONS.has(actionId)) return undefined;
+	const result = results?.findLast((candidate) => candidate.trim().length > 0)?.trim();
+	if (!result) return undefined;
+
+	const ranplantHandoff = result.match(
+		/^Ranplant session (\S+) established for \S+; superseded and closed source session (\S+)$/
+	);
+	if (ranplantHandoff) {
+		return `Closed source session ${ranplantHandoff[2]}; Ranplant session ${ranplantHandoff[1]} is active`;
+	}
+
+	return result;
+}
+
 export type TtpActionEntry = {
 	kind: 'ttp-action';
 	id: string;
@@ -97,6 +124,7 @@ export type BackfillRecord = {
 	success: boolean;
 	partial?: boolean;
 	failReason?: string;
+	detail?: string;
 	timestampMs: number;
 	effects?: BackfillEffect[];
 };
@@ -221,6 +249,7 @@ export class TimelineStore {
 		const existing = this.index.get(entry.id);
 		if (existing) {
 			if (entry.args) existing.action.args = entry.args;
+			if (entry.detail) existing.action.detail = entry.detail;
 			if (existing.action.status === 'pending') {
 				existing.action.status = entry.status;
 				if (entry.status === 'failed') existing.action.failReason = entry.failReason;
@@ -255,6 +284,7 @@ export class TimelineStore {
 				execSystemName: r.execSystemName,
 				status: r.partial ? 'partial' : r.success ? 'success' : 'failed',
 				failReason: r.success ? undefined : r.failReason,
+				detail: r.detail,
 				timestamp: new Date(r.timestampMs)
 			});
 			for (const effect of r.effects ?? []) {

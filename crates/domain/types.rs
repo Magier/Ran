@@ -365,7 +365,7 @@ impl SystemInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputTransformKind {
-    /// The raw output is a JSON response envelope (produced by ran-ws /
+    /// The raw output is a JSON response envelope (produced by Ranplant /
     /// kubelet-pod-exec).  The actual stdout must be extracted from the JSON
     /// before parsing.
     JsonEnvelope,

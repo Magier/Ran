@@ -557,6 +557,7 @@ impl ResolvedK8sAuth {
 fn is_local_control_operation(operation: &ProcedureOperation) -> bool {
     match operation {
         ProcedureOperation::Shell => false,
+        ProcedureOperation::StartRanplantSession { .. } => false,
         ProcedureOperation::KubernetesExecSession { interactive, .. } => {
             interactive.trim().eq_ignore_ascii_case("true")
         }
@@ -588,6 +589,7 @@ fn ground_procedure_operation(operation: &mut ProcedureOperation, args: &HashMap
         }
         ProcedureOperation::StopListener { listener } => ground(listener),
         ProcedureOperation::KillSession { session } => ground(session),
+        ProcedureOperation::StartRanplantSession { listener_port } => ground(listener_port),
         ProcedureOperation::StartRedirector {
             play_id,
             remote_port,
@@ -809,6 +811,12 @@ fn materialize_execution_operation(
         ProcedureOperation::KillSession { session } => Ok(ExecutionOperation::KillSession {
             session: required_operation_value(session, "session")?,
         }),
+        ProcedureOperation::StartRanplantSession { listener_port } => {
+            Ok(ExecutionOperation::StartRanplantSession {
+                command: required_operation_value(&procedure.command, "command")?,
+                listener_port: parse_operation_port(listener_port, "listener_port")?,
+            })
+        }
         ProcedureOperation::StartRedirector {
             play_id,
             remote_port,
@@ -2005,7 +2013,7 @@ impl Campaign {
     ///   attribution (execution records, effect context `TARGET_ID`, knowledge graph updates).
     /// - `exec_chain` is the ordered list of physical execution hops from the BuiltinC2 entry
     ///   point to the final destination.
-    /// - `output_transform` is set when the channel wraps its output (e.g. ran-ws JSON envelope)
+    /// - `output_transform` is set when the channel wraps its output (e.g. Ranplant JSON envelope)
     ///   and the raw result must be post-processed before parsers run.
     ///
     /// Decision order (first matching branch wins):
@@ -2368,11 +2376,13 @@ impl Campaign {
 
         if ch.hops.is_empty() {
             // Direct path: C2 can reach the target without any hop.
-            // Ground all command-name occurrences against the target pod's binary
-            // map so non-standard install paths (e.g. /tmp/kubectl) are used correctly.
-            let tgt_id = EntityId::new(exec_target.as_str());
-            if let Some(pod) = self.entities.find::<Pod>(&tgt_id) {
-                procedure.command = ground_binaries(&procedure.command, &pod.system.binaries);
+            // Resolve through the canonical system abstraction. Callback systems
+            // are commonly promoted or merged into Pods, so an exact Pod lookup
+            // can miss the surviving entity even though the session and binary
+            // facts remain reachable through an alias.
+            if let Some(system) = self.get_system_entity(&exec_target) {
+                procedure.command =
+                    ground_binaries(&procedure.command, &system.entity().system().binaries);
             }
             Ok(ExecRoute::direct(
                 ch.backend_id,
@@ -2527,7 +2537,7 @@ impl Campaign {
     /// the bare inner command as it runs on the final target, and the
     /// system-to-system [`TraversalHop`] breakdown (excluding the C2 entry hop,
     /// which is prepended uniformly in `build_command_traversal`).
-    /// Currently only `kubelet-pod-exec` hops produce wrapped output (ran-ws JSON envelope).
+    /// Currently only `kubelet-pod-exec` hops produce wrapped output (Ranplant JSON envelope).
     fn wrap_command_for_hops(
         &self,
         procedure: &mut Procedure,
@@ -2678,7 +2688,7 @@ impl Campaign {
         })
     }
 
-    /// Build a direct ran-ws kubelet exec command for `node -> pod` sink hops.
+    /// Build a direct Ranplant kubelet exec command for `node -> pod` sink hops.
     ///
     /// Used as a compatibility fallback when historical graph edges lack
     /// envelope metadata on `kubelet-exec` relations.
@@ -2707,21 +2717,10 @@ impl Campaign {
             node_host, namespace, pod_name, container, encoded_cmd
         );
 
-        let mut cmd = format!("ran-ws --url {}", shell_words::quote(&url));
-
-        if let Some(token) = args
-            .get("TOKEN")
-            .map(|t| t.trim())
-            .filter(|t| !t.is_empty() && !t.contains("${"))
-        {
-            cmd.push_str(&format!(" --token {}", shell_words::quote(token)));
-        } else {
-            // Compatibility fallback: when TOKEN is not grounded yet, use the
-            // currently executing pod's mounted service-account token.
-            cmd.push_str(" --token \"$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\"");
-        }
-
-        Some(cmd)
+        Some(format!(
+            "ranplant kubelet-exec --url {} --token-file /var/run/secrets/kubernetes.io/serviceaccount/token --ca-file /var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+            shell_words::quote(&url)
+        ))
     }
 
     fn preferred_kubelet_host(

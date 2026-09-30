@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
 	TimelineStore,
+	timelineResultDetail,
 	type TtpActionEntry,
 	type EntityEntry,
 	type RelationEntry,
@@ -54,6 +55,23 @@ function makeRelationEntry(overrides: Partial<RelationEntry> = {}): RelationEntr
 		...overrides
 	};
 }
+
+describe('timelineResultDetail', () => {
+	it('uses the successful Ranplant handoff result as timeline detail', () => {
+		expect(
+			timelineResultDetail('start-ranplant-session', true, [
+				'Ranplant session session/new established for node/worker; superseded and closed source session session/old'
+			])
+		).toBe('Closed source session session/old; Ranplant session session/new is active');
+	});
+
+	it('does not expose arbitrary action output or failed results as timeline detail', () => {
+		expect(timelineResultDetail('execute-in-shell', true, ['secret output'])).toBeUndefined();
+		expect(
+			timelineResultDetail('start-ranplant-session', false, ['connection refused'])
+		).toBeUndefined();
+	});
+});
 
 describe('TimelineStore', () => {
 	let store: TimelineStore;
@@ -293,6 +311,20 @@ describe('TimelineStore', () => {
 
 		const entry = store.topEntries[0] as ActionGroup;
 		expect(entry.action.args).toEqual({ PKG: 'nmap' });
+	});
+
+	it('retains an operational detail when resolving a pending action', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.recordExecutedTtp(
+			makeExecutedEntry({
+				id: 'cmd-abc',
+				detail:
+					'Ranplant session session/new established; superseded and closed source session session/old'
+			})
+		);
+
+		const entry = store.topEntries[0] as ActionGroup;
+		expect(entry.action.detail).toContain('closed source session session/old');
 	});
 
 	it('recordExecutedTtp marks matching pending group as failed with reason', () => {

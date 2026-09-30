@@ -25,6 +25,9 @@ pub enum ProcedureOperation {
     KillSession {
         session: String,
     },
+    StartRanplantSession {
+        listener_port: String,
+    },
     StartRedirector {
         play_id: String,
         remote_port: String,
