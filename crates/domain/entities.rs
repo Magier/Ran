@@ -8,7 +8,8 @@ use crate::rbac::RbacPermission;
 use std::net::IpAddr;
 
 use crate::types::{
-    Confidence, Container, EntityId, K8sMeta, Mount, NameConfidence, OwnerRef, SystemInfo,
+    merge_software_facts, Confidence, Container, EntityId, K8sMeta, Mount, NameConfidence,
+    OwnerRef, SoftwareFact, SystemInfo,
 };
 
 // ---------------------------------------------------------------------------
@@ -544,6 +545,8 @@ pub struct AppService {
     pub banner: Option<String>,
     pub confidence: Confidence,
     pub observed_at_ms: Option<u64>,
+    #[serde(default)]
+    pub software: Vec<SoftwareFact>,
 }
 
 impl AppService {
@@ -564,6 +567,7 @@ impl AppService {
             banner: None,
             confidence: Confidence::Unknown,
             observed_at_ms: None,
+            software: Vec::new(),
         })
     }
 }
@@ -1152,6 +1156,8 @@ pub struct Deployment {
     pub meta: K8sMeta,
     #[serde(default)]
     pub containers: Vec<Container>,
+    #[serde(default)]
+    pub software: Vec<SoftwareFact>,
 }
 
 impl Deployment {
@@ -1159,6 +1165,7 @@ impl Deployment {
         Deployment {
             meta: K8sMeta::namespaced(name, namespace),
             containers: Vec::new(),
+            software: Vec::new(),
         }
     }
 
@@ -2253,6 +2260,7 @@ impl Merge for AppService {
                 self.cpes.push(cpe.clone());
             }
         }
+        merge_software_facts(&mut self.software, &incoming.software);
     }
 }
 
@@ -2440,6 +2448,7 @@ impl Merge for Deployment {
     fn merge_from(&mut self, incoming: &Self) {
         merge_k8s_meta(&mut self.meta, &incoming.meta);
         merge_containers(&mut self.containers, &incoming.containers);
+        merge_software_facts(&mut self.software, &incoming.software);
     }
 }
 

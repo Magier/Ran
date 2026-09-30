@@ -33,7 +33,10 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 
 Call `GET /api/armory?targetId=<entity_id>` to receive the full action space.
 Each action includes an `actionState` with one of `ready`, `needs_choice`,
-`needs_input`, `blocked`, or `inapplicable`. The existing
+`needs_input`, `blocked`, or `inapplicable`. Inspect `actionState.requirements`
+for graded software identity observations. `uncertain` remains runnable, while
+an authoritative version mismatch is `contradicted` and makes the action
+inapplicable. The existing
 `GET /api/applicable-ttps` endpoint remains available for clients that only need
 the older applicability filter.
 

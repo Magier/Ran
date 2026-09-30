@@ -166,6 +166,196 @@ pub struct TargetContext {
     pub active_session: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequirementStatus {
+    Supported,
+    Uncertain,
+    Contradicted,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementState {
+    pub key: String,
+    pub status: RequirementStatus,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<ran_domain::SoftwareFact>,
+}
+
+pub fn software_requirement_states(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    target_id: &str,
+) -> Vec<RequirementState> {
+    let facts = software_facts_for_target(campaign, target_id);
+    ttp.requires
+        .iter()
+        .filter(|(key, _)| key.starts_with("pkg:"))
+        .map(|(key, constraint)| grade_software_requirement(key, constraint, &facts))
+        .collect()
+}
+
+fn software_facts_for_target<'a>(
+    campaign: &'a Campaign,
+    target_id: &str,
+) -> Vec<&'a ran_domain::SoftwareFact> {
+    let canonical = campaign.canonical_entity_id(target_id);
+    let mut facts = campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == canonical)
+        .map(|entity| match entity {
+            CampaignEntityRef::Pod(pod) => pod.system.software.iter().collect(),
+            CampaignEntityRef::Node(node) => node.system.software.iter().collect(),
+            CampaignEntityRef::UnknownSystem(system) => system.system.software.iter().collect(),
+            CampaignEntityRef::OperatorHost(host) => host.system.software.iter().collect(),
+            CampaignEntityRef::Deployment(deployment) => deployment.software.iter().collect(),
+            CampaignEntityRef::AppService(service) => service.software.iter().collect(),
+            _ => Vec::new(),
+        })
+        .unwrap_or_default();
+    for service_id in campaign
+        .graph
+        .targets_of(&ran_domain::EntityId::new(&canonical), "hosts-service")
+    {
+        if let Some(service) = campaign
+            .entities
+            .get::<ran_domain::AppService>()
+            .get(service_id)
+        {
+            facts.extend(service.software.iter());
+        }
+    }
+    facts
+}
+
+fn grade_software_requirement(
+    key: &str,
+    constraint: &Value,
+    all_facts: &[&ran_domain::SoftwareFact],
+) -> RequirementState {
+    let matching_identity = all_facts
+        .iter()
+        .copied()
+        .filter(|fact| fact.purl.split('@').next() == Some(key))
+        .collect::<Vec<_>>();
+    if matching_identity.is_empty() {
+        return RequirementState {
+            key: key.to_string(),
+            status: RequirementStatus::Uncertain,
+            reason: "no matching software identity observation for this target".to_string(),
+            evidence: Vec::new(),
+        };
+    }
+
+    let evidence = matching_identity
+        .iter()
+        .map(|fact| (*fact).clone())
+        .collect::<Vec<_>>();
+    let authoritative = matching_identity
+        .iter()
+        .copied()
+        .filter(|fact| fact.confidence == ran_domain::NameConfidence::Authoritative)
+        .collect::<Vec<_>>();
+    if authoritative.is_empty() {
+        return RequirementState {
+            key: key.to_string(),
+            status: RequirementStatus::Uncertain,
+            reason: "software identity is supported only by derived evidence".to_string(),
+            evidence,
+        };
+    }
+
+    let comparisons = authoritative
+        .iter()
+        .map(|fact| software_constraint_matches(fact.version.as_deref(), constraint))
+        .collect::<Vec<_>>();
+    let matches = comparisons.contains(&Some(true));
+    let unknown = comparisons.iter().any(Option::is_none);
+    if matches {
+        RequirementState {
+            key: key.to_string(),
+            status: RequirementStatus::Supported,
+            reason: "authoritative software identity observation supports the requirement"
+                .to_string(),
+            evidence,
+        }
+    } else if unknown {
+        RequirementState {
+            key: key.to_string(),
+            status: RequirementStatus::Uncertain,
+            reason:
+                "software identity is authoritative but its version is unknown or not comparable"
+                    .to_string(),
+            evidence,
+        }
+    } else {
+        RequirementState {
+            key: key.to_string(),
+            status: RequirementStatus::Contradicted,
+            reason: "authoritative software version observation contradicts the requirement"
+                .to_string(),
+            evidence,
+        }
+    }
+}
+
+fn software_constraint_matches(version: Option<&str>, constraint: &Value) -> Option<bool> {
+    let alternatives = match constraint {
+        Value::Array(values) => values.iter().filter_map(Value::as_str).collect::<Vec<_>>(),
+        Value::String(value) => vec![value.as_str()],
+        _ => return None,
+    };
+    if alternatives
+        .iter()
+        .any(|alternative| alternative.trim() == "*")
+    {
+        return Some(true);
+    }
+    let version = parse_software_version(version?)?;
+    let mut parsed_any = false;
+    let matched = alternatives.into_iter().any(|alternative| {
+        let alternative = alternative.trim();
+        if alternative.is_empty() {
+            return false;
+        }
+        if alternative
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_digit())
+        {
+            return parse_software_version(alternative)
+                .map(|required| {
+                    parsed_any = true;
+                    version == required
+                })
+                .unwrap_or(false);
+        }
+        let normalized = alternative
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(", ");
+        semver::VersionReq::parse(&normalized)
+            .map(|required| {
+                parsed_any = true;
+                required.matches(&version)
+            })
+            .unwrap_or(false)
+    });
+    parsed_any.then_some(matched)
+}
+
+fn parse_software_version(value: &str) -> Option<semver::Version> {
+    let value = value.trim_start_matches('v');
+    semver::Version::parse(value).ok().or_else(|| {
+        (value.matches('.').count() == 1)
+            .then(|| semver::Version::parse(&format!("{value}.0")).ok())
+            .flatten()
+    })
+}
+
 /// Resolve the [`TargetContext`] for `target_id` from current campaign state.
 ///
 /// Returns `None` when no entity with that id exists. This centralizes the
@@ -254,6 +444,7 @@ pub fn ttp_applicable_for_target(
         && ttp_exists_satisfied(ttp, campaign)
         && ttp_has_listener_satisfied(ttp, campaign)
         && ttp_has_session_satisfied(ttp, campaign, &tc.target_id)
+        && ttp_session_upgrade_satisfied(ttp, campaign, &tc.target_id)
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
         && ttp_active_session_satisfied(ttp, tc.active_session)
@@ -261,10 +452,42 @@ pub fn ttp_applicable_for_target(
         && ttp_pod_requirements_satisfied(ttp, campaign, &tc.target_id)
         && ttp_namespace_access_satisfied(ttp, campaign, &tc.target_id)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
+        && software_requirement_states(ttp, campaign, &tc.target_id)
+            .iter()
+            .all(|requirement| requirement.status != RequirementStatus::Contradicted)
         && ttp_tool_satisfied(ttp, campaign, tc)
         // Last: the only gate that touches the filesystem. `&&` short-circuits,
         // so it runs only for targets every cheaper gate already accepted.
         && ttp_operator_tool_satisfied(ttp)
+}
+
+/// A structured Ranplant upgrade is useful only while the selected target does
+/// not already have a live Ranplant session. A plain TCP shell remains eligible
+/// because it is precisely the transport this operation upgrades.
+pub fn ttp_session_upgrade_satisfied(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    target_id: &str,
+) -> bool {
+    let starts_ranplant = ttp.procedures.iter().any(|procedure| {
+        matches!(
+            procedure.operation,
+            ProcedureOperation::StartRanplantSession { .. }
+        )
+    });
+    if !starts_ranplant {
+        return true;
+    }
+
+    let canonical_target = campaign.canonical_entity_id(target_id);
+    campaign
+        .get_system_entity(&canonical_target)
+        .is_none_or(|system| {
+            !system.entity().system().sessions.iter().any(|session| {
+                session.status == SessionStatus::Active
+                    && session.kind.eq_ignore_ascii_case("ranplant")
+            })
+        })
 }
 
 /// Require a physical execution source when the procedure cannot run on its
@@ -897,21 +1120,22 @@ pub fn ttp_related_satisfied(
 mod tests {
     use std::collections::HashMap;
 
-    use armory::Ttp;
+    use armory::{Procedure, ProcedureOperation, Ttp};
     use ran_domain::{
-        C2Server, Confidence, Entity, K8sCluster, K8sCredential, K8sNode, Listener, Mount, Pod,
-        RbacPermission, Redirector, ServiceAccount, SessionChannel, SessionInfo, SessionStatus,
-        Uses,
+        C2Server, Confidence, Entity, K8sCluster, K8sCredential, K8sNode, KnowledgeProvenance,
+        Listener, Mount, NameConfidence, Pod, RbacPermission, Redirector, ServiceAccount,
+        SessionChannel, SessionInfo, SessionStatus, SoftwareFact, Uses,
     };
     use serde_json::json;
 
     use ran_domain::AccessLevel;
 
     use super::{
-        eligible_auth_identities, resolve_target_context, ttp_access_level_satisfied,
-        ttp_applicable_for_target, ttp_exists_satisfied, ttp_has_listener_satisfied,
-        ttp_has_session_satisfied, ttp_namespace_access_satisfied, ttp_operator_tool_satisfied,
-        ttp_pod_requirements_satisfied, ttp_rbac_satisfied,
+        eligible_auth_identities, resolve_target_context, software_requirement_states,
+        ttp_access_level_satisfied, ttp_applicable_for_target, ttp_exists_satisfied,
+        ttp_has_listener_satisfied, ttp_has_session_satisfied, ttp_namespace_access_satisfied,
+        ttp_operator_tool_satisfied, ttp_pod_requirements_satisfied, ttp_rbac_satisfied,
+        ttp_session_upgrade_satisfied, RequirementStatus,
     };
 
     fn ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
@@ -1444,6 +1668,45 @@ mod tests {
         let context = resolve_target_context(&campaign, &id).unwrap();
         assert!(context.active_session);
         assert!(ttp_applicable_for_target(&ttp, &campaign, &context));
+    }
+
+    fn ranplant_upgrade_ttp() -> Ttp {
+        Ttp {
+            procedures: vec![Procedure {
+                operation: ProcedureOperation::StartRanplantSession {
+                    listener_port: "1337".to_string(),
+                },
+                ..Procedure::new("native", "ranplant connect")
+            }],
+            ..Ttp::new(
+                "start-ranplant-session",
+                "Start Ranplant Session",
+                "Execution",
+            )
+        }
+    }
+
+    #[test]
+    fn ranplant_upgrade_allows_plain_shell_but_not_active_ranplant() {
+        let ttp = ranplant_upgrade_ttp();
+        let (plain_shell, target_id) = campaign_with_pod_session(Some(SessionStatus::Active));
+        assert!(ttp_session_upgrade_satisfied(
+            &ttp,
+            &plain_shell,
+            &target_id
+        ));
+
+        let mut ranplant = empty_campaign();
+        let mut pod = Pod::new("target", "default");
+        pod.system.sessions.push(SessionInfo {
+            id: "c2-ran-1337-ranplant".to_string(),
+            kind: "ranplant".to_string(),
+            port: Some(1337),
+            status: SessionStatus::Active,
+        });
+        let target_id = pod.entity_id().0;
+        ranplant.entities.insert_typed(pod);
+        assert!(!ttp_session_upgrade_satisfied(&ttp, &ranplant, &target_id));
     }
 
     #[test]
@@ -2403,5 +2666,63 @@ mod tests {
             .0;
         let tc = resolve_target_context(&c, &sa_id).unwrap();
         assert!(ttp_tool_satisfied(&ttp_with_tool("nmap"), &c, &tc));
+    }
+
+    #[test]
+    fn software_requirement_is_uncertain_without_authoritative_evidence() {
+        let mut campaign = empty_campaign();
+        let pod = Pod::new("target", "default");
+        let pod_id = pod.entity_id().0;
+        campaign.entities.insert_typed(pod);
+        let mut ttp = Ttp::new("redis", "Redis exploit", "Lateral Movement");
+        ttp.requires.insert(
+            "pkg:generic/redis".to_string(),
+            json!(["<6.2.7", ">=7.0.0 <7.0.1"]),
+        );
+
+        let states = software_requirement_states(&ttp, &campaign, &pod_id);
+        assert_eq!(states[0].status, RequirementStatus::Uncertain);
+
+        let mut update = Pod::new("target", "default");
+        update.system.software.push(SoftwareFact::new(
+            "pkg:generic/redis@6.2.6",
+            Some("6.2.6".to_string()),
+            NameConfidence::Derived,
+            KnowledgeProvenance::Action,
+            "redis:6.2.6",
+        ));
+        campaign.entities.insert_typed(update);
+        let states = software_requirement_states(&ttp, &campaign, &pod_id);
+        assert_eq!(states[0].status, RequirementStatus::Uncertain);
+        assert_eq!(states[0].evidence[0].confidence, NameConfidence::Derived);
+    }
+
+    #[test]
+    fn authoritative_software_version_supports_or_contradicts_requirement() {
+        let mut campaign = empty_campaign();
+        let mut pod = Pod::new("target", "default");
+        let pod_id = pod.entity_id().0;
+        pod.system.software.push(SoftwareFact::new(
+            "pkg:generic/redis@6.2.6",
+            Some("6.2.6".to_string()),
+            NameConfidence::Authoritative,
+            KnowledgeProvenance::Action,
+            "INFO server",
+        ));
+        campaign.entities.insert_typed(pod);
+        let mut ttp = Ttp::new("redis", "Redis exploit", "Lateral Movement");
+        ttp.requires
+            .insert("pkg:generic/redis".to_string(), json!(["<6.2.7"]));
+        assert_eq!(
+            software_requirement_states(&ttp, &campaign, &pod_id)[0].status,
+            RequirementStatus::Supported
+        );
+
+        ttp.requires
+            .insert("pkg:generic/redis".to_string(), json!([">=6.2.7"]));
+        assert_eq!(
+            software_requirement_states(&ttp, &campaign, &pod_id)[0].status,
+            RequirementStatus::Contradicted
+        );
     }
 }

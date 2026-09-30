@@ -1453,6 +1453,13 @@ impl Campaign {
         mut args: HashMap<String, String>,
         armory: &Armory,
     ) -> Result<ExecTtp, ExecuteActionError> {
+        if !crate::ttp_applicability::ttp_session_upgrade_satisfied(&ttp, self, &target_id) {
+            return Err(ExecuteActionError::InvalidInput(format!(
+                "action '{}' cannot start another Ranplant session because target '{}' already has an active Ranplant session",
+                ttp.id, target_id
+            )));
+        }
+
         let resolution = crate::action_resolution::resolve_action(
             &ttp,
             self,

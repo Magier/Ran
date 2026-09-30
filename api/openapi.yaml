@@ -1207,6 +1207,10 @@ components:
                 relying on empty-string sentinels.
               additionalProperties:
                 $ref: '#/components/schemas/BinaryPresence'
+            software:
+              type: array
+              items:
+                $ref: '#/components/schemas/SoftwareFact'
         compromised:
           type: boolean
         customResource:
@@ -1295,6 +1299,10 @@ components:
                   key means the binary has not been probed.
                 additionalProperties:
                   $ref: '#/components/schemas/BinaryPresence'
+              software:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SoftwareFact'
         entityAliases:
           type: object
           description: >-
@@ -1742,7 +1750,7 @@ components:
 
     ActionState:
       type: object
-      required: [status, reasons, arguments, procedures]
+      required: [status, reasons, arguments, procedures, requirements]
       properties:
         status:
           $ref: '#/components/schemas/ActionReadinessStatus'
@@ -1756,6 +1764,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProcedureState'
+        requirements:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequirementState'
         recommendedProcedureId:
           type: string
 
@@ -1791,6 +1803,30 @@ components:
         Unknown availability remains executable; unavailable means the required
         tool is known to be absent.
 
+    RequirementStatus:
+      type: string
+      enum: [supported, uncertain, contradicted]
+      description: >-
+        Evidence state for one target requirement. Uncertain evidence is not
+        false and remains runnable, just as unknown procedure readiness remains
+        runnable. Contradicted requires an authoritative version mismatch for
+        the required product.
+
+    RequirementState:
+      type: object
+      required: [key, status, reason]
+      properties:
+        key:
+          type: string
+        status:
+          $ref: '#/components/schemas/RequirementStatus'
+        reason:
+          type: string
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/SoftwareFact'
+
     ProcedureState:
       type: object
       required: [procedureId, status]
@@ -1809,7 +1845,7 @@ components:
 
     ActionResolution:
       type: object
-      required: [actionId, targetId, status, reasons, arguments, procedures]
+      required: [actionId, targetId, status, reasons, arguments, procedures, requirements]
       properties:
         actionId:
           type: string
@@ -1829,6 +1865,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProcedureState'
+        requirements:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequirementState'
         recommendedProcedureId:
           type: string
 
@@ -2088,6 +2128,25 @@ components:
         name:
           type: string
         kind:
+          type: string
+
+    SoftwareFact:
+      type: object
+      required: [purl, confidence, provenance, source]
+      properties:
+        purl:
+          type: string
+          description: Package URL identifying the software, optionally including a version.
+        version:
+          type: string
+          description: Observed version. Absence means the product is known but its version is not.
+        confidence:
+          type: string
+          enum: [derived, authoritative]
+        provenance:
+          type: string
+          enum: [scenario, operator, action, inference]
+        source:
           type: string
 
     BinaryPresence:

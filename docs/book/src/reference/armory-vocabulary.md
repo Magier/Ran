@@ -29,7 +29,7 @@ Syntax: `${NAME} or ${NAME || fallback}`. Applies to: title, effects. Unknown va
 
 ## Procedure fields
 
-Procedure fields describe how each execution alternative runs. Tool readiness is target-aware and is reported through `actionState.procedures`. Both `ready` and `unknown` procedures are runnable. Only `unavailable`, which means explicit absence is known, excludes a procedure. The action remains available while any procedure is `ready` or `unknown`.
+Procedure fields describe how each execution alternative runs. Tool readiness is target-aware and is reported through `actionState.procedures`. Both `ready` and `unknown` procedures are runnable. Only `unavailable`, which means explicit absence is known, excludes a procedure. Requirement evidence is reported through `actionState.requirements`; `uncertain`, like procedure `unknown`, is never false and remains runnable. The action remains available while evidence is unknown or uncertain.
 
 | Name | Accepted value types | Required | Support | Scope | Meaning |
 | --- | --- | --- | --- | --- | --- |
@@ -38,7 +38,7 @@ Procedure fields describe how each execution alternative runs. Tool readiness is
 
 ## Requirements
 
-All requirement predicates must pass for a TTP to be applicable. Entries marked `declarative-only` are preserved in the API but do not currently gate applicability.
+Enforced requirements participate in applicability or target-aware graded readiness. `uncertain`, like procedure `unknown`, is never false and remains runnable. Only an authoritative version mismatch for the required product makes a requirement false. Entries marked `declarative-only` are preserved in the API but do not currently gate applicability.
 
 | Name | Accepted value types | Support | Matching semantics |
 | --- | --- | --- | --- |
@@ -59,7 +59,9 @@ All requirement predicates must pass for a TTP to be applicable. Entries marked 
 | `linuxNamespaceAccess` | `array` | `enforced` | Requires access to named Linux namespaces. Unknown access passes. The latest matching action evidence blocks a namespace after a recognized denial and restores it after success. |
 | `sys.has-binary` | `string` | `declarative-only` | Legacy declaration of a target-side binary dependency. Procedures should declare their tool instead. No applicability predicate currently reads this requirement. |
 | `Container.securityContext.capabilities` | `string`, `array` | `declarative-only` | Declares required Linux capabilities. No applicability predicate currently reads this requirement. |
-| `pkg:golang/k8s.io/ingress-nginx` | `array` | `declarative-only` | Declares vulnerable ingress-nginx version ranges. No applicability predicate currently reads this package-specific requirement. |
+| `pkg:golang/k8s.io/ingress-nginx` | `array` | `enforced` | Declares ingress-nginx product and version evidence relevant to target fit. It does not assert that the vulnerability is present. A matching authoritative identity observation is supported, absent or derived-only evidence is uncertain, and an authoritative version mismatch is contradicted. Uncertain remains runnable. |
+| `pkg:generic/redis` | `array` | `enforced` | Declares Redis identity evidence relevant to target fit. It does not assert that a particular vulnerability is present. A matching authoritative identity observation is supported, absent or derived-only evidence is uncertain, and an authoritative version mismatch is contradicted. Uncertain remains runnable. |
+| `pkg:generic/oopservability-agent` | `array` | `enforced` | Declares Oopservability Agent identity evidence relevant to target fit. It does not assert that the RCE is present. A matching authoritative identity observation is supported, absent or derived-only evidence is uncertain, and an authoritative version mismatch is contradicted. Uncertain remains runnable. |
 
 ## Effects
 
@@ -81,7 +83,7 @@ Effect kinds are the part before the first `(`. Effect matching is ASCII case-in
 | `ServiceAccount.name` | `ServiceAccount.name` | `declarative-only` | scoring taxonomy only | Declares discovery of a ServiceAccount name. |
 | `c2.listen` | `c2.listen(${PORT}, ${PROTOCOL})` | `event` | listener-started event | Confirms that a C2 listener was registered. |
 | `c2.port-forward` | `c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})` | `event` | redirector-started event | Confirms that a redirector was registered. |
-| `c2.session` | `c2.session(<backend>, <target>)` | `structural` | graph relation | Records a live execution session from a C2 backend to a target. |
+| `c2.session` | `c2.session or c2.session(<backend>, <target>)` | `mixed` | runtime event or graph relation | The bare form reports a session established by a typed runtime operation; the parameterized form records a live execution session from a C2 backend to a target. |
 | `c2.stop-listener` | `c2.stop-listener(${ListenerID})` | `event` | listener-stopped event | Confirms that a C2 listener was removed. |
 | `c2.stop-port-forward` | `c2.stop-port-forward(${RedirectorID})` | `event` | redirector-stopped event | Confirms that a redirector was removed. |
 | `can-reach` | `can-reach(<target>)` | `declarative-only` | none | Legacy network-reachability declaration. |
@@ -119,6 +121,7 @@ Effect kinds are the part before the first `(`. Effect matching is ASCII case-in
 | `k8s.secretList` | `k8s.secretList` | `parsed` | stdout Kubernetes JSON | Discovers Secret metadata. |
 | `k8s.serviceAccountList` | `k8s.serviceAccountList` | `parsed` | stdout Kubernetes JSON | Discovers ServiceAccount entities. |
 | `k8s.servicelist` | `k8s.servicelist` | `parsed` | stdout Kubernetes JSON | Discovers Service entities and reachability facts. |
+| `k8s.workloadImage` | `k8s.workloadImage` | `parsed` | stdout Kubernetes JSON | Records derived software facts from Pod and Deployment image references. |
 | `linux.mounts` | `linux.mounts` | `parsed` | stdout mount parser | Records mounted filesystems on the execution system. |
 | `network.discovery` | `network.discovery` | `parsed` | stdout network discovery parser | Discovers reachable hosts and services from nmap or reverse-DNS output. |
 | `ns.contains` | `ns.contains($p2)` | `mixed` | deploy-container output parser | Only the literal ns.contains($p2) form contributes facts for Deploy Container; ns.contains($p) is declarative-only. |
@@ -131,4 +134,5 @@ Effect kinds are the part before the first `(`. Effect matching is ASCII case-in
 | `sys.hasFile` | `sys.hasFile` | `declarative-only` | scoring taxonomy only | Legacy file-presence declaration without a path argument. |
 | `sys.ip` | `sys.ip` | `parsed` | stdout IP parser | Records IP addresses on the execution system. |
 | `sys.processes` | `sys.processes` | `parsed` | stdout process-list parser | Records processes on the execution system. |
+| `sys.software` | `sys.software` | `parsed` | stdout nmap parser | Records package URL and version observations from nmap service detection. Authoritative qualifies the identity observation, not vulnerability status. |
 | `sys.userID` | `sys.userID` | `parsed` | stdout identity parser | Records the user ID and access level on the execution system. |

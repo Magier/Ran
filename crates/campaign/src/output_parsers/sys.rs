@@ -1,7 +1,6 @@
+use ran_domain::{AccessLevel, Mount};
 use std::collections::HashMap;
 use std::net::IpAddr;
-
-use ran_domain::{AccessLevel, Mount};
 
 use super::ParserOutput;
 use crate::external_parser::SystemFieldUpdates;
@@ -13,6 +12,26 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("sys.userid", parse_sys_userid);
     m.insert("sys.files", parse_sys_files);
     m.insert("linux.mounts", parse_linux_mounts);
+}
+
+pub(super) fn parse_sys_software(
+    stdout: &str,
+    _stderr: &str,
+    args: &HashMap<String, String>,
+) -> ParserOutput {
+    let output = stdout.trim();
+    if output.is_empty() {
+        return ParserOutput::KnownFailure("empty software fingerprint output".to_string());
+    }
+    if !(output.starts_with("Starting Nmap")
+        || output.contains("Nmap scan report for")
+        || output.contains("<nmaprun")
+        || output.contains("Host:"))
+    {
+        return ParserOutput::UnknownFormat("software output is not nmap output".to_string());
+    }
+    let source_id = args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+    super::network::parse_nmap_software(output, source_id, args.get("CIDR").map(String::as_str))
 }
 
 pub(super) fn parse_sys_has_binary(stdout: &str, inner: &str) -> ParserOutput {

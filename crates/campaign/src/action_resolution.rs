@@ -1,5 +1,6 @@
 use crate::ttp_applicability::{
-    eligible_auth_identities, resolve_target_context, ttp_applicable_for_target,
+    eligible_auth_identities, resolve_target_context, software_requirement_states,
+    ttp_applicable_for_target, RequirementState,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -39,6 +40,7 @@ pub struct ActionState {
     pub reasons: Vec<String>,
     pub arguments: ArgumentSummary,
     pub procedures: Vec<ProcedureState>,
+    pub requirements: Vec<RequirementState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended_procedure_id: Option<String>,
 }
@@ -52,6 +54,7 @@ pub struct ActionResolution {
     pub reasons: Vec<String>,
     pub arguments: Vec<ArgumentResolution>,
     pub procedures: Vec<ProcedureState>,
+    pub requirements: Vec<RequirementState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended_procedure_id: Option<String>,
 }
@@ -178,6 +181,7 @@ pub fn resolve_action(
             )
         })
         .collect::<Vec<_>>();
+    let requirements = software_requirement_states(ttp, campaign, target_id);
     let selected_procedure = input.procedure_id.as_deref().and_then(|procedure_id| {
         procedures
             .iter()
@@ -242,6 +246,7 @@ pub fn resolve_action(
         reasons,
         arguments,
         procedures,
+        requirements,
         recommended_procedure_id,
     })
 }
@@ -264,6 +269,7 @@ pub fn summarize(resolution: &ActionResolution) -> ActionState {
         reasons: resolution.reasons.clone(),
         arguments,
         procedures: resolution.procedures.clone(),
+        requirements: resolution.requirements.clone(),
         recommended_procedure_id: resolution.recommended_procedure_id.clone(),
     }
 }
@@ -1211,8 +1217,9 @@ fn source(
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        AccessLevel, BinaryPresence, Contains, Entity, JwToken, K8sCluster, Mount, Namespace, Pod,
-        ServiceAccount, ServiceAccountToken, SessionChannel, UnknownSystem,
+        AccessLevel, BinaryPresence, Contains, Entity, JwToken, K8sCluster, KnowledgeProvenance,
+        Mount, NameConfidence, Namespace, Pod, ServiceAccount, ServiceAccountToken, SessionChannel,
+        SoftwareFact, UnknownSystem,
     };
 
     use super::*;
@@ -1915,6 +1922,56 @@ mod tests {
         assert_eq!(
             selected_unavailable.recommended_procedure_id.as_deref(),
             Some("hostname")
+        );
+    }
+
+    #[test]
+    fn summarized_action_distinguishes_uncertain_and_contradicted_requirements() {
+        let mut campaign = crate::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let target = UnknownSystem::new("target");
+        let target_id = target.entity_id().0;
+        campaign.upsert_entity(target, KnowledgeProvenance::Scenario);
+        let mut ttp = armory::Ttp::new("redis", "Redis exploit", "Discovery");
+        ttp.requires
+            .insert("kind".to_string(), serde_json::json!("System"));
+        ttp.requires.insert(
+            "pkg:generic/redis".to_string(),
+            serde_json::json!(["<6.2.7"]),
+        );
+
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
+        assert_eq!(resolution.status, ActionReadinessStatus::Ready);
+        assert_eq!(
+            resolution.requirements[0].status,
+            crate::ttp_applicability::RequirementStatus::Uncertain
+        );
+
+        let mut observed = UnknownSystem::new("target");
+        observed.system.software.push(SoftwareFact::new(
+            "pkg:generic/redis@7.2.0",
+            Some("7.2.0".to_string()),
+            NameConfidence::Authoritative,
+            KnowledgeProvenance::Action,
+            "INFO server",
+        ));
+        campaign.upsert_entity(observed, KnowledgeProvenance::Action);
+        let resolution = resolve_action(
+            &ttp,
+            &campaign,
+            &target_id,
+            &ActionResolutionInput::default(),
+        )
+        .unwrap();
+        assert_eq!(resolution.status, ActionReadinessStatus::Inapplicable);
+        assert_eq!(
+            resolution.requirements[0].status,
+            crate::ttp_applicability::RequirementStatus::Contradicted
         );
     }
 }

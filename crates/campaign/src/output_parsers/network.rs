@@ -3,8 +3,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ran_domain::{
-    AppService, CanReach, Confidence, EndpointState, Entity, HostsService, Pod, Transport,
-    UnknownSystem,
+    AppService, CanReach, Confidence, EndpointState, Entity, HostsService, KnowledgeProvenance,
+    NameConfidence, Pod, SoftwareFact, Transport, UnknownSystem,
 };
 
 use super::ParserOutput;
@@ -71,6 +71,23 @@ fn parse_network_discovery(
 /// carries `(stdout, stderr)` - the caller in `parse_output_effect` resolves
 /// it from `cmd.target_id`.
 pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> ParserOutput {
+    parse_nmap_inner(stdout, source_id, cidr, false)
+}
+
+pub(super) fn parse_nmap_software(
+    stdout: &str,
+    source_id: &str,
+    cidr: Option<&str>,
+) -> ParserOutput {
+    parse_nmap_inner(stdout, source_id, cidr, true)
+}
+
+fn parse_nmap_inner(
+    stdout: &str,
+    source_id: &str,
+    cidr: Option<&str>,
+    include_software: bool,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty nmap output".to_string());
     }
@@ -127,6 +144,33 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
             service.banner = port.banner.clone();
             service.confidence = Confidence::Yes;
             service.observed_at_ms = observed_at_ms;
+            if include_software {
+                if let Some(product) = port.product.as_deref() {
+                    let version = port.version.as_deref().and_then(nmap_version_token);
+                    let confidence =
+                        if version.is_some() || !port.cpes.is_empty() || port.banner.is_some() {
+                            NameConfidence::Authoritative
+                        } else {
+                            NameConfidence::Derived
+                        };
+                    let base_purl = format!("pkg:generic/{}", product.to_ascii_lowercase());
+                    let purl = version
+                        .as_ref()
+                        .map(|version| format!("{base_purl}@{}", urlencoding::encode(version)))
+                        .unwrap_or(base_purl);
+                    service.software.push(SoftwareFact::new(
+                        purl,
+                        version,
+                        confidence,
+                        KnowledgeProvenance::Action,
+                        format!(
+                            "nmap service probe on {}/{}",
+                            port.port,
+                            port.transport.as_str()
+                        ),
+                    ));
+                }
+            }
             let service_id = service.entity_id().0.clone();
             facts.new_entities.push(Box::new(service));
             facts.new_relations.push(Box::new(HostsService::new(
@@ -151,6 +195,20 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
         facts,
         format!("discovered {} live host(s) via nmap", hosts.len()),
     )
+}
+
+fn nmap_version_token(value: &str) -> Option<String> {
+    value.split_whitespace().rev().find_map(|token| {
+        let token = token.trim_matches(|character: char| {
+            !(character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '+'))
+        });
+        (token
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_digit())
+            && token.contains('.'))
+        .then(|| token.to_string())
+    })
 }
 
 #[derive(Debug)]
@@ -792,6 +850,23 @@ mod tests {
         assert_eq!(
             service.version.as_deref(),
             Some("Redis key-value store 7.2.4")
+        );
+        assert!(service.software.is_empty());
+
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap_software(stdout, "src", None)
+        else {
+            panic!()
+        };
+        let service = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<AppService>())
+            .unwrap();
+        assert_eq!(service.software[0].purl, "pkg:generic/redis@7.2.4");
+        assert_eq!(service.software[0].version.as_deref(), Some("7.2.4"));
+        assert_eq!(
+            service.software[0].confidence,
+            NameConfidence::Authoritative
         );
     }
 

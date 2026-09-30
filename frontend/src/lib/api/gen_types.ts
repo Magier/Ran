@@ -763,6 +763,7 @@ export interface components {
 				binaries?: {
 					[key: string]: components['schemas']['BinaryPresence'];
 				};
+				software?: components['schemas']['SoftwareFact'][];
 			} & {
 				[key: string]: unknown;
 			};
@@ -800,6 +801,7 @@ export interface components {
 					binaries?: {
 						[key: string]: components['schemas']['BinaryPresence'];
 					};
+					software?: components['schemas']['SoftwareFact'][];
 				} & {
 					[key: string]: unknown;
 				};
@@ -980,6 +982,7 @@ export interface components {
 			reasons: string[];
 			arguments: components['schemas']['ArgumentSummary'];
 			procedures: components['schemas']['ProcedureState'][];
+			requirements: components['schemas']['RequirementState'][];
 			recommendedProcedureId?: string;
 		};
 		/** @enum {string} */
@@ -996,6 +999,17 @@ export interface components {
 		 * @enum {string}
 		 */
 		ProcedureReadinessStatus: 'ready' | 'unknown' | 'unavailable';
+		/**
+		 * @description Evidence state for one target requirement. Uncertain evidence is not false and remains runnable, just as unknown procedure readiness remains runnable. Contradicted requires an authoritative version mismatch for the required product.
+		 * @enum {string}
+		 */
+		RequirementStatus: 'supported' | 'uncertain' | 'contradicted';
+		RequirementState: {
+			key: string;
+			status: components['schemas']['RequirementStatus'];
+			reason: string;
+			evidence?: components['schemas']['SoftwareFact'][];
+		};
 		ProcedureState: {
 			procedureId: string;
 			status: components['schemas']['ProcedureReadinessStatus'];
@@ -1010,6 +1024,7 @@ export interface components {
 			reasons: string[];
 			arguments: components['schemas']['ArgumentResolution'][];
 			procedures: components['schemas']['ProcedureState'][];
+			requirements: components['schemas']['RequirementState'][];
 			recommendedProcedureId?: string;
 		};
 		ActionResolutionRequest: {
@@ -1131,6 +1146,17 @@ export interface components {
 			id: string;
 			name: string;
 			kind: string;
+		};
+		SoftwareFact: {
+			/** @description Package URL identifying the software, optionally including a version. */
+			purl: string;
+			/** @description Observed version. Absence means the product is known but its version is not. */
+			version?: string;
+			/** @enum {string} */
+			confidence: 'derived' | 'authoritative';
+			/** @enum {string} */
+			provenance: 'scenario' | 'operator' | 'action' | 'inference';
+			source: string;
 		};
 		BinaryPresence: {
 			/**

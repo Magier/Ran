@@ -6,6 +6,7 @@ pub(super) enum EventEffect {
     ListenerStopped,
     RedirectorStarted,
     RedirectorStopped,
+    SessionStarted,
 }
 
 impl EventEffect {
@@ -15,6 +16,7 @@ impl EventEffect {
             Self::ListenerStopped => "c2 listener deregistered via event bus",
             Self::RedirectorStarted => "c2 redirector registered via event bus",
             Self::RedirectorStopped => "c2 redirector deregistered via event bus",
+            Self::SessionStarted => "c2 session registered via event bus",
         }
     }
 }
@@ -25,6 +27,7 @@ pub(super) enum OutputEffect {
     DeployContainer,
     SysHasBinary,
     SysHasFile,
+    SysSoftware,
     Nmap,
     SelfSubjectRulesReview,
     FileContent,
@@ -48,6 +51,8 @@ impl OutputEffect {
             Self::Event(EventEffect::RedirectorStarted)
         } else if normalized.starts_with("c2.stop-port-forward(") {
             Self::Event(EventEffect::RedirectorStopped)
+        } else if normalized == "c2.session" {
+            Self::Event(EventEffect::SessionStarted)
         } else if normalized == "create k8s.pod"
             || normalized == "namespace($ns)"
             || normalized == "ns.contains($p2)"
@@ -58,6 +63,8 @@ impl OutputEffect {
             Self::SysHasBinary
         } else if normalized.starts_with("sys.hasfile(") {
             Self::SysHasFile
+        } else if normalized == "sys.software" {
+            Self::SysSoftware
         } else if normalized == "nmap" {
             Self::Nmap
         } else if normalized == "k8s.selfsubjectrulesreview" {
@@ -100,6 +107,7 @@ mod tests {
 
         for effect in [
             "c2.listen(4444, tcp)",
+            "c2.session",
             "create k8s.Pod",
             "sys.has-binary(/usr/bin/curl)",
             "sys.hasFile(/etc/passwd)",
