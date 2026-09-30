@@ -113,6 +113,42 @@ describe('ActionParamsModal target-derived defaults', () => {
 		expect(screen.queryByRole('option', { name: 'oopservability/redis' })).not.toBeInTheDocument();
 	});
 
+	it('defaults an execution system when several controlled systems are available', async () => {
+		const first = {
+			id: 'pod/default/first',
+			name: 'first',
+			namespace: 'default'
+		};
+		const second = {
+			id: 'pod/default/second',
+			name: 'second',
+			namespace: 'default'
+		};
+		const campaignState = {
+			relations: new Map(),
+			graph: { nodes: [] },
+			getObjectById: () => undefined,
+			getCompromisedSystems: () => [first, second],
+			getPods: () => [],
+			getServiceAccounts: () => [],
+			getServiceAccountsWithTokens: () => []
+		};
+
+		render(ActionParamsModal, {
+			props: {
+				targetId: 'ns/oopservability',
+				ttp,
+				argContext: {},
+				onExecute: vi.fn(),
+				onCancel: vi.fn()
+			},
+			context: new Map([['$_campaignState', campaignState]])
+		});
+
+		const selector = await screen.findByRole('combobox', { name: 'Execute On' });
+		await waitFor(() => expect(selector).toHaveValue(first.id));
+	});
+
 	it('uses resolution candidates instead of silently choosing the first target IP', async () => {
 		const target = {
 			id: 'pod/first',

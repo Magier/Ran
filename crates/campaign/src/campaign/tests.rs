@@ -3570,6 +3570,56 @@ fn prepare_action_with_caller_selected_execution_system_routes_to_serviceaccount
 }
 
 #[test]
+fn token_execution_automatically_uses_controlled_system_for_namespace_target() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut source = Pod::new("agent-worker", "agent-system");
+    source
+        .system
+        .set_binary("kubectl", "/usr/local/bin/kubectl");
+    let source_id = source.entity_id().0.clone();
+    campaign.entities.insert_typed(source);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &source_id);
+
+    let namespace = Namespace::new("oopservability");
+    let namespace_id = namespace.entity_id().0;
+    campaign.entities.insert_typed(namespace);
+
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
+    let armory = armory_with_command(
+        "get-pods",
+        "kubectl ${K8S_AUTH} get pods -n oopservability",
+        Some("kubectl"),
+    );
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "get-pods".to_string(),
+                target_id: namespace_id.clone(),
+                exec_system_id: None,
+                auth_identity_id: Some(auth_identity_id),
+                procedure_id: None,
+                args: HashMap::new(),
+                execution_timeout_seconds: None,
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("a Kubernetes API action should use a controlled execution source");
+
+    assert_eq!(
+        exec.target_id, namespace_id,
+        "semantic target must stay intact"
+    );
+    assert_eq!(exec.exec_entity(), source_id);
+    assert_eq!(exec.exec_chain, vec![source_id]);
+    assert!(exec
+        .procedure
+        .command
+        .contains("/usr/local/bin/kubectl --token"));
+}
+
+#[test]
 fn prepare_action_with_unknown_namespace_source_uses_its_active_session() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
