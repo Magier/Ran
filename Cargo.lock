@@ -349,6 +349,7 @@ dependencies = [
  "indexmap",
  "k8s",
  "ran-domain",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml",

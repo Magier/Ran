@@ -5,8 +5,9 @@ use ran_domain::{
     AppService, ConfigMap, ContainerPort, Deployment, EndpointState, Entity, HostsService,
     K8sGateway, K8sGatewayListener, K8sHTTPBackend, K8sHTTPRoute, K8sIngress, K8sIngressPath,
     K8sIngressRule, K8sIngressTLS, K8sNode, K8sParentRef, K8sRole, K8sRoleBinding, K8sSecret,
-    K8sService, K8sServicePort, Mount, NameConfidence, Namespace, OwnerRef, Pod, PodPhase,
-    RbacPermission, RbacScopeKind, RbacScopeSource, RbacSubject, ServiceAccount, Transport,
+    K8sService, K8sServicePort, KnowledgeProvenance, Mount, NameConfidence, Namespace, OwnerRef,
+    Pod, PodPhase, RbacPermission, RbacScopeKind, RbacScopeSource, RbacSubject, ServiceAccount,
+    SoftwareFact, Transport,
 };
 
 use super::ParserOutput;
@@ -19,6 +20,7 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("k8s.serviceaccountlist", parse_k8s_service_account_list);
     m.insert("k8s.secretlist", parse_k8s_secret_list);
     m.insert("k8s.deploymentlist", parse_k8s_deployment_list);
+    m.insert("k8s.workloadimage", parse_k8s_workload_image);
     m.insert("k8s.configmaplist", parse_k8s_config_map_list);
     m.insert("k8s.rolelist", parse_k8s_role_list);
     m.insert("k8s.rolebindinglist", parse_k8s_role_binding_list);
@@ -31,6 +33,111 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("k8s.ingresslist", parse_k8s_ingress_list);
     m.insert("k8s.gatewaylist", parse_k8s_gateway_list);
     m.insert("k8s.httproutelist", parse_k8s_http_route_list);
+}
+
+fn parse_k8s_workload_image(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
+    let document: serde_json::Value = match serde_json::from_str(stdout) {
+        Ok(value) => value,
+        Err(error) => return ParserOutput::UnknownFormat(format!("JSON parse error: {error}")),
+    };
+    let Some(items) = document.get("items").and_then(serde_json::Value::as_array) else {
+        return ParserOutput::UnknownFormat("Kubernetes list has no items array".to_string());
+    };
+    let kind = document
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let mut facts = FactsUpdate::default();
+    let mut fact_count = 0usize;
+    for item in items {
+        let metadata = item.get("metadata").unwrap_or(&serde_json::Value::Null);
+        let name = metadata
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if name.is_empty() {
+            continue;
+        }
+        let namespace = metadata
+            .get("namespace")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let containers = if kind.eq_ignore_ascii_case("DeploymentList") {
+            item.pointer("/spec/template/spec/containers")
+        } else {
+            item.pointer("/spec/containers")
+        }
+        .and_then(serde_json::Value::as_array);
+        let software = containers
+            .into_iter()
+            .flatten()
+            .filter_map(|container| {
+                let image = container.get("image").and_then(serde_json::Value::as_str)?;
+                software_fact_from_image(image)
+            })
+            .collect::<Vec<_>>();
+        fact_count += software.len();
+        if software.is_empty() {
+            continue;
+        }
+
+        if kind.eq_ignore_ascii_case("DeploymentList") {
+            let mut deployment = Deployment::new(name, namespace);
+            deployment.software = software;
+            facts.new_entities.push(Box::new(deployment));
+        } else {
+            let mut pod = Pod::new(name, namespace);
+            pod.meta.name_confidence = NameConfidence::Authoritative;
+            pod.system.software = software;
+            facts.new_entities.push(Box::new(pod));
+        }
+    }
+
+    if fact_count == 0 {
+        ParserOutput::KnownFailure("no workload image references found".to_string())
+    } else {
+        ParserOutput::SuccessWithFacts(
+            facts,
+            format!("parsed {fact_count} software fact(s) from workload images"),
+        )
+    }
+}
+
+fn software_fact_from_image(image: &str) -> Option<SoftwareFact> {
+    let image = image.trim();
+    if image.is_empty() {
+        return None;
+    }
+    let without_digest = image.split('@').next().unwrap_or(image);
+    let last_slash = without_digest.rfind('/').map_or(0, |index| index + 1);
+    let tail = &without_digest[last_slash..];
+    let (name, version) = tail
+        .rsplit_once(':')
+        .map(|(name, version)| (name, Some(version.to_string())))
+        .unwrap_or((tail, None));
+    if name.is_empty() {
+        return None;
+    }
+    let base_purl = if image.contains("ingress-nginx") && name == "controller" {
+        "pkg:golang/k8s.io/ingress-nginx".to_string()
+    } else {
+        format!("pkg:generic/{}", name.to_ascii_lowercase())
+    };
+    let purl = version
+        .as_ref()
+        .map(|version| format!("{base_purl}@{}", urlencoding::encode(version)))
+        .unwrap_or_else(|| base_purl.clone());
+    Some(SoftwareFact::new(
+        purl,
+        version,
+        NameConfidence::Derived,
+        KnowledgeProvenance::Action,
+        image,
+    ))
 }
 
 /// Minimal serde types for deserializing K8s API `kubectl --output=json` responses.
@@ -1862,5 +1969,31 @@ mod tests {
                 && permission.scope_kind == RbacScopeKind::Cluster
                 && permission.scope_source == Some(RbacScopeSource::Role)
         }));
+    }
+
+    #[test]
+    fn workload_images_become_derived_software_facts() {
+        let output = r#"{
+            "kind": "PodList",
+            "items": [{
+                "metadata": {"name": "redis", "namespace": "default"},
+                "spec": {"containers": [{"name": "redis", "image": "redis:6.2.6"}]}
+            }]
+        }"#;
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_k8s_workload_image(output, "", &HashMap::new())
+        else {
+            panic!("expected workload image facts");
+        };
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
+        assert_eq!(pod.system.software[0].purl, "pkg:generic/redis@6.2.6");
+        assert_eq!(pod.system.software[0].confidence, NameConfidence::Derived);
+        assert_eq!(
+            pod.system.software[0].provenance,
+            KnowledgeProvenance::Action
+        );
     }
 }

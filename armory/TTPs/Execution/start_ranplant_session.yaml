@@ -27,3 +27,5 @@ procedures:
 preconditions:
   kind: System
   accessLevel: user-exec
+effects:
+  - c2.session

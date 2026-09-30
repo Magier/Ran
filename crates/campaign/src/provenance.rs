@@ -3,14 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use ran_domain::{EntityId, Relation};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum KnowledgeProvenance {
-    Scenario,
-    Operator,
-    Action,
-    Inference,
-}
+pub use ran_domain::KnowledgeProvenance;
 
 /// What happened to an entity in a [`crate::FactsUpdate`].
 ///

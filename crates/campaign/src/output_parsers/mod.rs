@@ -183,6 +183,7 @@ pub fn parse_output_effect(
             let path = sys::extract_effect_args(effect_id).unwrap_or("");
             sys::parse_sys_hasfile(stdout, path)
         }
+        OutputEffect::SysSoftware => sys::parse_sys_software(stdout, stderr, &cmd.args),
         OutputEffect::Nmap => {
             let source_id = cmd
                 .args

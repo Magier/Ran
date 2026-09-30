@@ -137,9 +137,10 @@ procedures:
                   sys.exit(1)
               corrupt(target, payload_cmd)
 
-    - key: ran-implant
-      command: ran-implant --exploit copyfail --payload ${PAYLOAD}
-      # TODO: ran-implant bundles this exploit among others; does not exist yet
+    - key: ranplant
+      tool: ranplant
+      command: ranplant --exploit copyfail --payload ${PAYLOAD}
+      # TODO: Ranplant does not expose this exploit command yet
 
 references:
     - https://github.com/Percivalll/Copy-Fail-CVE-2026-31431-Kubernetes-PoC

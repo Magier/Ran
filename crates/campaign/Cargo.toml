@@ -23,6 +23,7 @@ shell-words = "1"
 yash-syntax = "0.19"
 urlencoding = "2"
 url = "2"
+semver = "1"
 
 [dev-dependencies]
 # The c2 event processor is a spawned task, so testing what it publishes needs a

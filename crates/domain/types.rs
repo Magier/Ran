@@ -4,6 +4,16 @@ use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 
+/// Origin of a fact in campaign knowledge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeProvenance {
+    Scenario,
+    Operator,
+    Action,
+    Inference,
+}
+
 // ---------------------------------------------------------------------------
 // EntityId
 // ---------------------------------------------------------------------------
@@ -64,6 +74,39 @@ pub enum NameConfidence {
     /// Name is heuristic, placeholder, or inferred - not directly confirmed.
     #[default]
     Derived,
+}
+
+/// A graded software identity observed on an entity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftwareFact {
+    /// Package URL identifying the observed software. It may include a version;
+    /// the separate field keeps "known product, unknown version" representable
+    /// and avoids making clients parse the purl for ordinary comparisons.
+    pub purl: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub confidence: NameConfidence,
+    pub provenance: KnowledgeProvenance,
+    pub source: String,
+}
+
+impl SoftwareFact {
+    pub fn new(
+        purl: impl Into<String>,
+        version: Option<String>,
+        confidence: NameConfidence,
+        provenance: KnowledgeProvenance,
+        source: impl Into<String>,
+    ) -> Self {
+        Self {
+            purl: purl.into(),
+            version,
+            confidence,
+            provenance,
+            source: source.into(),
+        }
+    }
 }
 
 impl Confidence {
@@ -239,6 +282,9 @@ pub struct SystemInfo {
     pub access_level: AccessLevel,
     /// Live or pending shell sessions that exit into this system.
     pub sessions: Vec<SessionInfo>,
+    /// Software identity observations, ordered by discovery time.
+    #[serde(default)]
+    pub software: Vec<SoftwareFact>,
 }
 
 impl SystemInfo {
@@ -326,6 +372,8 @@ impl SystemInfo {
             }
         }
 
+        merge_software_facts(&mut self.software, &incoming.software);
+
         if incoming.access_level > self.access_level {
             self.access_level = incoming.access_level;
         }
@@ -343,6 +391,16 @@ impl SystemInfo {
             } else {
                 self.sessions.push(incoming_s.clone());
             }
+        }
+    }
+}
+
+/// Merge software observations without hiding contradictions. Exact duplicate
+/// observations collapse, while facts from different sources remain visible.
+pub fn merge_software_facts(existing: &mut Vec<SoftwareFact>, incoming: &[SoftwareFact]) {
+    for fact in incoming {
+        if !existing.contains(fact) {
+            existing.push(fact.clone());
         }
     }
 }

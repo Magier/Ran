@@ -196,9 +196,25 @@
       "name": "pkg:golang/k8s.io/ingress-nginx",
       "aliases": [],
       "valueTypes": ["array"],
-      "support": "declarative-only",
-      "matching": "No applicability predicate currently reads this package-specific requirement.",
-      "description": "Declares vulnerable ingress-nginx version ranges."
+      "support": "enforced",
+      "matching": "A matching authoritative identity observation is supported, absent or derived-only evidence is uncertain, and an authoritative version mismatch is contradicted. Uncertain remains runnable.",
+      "description": "Declares ingress-nginx product and version evidence relevant to target fit. It does not assert that the vulnerability is present."
+    },
+    {
+      "name": "pkg:generic/redis",
+      "aliases": [],
+      "valueTypes": ["array"],
+      "support": "enforced",
+      "matching": "A matching authoritative identity observation is supported, absent or derived-only evidence is uncertain, and an authoritative version mismatch is contradicted. Uncertain remains runnable.",
+      "description": "Declares Redis identity evidence relevant to target fit. It does not assert that a particular vulnerability is present."
+    },
+    {
+      "name": "pkg:generic/oopservability-agent",
+      "aliases": [],
+      "valueTypes": ["array"],
+      "support": "enforced",
+      "matching": "A matching authoritative identity observation is supported, absent or derived-only evidence is uncertain, and an authoritative version mismatch is contradicted. Uncertain remains runnable.",
+      "description": "Declares Oopservability Agent identity evidence relevant to target fit. It does not assert that the RCE is present."
     }
   ],
   "effects": [
@@ -216,7 +232,7 @@
     {"kind": "ServiceAccount.name", "syntax": "ServiceAccount.name", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Declares discovery of a ServiceAccount name."},
     {"kind": "c2.listen", "syntax": "c2.listen(${PORT}, ${PROTOCOL})", "support": "event", "processing": "listener-started event", "description": "Confirms that a C2 listener was registered."},
     {"kind": "c2.port-forward", "syntax": "c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})", "support": "event", "processing": "redirector-started event", "description": "Confirms that a redirector was registered."},
-    {"kind": "c2.session", "syntax": "c2.session(<backend>, <target>)", "support": "structural", "processing": "graph relation", "description": "Records a live execution session from a C2 backend to a target."},
+    {"kind": "c2.session", "syntax": "c2.session or c2.session(<backend>, <target>)", "support": "mixed", "processing": "runtime event or graph relation", "description": "The bare form reports a session established by a typed runtime operation; the parameterized form records a live execution session from a C2 backend to a target."},
     {"kind": "c2.stop-listener", "syntax": "c2.stop-listener(${ListenerID})", "support": "event", "processing": "listener-stopped event", "description": "Confirms that a C2 listener was removed."},
     {"kind": "c2.stop-port-forward", "syntax": "c2.stop-port-forward(${RedirectorID})", "support": "event", "processing": "redirector-stopped event", "description": "Confirms that a redirector was removed."},
     {"kind": "can-reach", "syntax": "can-reach(<target>)", "support": "declarative-only", "processing": "none", "description": "Legacy network-reachability declaration."},
@@ -254,6 +270,7 @@
     {"kind": "k8s.secretList", "syntax": "k8s.secretList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Secret metadata."},
     {"kind": "k8s.serviceAccountList", "syntax": "k8s.serviceAccountList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers ServiceAccount entities."},
     {"kind": "k8s.servicelist", "syntax": "k8s.servicelist", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Service entities and reachability facts."},
+    {"kind": "k8s.workloadImage", "syntax": "k8s.workloadImage", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Records derived software facts from Pod and Deployment image references."},
     {"kind": "linux.mounts", "syntax": "linux.mounts", "support": "parsed", "processing": "stdout mount parser", "description": "Records mounted filesystems on the execution system."},
     {"kind": "network.discovery", "syntax": "network.discovery", "support": "parsed", "processing": "stdout network discovery parser", "description": "Discovers reachable hosts and services from nmap or reverse-DNS output."},
     {"kind": "ns.contains", "syntax": "ns.contains($p2)", "support": "mixed", "processing": "deploy-container output parser", "description": "Only the literal ns.contains($p2) form contributes facts for Deploy Container; ns.contains($p) is declarative-only."},
@@ -266,6 +283,7 @@
     {"kind": "sys.hasFile", "syntax": "sys.hasFile", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Legacy file-presence declaration without a path argument."},
     {"kind": "sys.ip", "syntax": "sys.ip", "support": "parsed", "processing": "stdout IP parser", "description": "Records IP addresses on the execution system."},
     {"kind": "sys.processes", "syntax": "sys.processes", "support": "parsed", "processing": "stdout process-list parser", "description": "Records processes on the execution system."},
+    {"kind": "sys.software", "syntax": "sys.software", "support": "parsed", "processing": "stdout nmap parser", "description": "Records package URL and version observations from nmap service detection. Authoritative qualifies the identity observation, not vulnerability status."},
     {"kind": "sys.userID", "syntax": "sys.userID", "support": "parsed", "processing": "stdout identity parser", "description": "Records the user ID and access level on the execution system."}
   ]
 }

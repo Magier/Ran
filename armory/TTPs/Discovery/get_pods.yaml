@@ -36,5 +36,6 @@ procedures:
       ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 effects:
   - k8s.podList
+  - k8s.workloadImage
 # defend: {}
 references:

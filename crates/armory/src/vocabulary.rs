@@ -314,7 +314,7 @@ pub fn render_vocabulary_markdown(vocabulary: &ArmoryVocabulary) -> String {
     }
 
     output.push_str("\n## Procedure fields\n\n");
-    output.push_str("Procedure fields describe how each execution alternative runs. Tool readiness is target-aware and is reported through `actionState.procedures`. Both `ready` and `unknown` procedures are runnable. Only `unavailable`, which means explicit absence is known, excludes a procedure. The action remains available while any procedure is `ready` or `unknown`.\n\n");
+    output.push_str("Procedure fields describe how each execution alternative runs. Tool readiness is target-aware and is reported through `actionState.procedures`. Both `ready` and `unknown` procedures are runnable. Only `unavailable`, which means explicit absence is known, excludes a procedure. Requirement evidence is reported through `actionState.requirements`; `uncertain`, like procedure `unknown`, is never false and remains runnable. The action remains available while evidence is unknown or uncertain.\n\n");
     output.push_str("| Name | Accepted value types | Required | Support | Scope | Meaning |\n| --- | --- | --- | --- | --- | --- |\n");
     for field in &vocabulary.procedure_fields {
         output.push_str(&format!(
@@ -335,7 +335,7 @@ pub fn render_vocabulary_markdown(vocabulary: &ArmoryVocabulary) -> String {
     }
 
     output.push_str("\n## Requirements\n\n");
-    output.push_str("All requirement predicates must pass for a TTP to be applicable. Entries marked `declarative-only` are preserved in the API but do not currently gate applicability.\n\n");
+    output.push_str("Enforced requirements participate in applicability or target-aware graded readiness. `uncertain`, like procedure `unknown`, is never false and remains runnable. Only an authoritative version mismatch for the required product makes a requirement false. Entries marked `declarative-only` are preserved in the API but do not currently gate applicability.\n\n");
     output.push_str("| Name | Accepted value types | Support | Matching semantics |\n| --- | --- | --- | --- |\n");
     for requirement in &vocabulary.requirements {
         let aliases = if requirement.aliases.is_empty() {

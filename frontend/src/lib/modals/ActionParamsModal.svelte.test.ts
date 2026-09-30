@@ -170,6 +170,7 @@ describe('ActionParamsModal target-derived defaults', () => {
 			status: 'needs_choice',
 			reasons: ['TARGET has multiple values derived from TARGET.IP'],
 			procedures: [{ procedureId: 'execute', status: 'unknown' }],
+			requirements: [],
 			recommendedProcedureId: 'execute',
 			arguments: [
 				{
@@ -198,6 +199,7 @@ describe('ActionParamsModal target-derived defaults', () => {
 				reasons: resolution.reasons,
 				arguments: { total: 1, resolved: 0, needsInput: 0, needsChoice: 1, blocked: 0 },
 				procedures: resolution.procedures,
+				requirements: [],
 				recommendedProcedureId: resolution.recommendedProcedureId
 			}
 		} as TTP;
@@ -257,6 +259,7 @@ describe('ActionParamsModal target-derived defaults', () => {
 				reasons: [],
 				arguments: { total: 0, resolved: 0, needsInput: 0, needsChoice: 0, blocked: 0 },
 				procedures: procedureStates,
+				requirements: [],
 				recommendedProcedureId: 'hostname'
 			}
 		} as TTP;
@@ -267,6 +270,7 @@ describe('ActionParamsModal target-derived defaults', () => {
 			reasons: [],
 			arguments: [],
 			procedures: procedureStates,
+			requirements: [],
 			recommendedProcedureId: 'hostname'
 		};
 		const campaignState = {
