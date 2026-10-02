@@ -345,9 +345,63 @@ impl Campaign {
         provenance: KnowledgeProvenance,
     ) {
         let id = entity.entity_id();
+        let is_new_cluster =
+            entity.entity_kind() == "Cluster" && !self.entities.contains::<K8sCluster>(&id);
+        let is_namespace = entity.entity_kind() == "Namespace";
         self.graph.ensure_node(id.clone());
         self.entities.insert_typed(entity);
-        self.knowledge_provenance.add_entity(id, provenance);
+        self.knowledge_provenance.add_entity(id.clone(), provenance);
+        if is_new_cluster {
+            self.reconcile_namespace_cluster_containment(true, &[]);
+        } else if is_namespace {
+            self.reconcile_namespace_cluster_containment(false, &[id]);
+        }
+    }
+
+    pub(crate) fn reconcile_namespace_cluster_containment(
+        &mut self,
+        cluster_changed: bool,
+        changed_namespaces: &[EntityId],
+    ) {
+        let clusters = self
+            .entities
+            .values::<K8sCluster>()
+            .map(Entity::entity_id)
+            .collect::<Vec<_>>();
+        let [cluster_id] = clusters.as_slice() else {
+            return;
+        };
+        let namespace_ids = if cluster_changed {
+            self.entities
+                .values::<Namespace>()
+                .map(Entity::entity_id)
+                .collect::<Vec<_>>()
+        } else {
+            changed_namespaces
+                .iter()
+                .map(|id| EntityId::new(self.canonical_entity_id(&id.0)))
+                .collect()
+        };
+
+        for namespace_id in namespace_ids {
+            if !self.entities.contains::<Namespace>(&namespace_id) {
+                continue;
+            }
+            if self
+                .graph
+                .sources_of(&namespace_id, "contains")
+                .contains(&cluster_id)
+            {
+                continue;
+            }
+            let relation = Contains::new(cluster_id.0.clone(), namespace_id.0.clone());
+            if self.insert_relation(&relation) {
+                self.knowledge_provenance.add_relation(
+                    RelationProvenanceKey::from_relation(&relation),
+                    KnowledgeProvenance::Inference,
+                );
+            }
+        }
     }
 
     /// Insert an observed relation and record its provenance as one aggregate
