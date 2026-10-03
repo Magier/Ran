@@ -187,7 +187,6 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
         .filter(|e| e.entity_kind() == "Namespace")
         .map(|e| e.entity_id().0)
         .collect();
-
     let root_node_id = entities
         .iter()
         .find(|e| e.entity_kind() == "C2")
@@ -260,8 +259,9 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
         let kind = entity.entity_kind().to_string();
         // Determine compound-node parent. Explicit relation-based parents take
         // precedence; namespaced resources fall back to their namespace node.
-        // Cluster and Namespace nodes are top-level unless an explicit hierarchy
-        // relation says otherwise. C2 is explicitly contained by OperatorHost.
+        // Cluster and Namespace nodes require explicit hierarchy relations.
+        // The API must not invent a parent that is absent from campaign state.
+        // C2 is explicitly contained by OperatorHost.
         let parent = if let Some(p) = parent_nodes.get(&id) {
             Some(p.clone())
         } else {
@@ -859,8 +859,8 @@ mod tests {
     };
     use ran_domain::{
         AppService, BinaryPresence, Entity, EntityId, ForwardsTo, HostsListener, HostsService,
-        K8sCluster, K8sCredential, K8sCustomResource, Listener, RbacPermission, Redirector,
-        ServiceAccount, Transport,
+        K8sCluster, K8sCredential, K8sCustomResource, Listener, Namespace, RbacPermission,
+        Redirector, ServiceAccount, Transport,
     };
     use std::collections::BTreeSet;
 
@@ -873,6 +873,44 @@ mod tests {
         assert_eq!(
             serde_json::to_value(state).unwrap()["entityAliases"],
             serde_json::json!({})
+        );
+    }
+
+    #[test]
+    fn graph_does_not_invent_a_namespace_parent() {
+        let mut campaign =
+            Campaign::bootstrap_with_knowledge("Ran", campaign::InitialKnowledge::default());
+        let namespace = Namespace::new("agent-system");
+        let namespace_id = namespace.entity_id();
+        campaign.upsert_entity(namespace, KnowledgeProvenance::Inference);
+
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+        let namespace_node = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == namespace_id.0)
+            .expect("namespace graph node");
+
+        assert_eq!(namespace_node.parent, None);
+    }
+
+    #[test]
+    fn graph_uses_the_namespace_parent_stored_in_campaign_state() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let cluster_id = EntityId::new("k8s/cluster/demo");
+        let namespace = Namespace::new("agent-system");
+        let namespace_id = namespace.entity_id();
+        campaign.upsert_entity(namespace, KnowledgeProvenance::Inference);
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+        let namespace_node = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == namespace_id.0)
+            .expect("namespace graph node");
+
+        assert_eq!(
+            namespace_node.parent.as_deref(),
+            Some(cluster_id.0.as_str())
         );
     }
 

@@ -51,7 +51,12 @@ pub struct FactsUpdate {
 }
 
 impl FactsUpdate {
-    pub fn merge(&mut self, other: Self) {
+    /// Merge `other` and report whether it contributed any new structural fact.
+    ///
+    /// Provenance and outcome refinements are still merged, but they do not
+    /// require another inference iteration because rules react to entities,
+    /// relations, removals, and aliases rather than attribution metadata.
+    pub fn merge(&mut self, other: Self) -> bool {
         let FactsUpdate {
             new_entities,
             new_relations,
@@ -63,16 +68,20 @@ impl FactsUpdate {
         } = other;
         // Build O(1)-lookup sets from existing entries so each item from `other`
         // is checked in O(1) rather than O(n), avoiding the previous O(n²) scan.
-        let seen_entities: IndexSet<EntityId> =
+        let mut changed = false;
+        let mut seen_entities: IndexSet<EntityId> =
             self.new_entities.iter().map(|e| e.entity_id()).collect();
         for entity in new_entities {
-            if !seen_entities.contains(&entity.entity_id()) {
+            if seen_entities.insert(entity.entity_id()) {
                 self.new_entities.push(entity);
+                changed = true;
             }
         }
-        self.removed_entities.extend(removed_entities);
+        for removed in removed_entities {
+            changed |= self.removed_entities.insert(removed);
+        }
 
-        let seen_relations: IndexSet<(String, EntityId, EntityId)> = self
+        let mut seen_relations: IndexSet<(String, EntityId, EntityId)> = self
             .new_relations
             .iter()
             .map(|r| {
@@ -89,13 +98,16 @@ impl FactsUpdate {
                 rel.source_id().clone(),
                 rel.target_id().clone(),
             );
-            if !seen_relations.contains(&key) {
+            if seen_relations.insert(key) {
                 self.new_relations.push(rel);
+                changed = true;
             }
         }
 
         // IndexSet::insert handles dedup natively - no scan needed.
-        self.entity_aliases.extend(entity_aliases);
+        for alias in entity_aliases {
+            changed |= self.entity_aliases.insert(alias);
+        }
         for (id, origins) in entity_provenance {
             self.entity_provenance
                 .entry(id)
@@ -114,6 +126,7 @@ impl FactsUpdate {
             let slot = self.entity_outcomes.entry(id).or_default();
             *slot = (*slot).max(outcome);
         }
+        changed
     }
 
     /// Record that this update brings `id` into existence rather than revealing it.

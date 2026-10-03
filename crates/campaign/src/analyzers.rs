@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ran_domain::{
     AuthenticatesTo, BindsTo, CanReach, Confidence, Contains, DaemonSet, Deployment, Entity,
@@ -11,7 +11,55 @@ use ran_domain::{
 
 use crate::kube_env::EnvService;
 use crate::rules::InferenceRule;
-use crate::{Campaign, FactsUpdate, PendingView};
+use crate::{Campaign, EntityType, FactsUpdate, PendingView};
+
+fn first_cluster_arrived(campaign: &Campaign, update: &FactsUpdate) -> bool {
+    campaign.entities.values::<K8sCluster>().next().is_none()
+        && update
+            .new_entities
+            .iter()
+            .any(|entity| entity.as_any().downcast_ref::<K8sCluster>().is_some())
+}
+
+/// Return newly observed entities plus pre-existing entities that need a
+/// cluster-dependent relation when the first cluster arrives.
+fn containment_candidates<T: EntityType>(
+    campaign: &Campaign,
+    update: &FactsUpdate,
+    reconcile_existing: impl Fn(&T) -> bool,
+) -> Vec<T> {
+    let mut candidates = update
+        .new_entities
+        .iter()
+        .filter_map(|entity| entity.as_any().downcast_ref::<T>().cloned())
+        .collect::<Vec<_>>();
+
+    if first_cluster_arrived(campaign, update) {
+        let mut seen = candidates
+            .iter()
+            .map(Entity::entity_id)
+            .collect::<HashSet<_>>();
+        for entity in PendingView::new(campaign, update).collect::<T>() {
+            if reconcile_existing(&entity) && seen.insert(entity.entity_id()) {
+                candidates.push(entity);
+            }
+        }
+    }
+
+    candidates
+}
+
+fn has_contains_relation(
+    relations: &[ran_domain::RelationSummary],
+    source_id: &EntityId,
+    target_id: &EntityId,
+) -> bool {
+    relations.iter().any(|relation| {
+        relation.name == "contains"
+            && relation.source_id == source_id.0
+            && relation.target_id == target_id.0
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Built-in analyzers
@@ -30,10 +78,11 @@ impl InferenceRule for PodNamespaceAnalyzer {
         let mut inferred = FactsUpdate::default();
         let view = PendingView::new(campaign, update);
 
-        for entity in &update.new_entities {
-            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
-                continue;
-            };
+        let relations = view.relations();
+        for pod in containment_candidates::<Pod>(campaign, update, |pod| {
+            pod.namespace()
+                .is_none_or(|namespace| namespace.is_empty() || namespace == UNKNOWN_NAMESPACE)
+        }) {
             // `UNKNOWN_NAMESPACE` is a parking slot, not a namespace: a pod
             // wearing it belongs to the cluster and nothing narrower yet.
             let Some(ns_name) = pod
@@ -42,10 +91,13 @@ impl InferenceRule for PodNamespaceAnalyzer {
             else {
                 let clusters = view.collect::<K8sCluster>();
                 if let [cluster] = clusters.as_slice() {
-                    inferred.new_relations.push(Box::new(Contains::new(
-                        cluster.entity_id().0,
-                        pod.entity_id().0,
-                    )));
+                    let cluster_id = cluster.entity_id();
+                    let pod_id = pod.entity_id();
+                    if !has_contains_relation(&relations, &cluster_id, &pod_id) {
+                        inferred
+                            .new_relations
+                            .push(Box::new(Contains::new(cluster_id.0, pod_id.0)));
+                    }
                 }
                 continue;
             };
@@ -60,10 +112,12 @@ impl InferenceRule for PodNamespaceAnalyzer {
             // WorkloadOwnershipAnalyzer emits Contains(ns → workload), so we
             // must not also wire Contains(ns → pod) or the pod appears twice.
             if pod.owner_references.is_empty() {
-                inferred.new_relations.push(Box::new(Contains::new(
-                    ns_id.0.clone(),
-                    pod.entity_id().0.clone(),
-                )));
+                let pod_id = pod.entity_id();
+                if !has_contains_relation(&relations, &ns_id, &pod_id) {
+                    inferred
+                        .new_relations
+                        .push(Box::new(Contains::new(ns_id.0.clone(), pod_id.0)));
+                }
             }
         }
 
@@ -108,10 +162,13 @@ impl InferenceRule for ServiceAccountNamespaceAnalyzer {
     }
 }
 
-/// For every new `Namespace`, wire a `contains` relation from the single known
-/// cluster to that namespace.  If no cluster is known yet the relation is
-/// silently skipped (the namespace will be re-linked once the cluster is
-/// discovered).
+/// Wire every unparented `Namespace` to the single known cluster.
+///
+/// The rule reacts to both sides of the relation: normally it processes only
+/// newly inferred namespaces, while arrival of the first cluster reconciles
+/// namespaces that were committed before their parent was known. This makes
+/// inference independent of discovery order without rescanning every namespace
+/// on unrelated updates.
 pub struct NamespaceClusterAnalyzer;
 
 impl InferenceRule for NamespaceClusterAnalyzer {
@@ -133,10 +190,7 @@ impl InferenceRule for NamespaceClusterAnalyzer {
             return inferred;
         };
 
-        for entity in &update.new_entities {
-            let Some(ns) = entity.as_any().downcast_ref::<Namespace>() else {
-                continue;
-            };
+        for ns in containment_candidates::<Namespace>(campaign, update, |_| true) {
             let namespace_id = ns.entity_id();
             let already_attached = relations.iter().any(|relation| {
                 relation.name == "contains"
@@ -151,7 +205,7 @@ impl InferenceRule for NamespaceClusterAnalyzer {
 
             inferred.new_relations.push(Box::new(Contains::new(
                 cluster_id.0.clone(),
-                namespace_id.0,
+                namespace_id.0.clone(),
             )));
         }
 
@@ -1182,22 +1236,25 @@ impl InferenceRule for ClusterRoleClusterAnalyzer {
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
-        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
+        let view = PendingView::new(campaign, update);
+        let clusters = view.collect::<K8sCluster>();
+        let [cluster] = clusters.as_slice() else {
             return inferred;
         };
         let cluster_id = cluster.entity_id();
+        let relations = view.relations();
 
-        for entity in &update.new_entities {
-            let Some(role) = entity.as_any().downcast_ref::<K8sRole>() else {
-                continue;
-            };
+        for role in containment_candidates::<K8sRole>(campaign, update, |role| role.is_cluster_role)
+        {
             if !role.is_cluster_role {
                 continue;
             }
-            inferred.new_relations.push(Box::new(Contains::new(
-                cluster_id.0.clone(),
-                role.entity_id().0.clone(),
-            )));
+            let role_id = role.entity_id();
+            if !has_contains_relation(&relations, &cluster_id, &role_id) {
+                inferred
+                    .new_relations
+                    .push(Box::new(Contains::new(cluster_id.0.clone(), role_id.0)));
+            }
         }
 
         inferred
@@ -1216,23 +1273,27 @@ impl InferenceRule for ClusterRoleBindingClusterAnalyzer {
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
-        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
+        let view = PendingView::new(campaign, update);
+        let clusters = view.collect::<K8sCluster>();
+        let [cluster] = clusters.as_slice() else {
             return inferred;
         };
         let cluster_id = cluster.entity_id();
+        let relations = view.relations();
 
-        for entity in &update.new_entities {
-            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
-                continue;
-            };
+        for binding in containment_candidates::<K8sRoleBinding>(campaign, update, |binding| {
+            binding.meta.namespace.as_deref().unwrap_or("").is_empty()
+        }) {
             let ns = binding.meta.namespace.as_deref().unwrap_or("");
             if !ns.is_empty() {
                 continue;
             }
-            inferred.new_relations.push(Box::new(Contains::new(
-                cluster_id.0.clone(),
-                binding.entity_id().0.clone(),
-            )));
+            let binding_id = binding.entity_id();
+            if !has_contains_relation(&relations, &cluster_id, &binding_id) {
+                inferred
+                    .new_relations
+                    .push(Box::new(Contains::new(cluster_id.0.clone(), binding_id.0)));
+            }
         }
 
         inferred
@@ -1337,10 +1398,10 @@ macro_rules! ns_contains_analyzer {
             fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
                 let mut inferred = FactsUpdate::default();
                 let view = PendingView::new(campaign, update);
-                for entity in &update.new_entities {
-                    let Some(e) = entity.as_any().downcast_ref::<$entity_type>() else {
-                        continue;
-                    };
+                let relations = view.relations();
+                for e in containment_candidates::<$entity_type>(campaign, update, |entity| {
+                    entity.namespace() == Some(UNKNOWN_NAMESPACE)
+                }) {
                     let Some(ns_name) = e.namespace() else {
                         continue;
                     };
@@ -1357,10 +1418,13 @@ macro_rules! ns_contains_analyzer {
                     if ns_name == UNKNOWN_NAMESPACE {
                         let clusters = view.collect::<K8sCluster>();
                         if let [cluster] = clusters.as_slice() {
-                            inferred.new_relations.push(Box::new(Contains::new(
-                                cluster.entity_id().0,
-                                e.entity_id().0.clone(),
-                            )));
+                            let cluster_id = cluster.entity_id();
+                            let entity_id = e.entity_id();
+                            if !has_contains_relation(&relations, &cluster_id, &entity_id) {
+                                inferred
+                                    .new_relations
+                                    .push(Box::new(Contains::new(cluster_id.0, entity_id.0)));
+                            }
                         }
                         continue;
                     }
@@ -1368,10 +1432,12 @@ macro_rules! ns_contains_analyzer {
                     if let Some(ns) = new_ns {
                         inferred.new_entities.push(Box::new(ns));
                     }
-                    inferred.new_relations.push(Box::new(Contains::new(
-                        ns_id.0.clone(),
-                        e.entity_id().0.clone(),
-                    )));
+                    let entity_id = e.entity_id();
+                    if !has_contains_relation(&relations, &ns_id, &entity_id) {
+                        inferred
+                            .new_relations
+                            .push(Box::new(Contains::new(ns_id.0.clone(), entity_id.0)));
+                    }
                 }
                 inferred
             }
@@ -1408,20 +1474,21 @@ impl InferenceRule for NodeClusterAnalyzer {
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
-        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
+        let view = PendingView::new(campaign, update);
+        let clusters = view.collect::<K8sCluster>();
+        let [cluster] = clusters.as_slice() else {
             return inferred;
         };
         let cluster_id = cluster.entity_id();
+        let relations = view.relations();
 
-        for entity in &update.new_entities {
-            let Some(node) = entity.as_any().downcast_ref::<K8sNode>() else {
-                continue;
-            };
-
-            inferred.new_relations.push(Box::new(Contains::new(
-                cluster_id.0.clone(),
-                node.entity_id().0.clone(),
-            )));
+        for node in containment_candidates::<K8sNode>(campaign, update, |_| true) {
+            let node_id = node.entity_id();
+            if !has_contains_relation(&relations, &cluster_id, &node_id) {
+                inferred
+                    .new_relations
+                    .push(Box::new(Contains::new(cluster_id.0.clone(), node_id.0)));
+            }
         }
 
         inferred
@@ -2712,6 +2779,33 @@ mod tests {
     }
 
     #[test]
+    fn first_cluster_reconciles_existing_cluster_scoped_entities() {
+        let mut campaign =
+            Campaign::bootstrap_with_knowledge("ran", crate::InitialKnowledge::default());
+        let node = K8sNode::new("node-1");
+        let node_id = node.entity_id();
+        let pod = Pod::new("unknown-pod", UNKNOWN_NAMESPACE);
+        let pod_id = pod.entity_id();
+        campaign.entities.insert_typed(node);
+        campaign.entities.insert_typed(pod);
+
+        let cluster = K8sCluster::new("cluster-10-96-0-1")
+            .with_server(Some("https://10.96.0.1:443".to_string()));
+        let cluster_id = cluster.entity_id();
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(cluster));
+
+        let inferred = run_rules_fixpoint(&campaign, &default_rules(), update);
+        for target_id in [&node_id, &pod_id] {
+            assert!(inferred.new_relations.iter().any(|relation| {
+                relation.is::<Contains>()
+                    && relation.source_id() == &cluster_id
+                    && relation.target_id() == target_id
+            }));
+        }
+    }
+
+    #[test]
     fn pod_in_known_namespace_creates_contains_relation() {
         let mut campaign = test_campaign();
         let ns = Namespace::new("default");
@@ -2844,6 +2938,97 @@ mod tests {
         update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(update.new_relations.is_empty());
+    }
+
+    #[test]
+    fn existing_namespace_is_attached_when_first_cluster_arrives() {
+        let mut campaign =
+            Campaign::bootstrap_with_knowledge("ran", crate::InitialKnowledge::default());
+        let namespace = Namespace::new("agent-system");
+        let namespace_id = namespace.entity_id();
+        let mut namespace_update = FactsUpdate::default();
+        namespace_update.new_entities.push(Box::new(namespace));
+        campaign.apply_facts(&namespace_update);
+
+        assert!(campaign
+            .graph
+            .sources_of(&namespace_id, "contains")
+            .is_empty());
+
+        let cluster = K8sCluster::new("cluster-10-96-0-1")
+            .with_server(Some("https://10.96.0.1:443".to_string()));
+        let cluster_id = cluster.entity_id();
+        let mut cluster_update = FactsUpdate::default();
+        cluster_update.new_entities.push(Box::new(cluster));
+
+        let inferred = run_rules_fixpoint(&campaign, &default_rules(), cluster_update);
+        assert!(inferred.new_relations.iter().any(|relation| {
+            relation.is::<Contains>()
+                && relation.source_id() == &cluster_id
+                && relation.target_id() == &namespace_id
+        }));
+
+        campaign.apply_facts(&inferred);
+        assert_eq!(
+            campaign.graph.sources_of(&namespace_id, "contains"),
+            vec![&cluster_id]
+        );
+    }
+
+    #[test]
+    fn applying_first_cluster_repairs_a_preexisting_orphan_namespace() {
+        let mut campaign =
+            Campaign::bootstrap_with_knowledge("ran", crate::InitialKnowledge::default());
+        let namespace = Namespace::new("agent-system");
+        let namespace_id = namespace.entity_id();
+        let mut namespace_update = FactsUpdate::default();
+        namespace_update.new_entities.push(Box::new(namespace));
+        campaign.apply_facts(&namespace_update);
+
+        let cluster = K8sCluster::new("cluster-10-96-0-1")
+            .with_server(Some("https://10.96.0.1:443".to_string()));
+        let cluster_id = cluster.entity_id();
+        let mut cluster_update = FactsUpdate::default();
+        cluster_update.new_entities.push(Box::new(cluster));
+        campaign.apply_facts(&cluster_update);
+
+        assert_eq!(
+            campaign.graph.sources_of(&namespace_id, "contains"),
+            vec![&cluster_id]
+        );
+        assert_eq!(
+            campaign.relation_provenance("contains", &cluster_id.0, &namespace_id.0),
+            std::collections::BTreeSet::from([crate::KnowledgeProvenance::Inference])
+        );
+    }
+
+    #[test]
+    fn first_cluster_reconciles_many_namespaces_without_duplicate_relations() {
+        let mut campaign =
+            Campaign::bootstrap_with_knowledge("ran", crate::InitialKnowledge::default());
+        for index in 0..1_000 {
+            campaign
+                .entities
+                .insert_typed(Namespace::new(format!("namespace-{index}")));
+        }
+
+        let cluster = K8sCluster::new("cluster-10-96-0-1");
+        let cluster_id = cluster.entity_id();
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(cluster));
+
+        let inferred = run_rules_fixpoint(&campaign, &default_rules(), update);
+        let namespace_relations = inferred
+            .new_relations
+            .iter()
+            .filter(|relation| {
+                relation.relation_name() == "contains"
+                    && relation.source_id() == &cluster_id
+                    && relation.target_id().0.starts_with("ns/namespace-")
+            })
+            .count();
+
+        assert_eq!(namespace_relations, 1_000);
     }
 
     #[test]

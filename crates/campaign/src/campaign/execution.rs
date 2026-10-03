@@ -5,7 +5,7 @@ use armory::{Armory, Procedure, ProcedureOperation, Ttp};
 use c2::{ExecTtp, ExecutionOperation, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     BinaryPresence, Entity, EntityId, K8sCluster, K8sCredential, K8sNode, K8sService, Listener,
-    Merge, NameConfidence, OperatorHost, Pod, ServiceAccount, UnknownSystem,
+    Merge, NameConfidence, Namespace, OperatorHost, Pod, ServiceAccount, UnknownSystem,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -3257,6 +3257,21 @@ impl Campaign {
     /// `pub(crate)` so tests can drive a fixpoint result into the graph
     /// without staging a whole TTP execution.
     pub(crate) fn apply_facts(&mut self, updates: &FactsUpdate) {
+        let cluster_changed = updates.new_entities.iter().any(|entity| {
+            entity
+                .as_any()
+                .downcast_ref::<K8sCluster>()
+                .is_some_and(|cluster| !self.entities.contains::<K8sCluster>(&cluster.entity_id()))
+        }) || updates.entity_aliases.iter().any(|(stale, preferred)| {
+            stale.0.starts_with("k8s/cluster/") || preferred.0.starts_with("k8s/cluster/")
+        });
+        let changed_namespaces = updates
+            .new_entities
+            .iter()
+            .filter_map(|entity| entity.as_any().downcast_ref::<Namespace>())
+            .map(Entity::entity_id)
+            .collect::<Vec<_>>();
+
         for entity in &updates.new_entities {
             let origins = updates
                 .entity_provenance
@@ -3347,6 +3362,13 @@ impl Campaign {
             let canonical_id = EntityId::new(self.canonical_entity_id(&removed_id.0));
             self.remove_entity_by_id(&canonical_id);
         }
+
+        // Keep the stored campaign hierarchy valid even when callers apply a
+        // partially constructed fact batch without first running inference.
+        // Normal execution already emits these relations through analyzers;
+        // this boundary reconciliation is the recovery path for restored or
+        // externally assembled state.
+        self.reconcile_namespace_cluster_containment(cluster_changed, &changed_namespaces);
     }
 
     /// Merge every representation of one entity identity into another.
