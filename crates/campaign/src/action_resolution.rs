@@ -1,3 +1,6 @@
+use crate::campaign::execution_planning::{
+    ClientExecutionPlan, ClientExecutionPlanner, ProcedureExecutionSemantics,
+};
 use crate::ttp_applicability::{
     eligible_auth_identities, resolve_target_context, software_requirement_states,
     ttp_applicable_for_target, RequirementState,
@@ -167,17 +170,46 @@ pub fn resolve_action(
         .iter()
         .map(|param| resolve_argument(param, ttp, campaign, &target, target_id, input))
         .collect::<Vec<_>>();
-    finalize_argument_dependencies(&mut arguments, ttp, campaign, target_id, input);
-    let procedures = ttp
+    let planner = ClientExecutionPlanner::new(campaign);
+    let auth_identity_id = input
+        .auth_identity_id
+        .as_deref()
+        .or_else(|| input.args.get("K8S_AUTH").map(String::as_str))
+        .or_else(|| {
+            arguments
+                .iter()
+                .find(|argument| argument.param_type.eq_ignore_ascii_case("K8sAuth"))
+                .and_then(|argument| argument.value.as_deref())
+        });
+    let client_plans = ttp
         .procedures
         .iter()
         .map(|procedure| {
+            ProcedureExecutionSemantics::from_definition(procedure)
+                .needs_client_plan()
+                .then(|| {
+                    planner.plan(
+                        ttp,
+                        procedure,
+                        target_id,
+                        auth_identity_id,
+                        input.exec_system_id.as_deref(),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    let procedures = ttp
+        .procedures
+        .iter()
+        .zip(&client_plans)
+        .map(|(procedure, plan)| {
             resolve_procedure(
                 ttp,
                 procedure,
                 campaign,
                 target_id,
                 input.exec_system_id.as_deref(),
+                plan.as_ref(),
             )
         })
         .collect::<Vec<_>>();
@@ -193,19 +225,81 @@ pub fn resolve_action(
         .filter(|procedure| procedure.status != ProcedureReadinessStatus::Unavailable)
         .map(|procedure| procedure.procedure_id.clone())
         .or_else(|| {
-            crate::recommended_procedure(ttp, campaign, target_id, input.exec_system_id.as_deref())
-                .map(|procedure| procedure.id.clone())
+            [
+                ProcedureReadinessStatus::Ready,
+                ProcedureReadinessStatus::Unknown,
+            ]
+            .into_iter()
+            .find_map(|status| {
+                procedures
+                    .iter()
+                    .find(|procedure| procedure.status == status)
+                    .map(|procedure| procedure.procedure_id.clone())
+            })
         });
+    let selected_client_plan = input
+        .procedure_id
+        .as_deref()
+        .or(recommended_procedure_id.as_deref())
+        // Keep failed client planning distinct from host-target grounding even
+        // when no procedure can be recommended yet.
+        .or_else(|| {
+            ttp.procedures
+                .first()
+                .map(|procedure| procedure.id.as_str())
+        })
+        .and_then(|id| {
+            ttp.procedures
+                .iter()
+                .position(|procedure| procedure.id == id)
+        })
+        .and_then(|index| client_plans[index].as_ref());
+    let client_binding_resolved = arguments
+        .iter()
+        .filter(|argument| argument.param_type.eq_ignore_ascii_case("K8sAuth"))
+        .all(|argument| {
+            matches!(
+                argument.status,
+                ArgumentResolutionStatus::Resolved
+                    | ArgumentResolutionStatus::Defaulted
+                    | ArgumentResolutionStatus::Omitted
+            )
+        });
+    finalize_argument_dependencies(
+        &mut arguments,
+        ttp,
+        campaign,
+        target_id,
+        input,
+        selected_client_plan,
+        client_binding_resolved,
+    );
 
     let mut reasons = Vec::new();
     let status = if !applicable {
         reasons.push("Action prerequisites are not satisfied for this target".to_string());
+        reasons.extend(
+            procedures
+                .iter()
+                .filter_map(|procedure| procedure.reason.clone()),
+        );
         ActionReadinessStatus::Inapplicable
     } else if selected_procedure_unavailable {
         reasons.push(
             selected_procedure
                 .and_then(|procedure| procedure.reason.clone())
                 .unwrap_or_else(|| "Selected procedure is unavailable".to_string()),
+        );
+        ActionReadinessStatus::Blocked
+    } else if !procedures.is_empty()
+        && procedures
+            .iter()
+            .all(|procedure| procedure.status == ProcedureReadinessStatus::Unavailable)
+    {
+        reasons.extend(
+            procedures
+                .iter()
+                .filter_map(|procedure| procedure.reason.clone()),
         );
         ActionReadinessStatus::Blocked
     } else if arguments
@@ -280,8 +374,46 @@ fn resolve_procedure(
     campaign: &crate::Campaign,
     target_id: &str,
     exec_system_id: Option<&str>,
+    client_plan: Option<&Result<ClientExecutionPlan, crate::ExecuteActionError>>,
 ) -> ProcedureState {
     let required_tool = crate::procedure_required_tool(procedure).map(str::to_string);
+    if let Some(client_plan) = client_plan {
+        match client_plan {
+            Ok(plan) => {
+                let local = plan.channel.is_none();
+                return ProcedureState {
+                    procedure_id: procedure.id.clone(),
+                    status: match plan.readiness {
+                        crate::ProcedureReadiness::Ready => ProcedureReadinessStatus::Ready,
+                        crate::ProcedureReadiness::Unknown => ProcedureReadinessStatus::Unknown,
+                        crate::ProcedureReadiness::Unavailable => {
+                            ProcedureReadinessStatus::Unavailable
+                        }
+                    },
+                    required_tool: if local { None } else { required_tool.clone() },
+                    reason: (plan.readiness == crate::ProcedureReadiness::Unknown).then(|| {
+                        format!(
+                            "required tool '{}' has not been observed on the execution system",
+                            required_tool.as_deref().unwrap_or("unknown")
+                        )
+                    }),
+                };
+            }
+            Err(error) => {
+                return ProcedureState {
+                    procedure_id: procedure.id.clone(),
+                    status: ProcedureReadinessStatus::Unavailable,
+                    required_tool,
+                    reason: Some(match error {
+                        crate::ExecuteActionError::InvalidInput(reason)
+                        | crate::ExecuteActionError::NoExecChannel(reason)
+                        | crate::ExecuteActionError::NotFound(reason)
+                        | crate::ExecuteActionError::InvariantViolation(reason) => reason.clone(),
+                    }),
+                }
+            }
+        }
+    }
     let readiness = crate::procedure_readiness(ttp, procedure, campaign, target_id, exec_system_id);
     let (status, reason) = match readiness {
         crate::ProcedureReadiness::Ready => (ProcedureReadinessStatus::Ready, None),
@@ -323,6 +455,8 @@ fn finalize_argument_dependencies(
     campaign: &crate::Campaign,
     target_id: &str,
     input: &ActionResolutionInput,
+    client_plan: Option<&Result<ClientExecutionPlan, crate::ExecuteActionError>>,
+    client_binding_resolved: bool,
 ) {
     let declared_names = ttp
         .params
@@ -338,7 +472,17 @@ fn finalize_argument_dependencies(
                 .map(|value| (argument.name.clone(), value.clone()))
         })
         .collect::<HashMap<_, _>>();
-    if ttp.tactic.eq_ignore_ascii_case("Lateral Movement") {
+    if let Some(client_plan) = client_plan {
+        if let Some(plan) = client_plan
+            .as_ref()
+            .ok()
+            .filter(|_| client_binding_resolved)
+        {
+            if let Some(source_id) = plan.executor_id() {
+                values.insert("SRC".to_string(), source_id.to_string());
+            }
+        }
+    } else if ttp.tactic.eq_ignore_ascii_case("Lateral Movement") {
         if let Some(source_id) = input.exec_system_id.as_deref().filter(|id| {
             campaign
                 .get_entities()

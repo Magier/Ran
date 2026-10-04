@@ -67,19 +67,21 @@ pub struct Procedure {
     #[serde(rename = "isLocalCommand", skip_serializing_if = "Option::is_none")]
     pub is_local_command: Option<bool>,
     /// Whether the procedure physically executes on its semantic target.
-    /// `None` preserves the default target-side behavior. `Some(false)` keeps
-    /// the target context but routes execution to another reachable system.
+    /// `None` preserves target-side behavior for host commands; structured
+    /// requests independently select a client environment. `Some(false)` keeps
+    /// the target context but requires a route that excludes that target.
     #[serde(rename = "runOnTarget", skip_serializing_if = "Option::is_none")]
     pub run_on_target: Option<bool>,
     /// Structured HTTP request spec. When present, the runtime materializes
-    /// this into a concrete curl/wget shell command. Takes precedence over
-    /// `command` for `http-request` procedures.
+    /// this into a concrete curl/wget shell command on a separately planned
+    /// client executor. Takes precedence over `command` for HTTP procedures.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_request: Option<JsonValue>,
     /// Structured Kubernetes API request spec. Its TTP must declare a
     /// `K8S_AUTH` parameter of type `K8sAuth`, and the request must declare
     /// `authentication: ${K8S_AUTH}`. The runtime resolves the selected entity
-    /// and materializes the request into a concrete native/curl operation.
+    /// and plans a client executor independently of the addressed resource,
+    /// then materializes the request into a concrete native/curl operation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub k8s_request: Option<JsonValue>,
     /// Ordered list of typed steps (fetch, chmod, run, …). When present the

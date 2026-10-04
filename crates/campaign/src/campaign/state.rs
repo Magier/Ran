@@ -1142,7 +1142,7 @@ impl Campaign {
     /// as an intermediate hop (e.g. pod → node via container.escape), the
     /// nsenter-wrapped command is sent through the interactive shell rather
     /// than a separate one-shot kubectl exec.
-    fn resolve_source_backend_id(&self, system_id: &str) -> String {
+    pub(super) fn resolve_source_backend_id(&self, system_id: &str) -> String {
         let system_eid = EntityId::new(system_id);
         if let Some((src, _)) = self
             .graph

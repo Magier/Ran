@@ -1,6 +1,7 @@
 mod entity_refs;
 mod entity_store;
 pub(crate) mod execution;
+pub(crate) mod execution_planning;
 mod state;
 #[cfg(test)]
 mod tests;

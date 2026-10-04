@@ -498,6 +498,28 @@ fn ttp_execution_source_satisfied(
     campaign: &Campaign,
     tc: &TargetContext,
 ) -> bool {
+    use crate::campaign::execution_planning::{
+        ClientExecutionPlanner, ProcedureExecutionSemantics,
+    };
+    let planner = ClientExecutionPlanner::new(campaign);
+    let client_procedures = ttp
+        .procedures
+        .iter()
+        .filter(|procedure| {
+            ProcedureExecutionSemantics::from_definition(procedure).needs_client_plan()
+        })
+        .collect::<Vec<_>>();
+    if !client_procedures.is_empty() {
+        let has_client_source = client_procedures.iter().any(|procedure| {
+            planner
+                .plan(ttp, procedure, &tc.target_id, None, None)
+                .is_ok()
+        });
+        if has_client_source || client_procedures.len() == ttp.procedures.len() {
+            return has_client_source;
+        }
+        // Mixed actions can still be witnessed by a host/local procedure.
+    }
     let tactic = ttp
         .tactic
         .chars()

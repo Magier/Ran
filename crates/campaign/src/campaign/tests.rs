@@ -11,6 +11,9 @@ use ran_domain::{
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
 
+#[path = "client_execution_tests.rs"]
+mod client_execution_tests;
+
 /// Insert a relation directly into the campaign's knowledge graph.
 fn push_relation(campaign: &mut Campaign, rel: &dyn ran_domain::Relation) {
     campaign.insert_relation(rel);

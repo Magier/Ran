@@ -1,6 +1,7 @@
 //! [`KnowledgeGraph`] - directed multigraph of [`EntityId`] nodes.
 
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
 
 use petgraph::algo::astar;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
@@ -9,6 +10,30 @@ use petgraph::Direction;
 use ran_domain::{EntityId, RelationSummary};
 
 use crate::edge::EdgeData;
+
+#[derive(PartialEq)]
+struct ExecSearchEntry {
+    cost: f32,
+    id: String,
+    node: NodeIndex,
+}
+
+impl Eq for ExecSearchEntry {}
+
+impl Ord for ExecSearchEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .cost
+            .total_cmp(&self.cost)
+            .then_with(|| other.id.cmp(&self.id))
+    }
+}
+
+impl PartialOrd for ExecSearchEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 /// Directed multigraph of [`EntityId`] nodes and [`EdgeData`] edges.
 ///
@@ -371,6 +396,80 @@ impl KnowledgeGraph {
         })
     }
 
+    /// Resolve routes to all reachable destinations in one multi-source
+    /// Dijkstra search. Equal-cost choices use entity IDs, not insertion order.
+    /// An excluded entity is neither a seed nor an intermediate destination.
+    /// Search costs O((V + E) log V), plus materializing the returned paths.
+    pub fn shortest_exec_paths(
+        &self,
+        seeds: &[EntityId],
+        excluded: Option<&EntityId>,
+    ) -> HashMap<EntityId, (f32, Vec<EntityId>)> {
+        let excluded_idx = excluded.and_then(|id| self.index.get(id)).copied();
+        let mut costs = HashMap::new();
+        let mut predecessors = HashMap::new();
+        let mut queue = BinaryHeap::new();
+        for seed in seeds {
+            let Some(&node) = self.index.get(seed) else {
+                continue;
+            };
+            if Some(node) == excluded_idx || costs.insert(node, 0.0).is_some() {
+                continue;
+            }
+            queue.push(ExecSearchEntry {
+                cost: 0.0,
+                id: seed.0.clone(),
+                node,
+            });
+        }
+        while let Some(ExecSearchEntry { cost, node, .. }) = queue.pop() {
+            if cost > costs[&node] {
+                continue;
+            }
+            let mut neighbors = self
+                .graph
+                .edges_directed(node, Direction::Outgoing)
+                .filter(|edge| {
+                    edge.weight().is_exec_channel
+                        && !edge.weight().broken
+                        && Some(edge.target()) != excluded_idx
+                })
+                .map(|edge| (edge.target(), edge.weight().weight))
+                .collect::<Vec<_>>();
+            neighbors.sort_by(|(left, left_weight), (right, right_weight)| {
+                self.graph[*left]
+                    .0
+                    .cmp(&self.graph[*right].0)
+                    .then_with(|| left_weight.total_cmp(right_weight))
+            });
+            for (next, weight) in neighbors {
+                let next_cost = cost + weight;
+                if costs.get(&next).is_none_or(|known| next_cost < *known) {
+                    costs.insert(next, next_cost);
+                    predecessors.insert(next, node);
+                    queue.push(ExecSearchEntry {
+                        cost: next_cost,
+                        id: self.graph[next].0.clone(),
+                        node: next,
+                    });
+                }
+            }
+        }
+        costs
+            .into_iter()
+            .map(|(node, cost)| {
+                let mut path = vec![self.graph[node].clone()];
+                let mut current = node;
+                while let Some(&previous) = predecessors.get(&current) {
+                    path.push(self.graph[previous].clone());
+                    current = previous;
+                }
+                path.reverse();
+                (self.graph[node].clone(), (cost, path))
+            })
+            .collect()
+    }
+
     // -----------------------------------------------------------------------
     // Serialization view
     // -----------------------------------------------------------------------
@@ -496,6 +595,92 @@ impl KnowledgeGraph {
 mod tests {
     use super::*;
     use crate::edge::edge_data_for;
+
+    #[test]
+    fn multi_source_exec_paths_match_individual_searches_and_skip_broken_context_edges() {
+        let mut graph = KnowledgeGraph::new();
+        let sources = [EntityId::new("source/a"), EntityId::new("source/b")];
+        for number in 0..100 {
+            let target = EntityId::new(format!("target/{number:03}"));
+            graph.insert_edge(
+                &sources[number % 2],
+                &target,
+                edge_data_for("k8s.can-exec", None, None),
+            );
+        }
+        let context = EntityId::new("context");
+        graph.insert_edge(&sources[0], &context, edge_data_for("uses", None, None));
+        let broken = EntityId::new("broken");
+        let mut edge = edge_data_for("rce.can-exec", None, None);
+        edge.broken = true;
+        graph.insert_edge(&sources[1], &broken, edge);
+        let routes = graph.shortest_exec_paths(&sources, None);
+        assert_eq!(routes.len(), 102);
+        assert!(!routes.contains_key(&context));
+        assert!(!routes.contains_key(&broken));
+        for (target, route) in routes {
+            assert_eq!(Some(route), graph.shortest_exec_path(&sources, &target));
+        }
+    }
+
+    #[test]
+    fn multi_source_routes_are_independent_of_edge_and_seed_insertion_order() {
+        let edges = [
+            ("a", "c"),
+            ("b", "d"),
+            ("c", "sink"),
+            ("d", "sink"),
+            ("sink", "c"),
+        ];
+        let build = |reverse: bool| {
+            let mut graph = KnowledgeGraph::new();
+            let mut ordered = edges.to_vec();
+            if reverse {
+                ordered.reverse();
+            }
+            for (source, target) in ordered {
+                graph.insert_edge(
+                    &EntityId::new(source),
+                    &EntityId::new(target),
+                    edge_data_for("k8s.can-exec", None, None),
+                );
+            }
+            let mut seeds = vec![EntityId::new("a"), EntityId::new("b")];
+            if reverse {
+                seeds.reverse();
+            }
+            graph.shortest_exec_paths(&seeds, None)
+        };
+        assert_eq!(build(false), build(true));
+    }
+
+    #[test]
+    fn excluded_entity_is_neither_an_execution_origin_nor_a_transit_hop() {
+        let mut graph = KnowledgeGraph::new();
+        for (source, target) in [
+            ("origin", "excluded"),
+            ("excluded", "sink"),
+            ("origin", "safe-a"),
+            ("safe-a", "safe-b"),
+            ("safe-b", "sink"),
+        ] {
+            graph.insert_edge(
+                &EntityId::new(source),
+                &EntityId::new(target),
+                edge_data_for("k8s.can-exec", None, None),
+            );
+        }
+        let excluded = EntityId::new("excluded");
+        let routes = graph.shortest_exec_paths(
+            &[EntityId::new("origin"), excluded.clone()],
+            Some(&excluded),
+        );
+        assert!(!routes.contains_key(&excluded));
+        assert_eq!(
+            routes[&EntityId::new("sink")].1,
+            ["origin", "safe-a", "safe-b", "sink"].map(EntityId::new)
+        );
+    }
 
     #[test]
     fn contains_replaces_the_previous_parent() {

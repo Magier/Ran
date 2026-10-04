@@ -30,6 +30,9 @@ use crate::{FactsUpdate, ParseResult};
 use crate::execution_record::ExecutionRecord;
 use crate::traversal::{CommandTraversal, RouteWarning, TraversalHop};
 
+use super::execution_planning::{
+    ClientExecutionPlan, ClientExecutionPlanner, ProcedureExecutionSemantics,
+};
 use super::{
     Campaign, CampaignSystemEntityRef, ExecChannel, ExecuteActionError, ExecuteActionRequest,
     ExecuteActionResult, ExecutedActionEvent, TtpExecutionProcessing,
@@ -1201,6 +1204,7 @@ pub(super) fn materialize_k8s_request(
             tool_id, procedure.id
         ))
     })?;
+    procedure.tool = Some(tool_id.to_string());
 
     Ok(())
 }
@@ -1251,6 +1255,7 @@ fn materialize_abstract_http_request(
             tool_id, procedure.id
         ))
     })?;
+    procedure.tool = Some(tool_id.to_string());
 
     Ok(())
 }
@@ -1560,9 +1565,18 @@ impl Campaign {
             procedure_id.as_deref(),
             &target_id,
             exec_system_id.as_deref(),
+            requested_auth_identity_id
+                .as_deref()
+                .or_else(|| args.get("K8S_AUTH").map(String::as_str))
+                .or_else(|| {
+                    args.get("TOKEN").map(String::as_str).filter(|id| {
+                        self.entities
+                            .contains::<ServiceAccount>(&EntityId::new(id.trim()))
+                    })
+                }),
         )?;
-        let procedure_uses_k8s_auth = crate::ttp_applicability::procedure_uses_k8s_auth(&procedure);
-        let resolved_auth = if procedure_uses_k8s_auth {
+        let execution_semantics = ProcedureExecutionSemantics::from_definition(&procedure);
+        let resolved_auth = if execution_semantics.uses_k8s_auth {
             let uses_default_kubeconfig = procedure.is_local_command == Some(true)
                 && procedure.command.contains("kubectl ")
                 && !procedure.command.contains("${K8S_AUTH}");
@@ -1708,7 +1722,19 @@ impl Campaign {
             .as_ref()
             .is_some_and(|auth| auth.uses_kubeconfig() || procedure.is_local_command == Some(true));
 
-        // Stage 2: normalise the caller-supplied routing hint.
+        // Plan clients from the original definition. Lowering only produces a
+        // payload and must never decide where that payload executes.
+        let client_plan = if execution_semantics.needs_client_plan() {
+            Some(ClientExecutionPlanner::new(self).plan(
+                &ttp,
+                &procedure,
+                &target_id,
+                auth_identity_id.as_deref(),
+                exec_system_id.as_deref(),
+            )?)
+        } else {
+            None
+        };
         let exec_hint = normalise_exec_hint(exec_system_id.as_deref(), &target_id);
 
         // Stage 3: inject context args (NS / NODE / TOKEN) from the target entity
@@ -1753,13 +1779,23 @@ impl Campaign {
         }
         // Stage 4: resolve lateral-movement source and inject SRC - single,
         // authoritative site.  For non-lateral TTPs this is a no-op.
-        let lateral_src = self.resolve_lateral_src(&ttp.tactic, exec_hint.as_deref(), &mut args)?;
+        let lateral_src = if client_plan.is_some() {
+            None
+        } else {
+            self.resolve_lateral_src(&ttp.tactic, exec_hint.as_deref(), &mut args)?
+        };
 
-        // For non-lateral TTPs resolve_lateral_src leaves SRC unset, but TTP
-        // authors may still use ${SRC.PROP} to reference properties of the
-        // executing entity (e.g. ${SRC.MOUNT_PATH} for host-path mounts).
-        // For non-lateral TTPs the command runs ON the target, so SRC = target.
-        if !args.contains_key("SRC") {
+        if let Some(executor_id) = client_plan
+            .as_ref()
+            .and_then(ClientExecutionPlan::executor_id)
+        {
+            args.insert("SRC".to_string(), executor_id.to_string());
+            args.insert("src".to_string(), executor_id.to_string());
+        }
+
+        // Host commands use their target as SRC. Client procedures use the
+        // planned execution environment, independently of resource addressing.
+        if client_plan.is_none() && !args.contains_key("SRC") {
             args.insert("SRC".to_string(), target_id.clone());
         }
 
@@ -1817,8 +1853,7 @@ impl Campaign {
                         describe_authenticated_http_request(&procedure.id, request)?;
                 }
             }
-            let supported = crate::ttp_applicability::procedure_uses_k8s_auth(&procedure);
-            if !supported {
+            if !execution_semantics.uses_k8s_auth {
                 return Err(ExecuteActionError::InvalidInput(format!(
                     "procedure '{}' does not support kubeconfig authentication",
                     procedure.id
@@ -1846,7 +1881,9 @@ impl Campaign {
             &ttp.tactic,
             &mut procedure,
             &args,
-            auth_identity_id.as_deref(),
+            execution_semantics,
+            use_kubeconfig,
+            client_plan,
             exec_hint.as_deref(),
             lateral_src,
         )?;
@@ -2023,11 +2060,8 @@ impl Campaign {
     /// - `output_transform` is set when the channel wraps its output (e.g. Ranplant JSON envelope)
     ///   and the raw result must be post-processed before parsers run.
     ///
-    /// Decision order (first matching branch wins):
-    /// 1. Lateral Movement tactic → [`route_lateral_movement`] (uses pre-resolved src).
-    /// 2. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
-    /// 3. Remote channel needed (tactic / procedure flag) → [`route_remote`].
-    /// 4. Everything else → [`route_fallback`] (pod targets get in-cluster source).
+    /// Client procedures apply their immutable plan first. Host and typed
+    /// control procedures retain their existing lifecycle and routing behavior.
     #[allow(clippy::too_many_arguments)]
     fn route_exec_channel(
         &mut self,
@@ -2035,28 +2069,17 @@ impl Campaign {
         tactic: &str,
         procedure: &mut Procedure,
         args: &HashMap<String, String>,
-        auth_identity_id: Option<&str>,
+        execution_semantics: ProcedureExecutionSemantics,
+        use_kubeconfig: bool,
+        client_plan: Option<ClientExecutionPlan>,
         exec_hint: Option<&str>,
         lateral_src: Option<ExecChannel>,
     ) -> Result<ExecRoute, ExecuteActionError> {
-        if procedure.run_on_target == Some(false) {
-            return self.route_source_side(target_id, procedure, args, exec_hint);
+        if let Some(plan) = client_plan {
+            return self.route_client_plan(plan, procedure, args);
         }
 
-        if auth_identity_id.is_some_and(|identity| identity.starts_with("k8s/credential/"))
-            && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
-        {
-            return Ok(ExecRoute::direct(
-                BUILTIN_C2_ID.to_string(),
-                target_id.to_string(),
-                vec![],
-                None,
-            ));
-        }
-        if auth_identity_id.is_some()
-            && procedure.is_local_command == Some(true)
-            && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
-        {
+        if use_kubeconfig && execution_semantics.uses_k8s_auth {
             return Ok(ExecRoute::direct(
                 BUILTIN_C2_ID.to_string(),
                 target_id.to_string(),
@@ -2086,18 +2109,6 @@ impl Campaign {
             return self.route_caller_supplied(hint, target_id, procedure, args);
         }
 
-        // Kubernetes API resources and authentication identities are semantic
-        // targets, not systems where a client command can run. When the caller
-        // does not select an execution system, run the authenticated client
-        // command from any controlled source while retaining the original
-        // target for grounding, attribution, and effect parsing.
-        if auth_identity_id.is_some()
-            && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
-            && self.get_system_entity(target_id).is_none()
-        {
-            return self.route_source_side(target_id, procedure, args, None);
-        }
-
         if needs_remote_channel(procedure, tactic) {
             return self.route_remote(target_id, procedure, args);
         }
@@ -2105,39 +2116,22 @@ impl Campaign {
         self.route_fallback(target_id)
     }
 
-    /// Execute a target-oriented command from a different reachable system.
-    ///
-    /// The semantic target and its grounded `${TARGET.*}` context stay intact,
-    /// but neither the selected execution system nor any hop used to reach it
-    /// may be the target. This prevents client commands from being wrapped in
-    /// an execution edge into the service they are trying to contact.
-    fn route_source_side(
+    /// Apply a previously resolved client plan to a rendered payload. API
+    /// addressing and physical channel routing remain separate roles.
+    fn route_client_plan(
         &mut self,
-        target_id: &str,
+        plan: ClientExecutionPlan,
         procedure: &mut Procedure,
         args: &HashMap<String, String>,
-        exec_hint: Option<&str>,
     ) -> Result<ExecRoute, ExecuteActionError> {
-        let canonical_target = self.canonical_entity_id(target_id);
-        let source_hint = exec_hint
-            .map(|hint| self.canonical_entity_id(hint))
-            .filter(|hint| hint != &canonical_target);
-
-        let channel = if let Some(source_id) = source_hint {
-            if self.get_system_entity(&source_id).is_none() {
-                return Err(ExecuteActionError::NoExecChannel(format!(
-                    "source-side procedure requires a reachable system, but '{}' is not a system entity",
-                    source_id
-                )));
-            }
-            let mut channel = self
-                .resolve_exec_channel(&source_id)
-                .map_err(ExecuteActionError::NoExecChannel)?;
-            channel.exec_target_id = Some(source_id);
-            channel
-        } else {
-            self.resolve_exec_source_excluding(Some(&canonical_target))
-                .map_err(ExecuteActionError::NoExecChannel)?
+        let target_id = plan.target_id;
+        let Some(channel) = plan.channel else {
+            return Ok(ExecRoute::direct(
+                BUILTIN_C2_ID.to_string(),
+                target_id,
+                vec![],
+                None,
+            ));
         };
 
         let exec_target = channel.exec_target_id.clone().ok_or_else(|| {
@@ -2145,23 +2139,13 @@ impl Campaign {
                 "source-side execution resolved no physical execution system".to_string(),
             )
         })?;
-        let route_systems = channel.hops.iter().chain(std::iter::once(&exec_target));
-        if route_systems
-            .map(|id| self.canonical_entity_id(id))
-            .any(|id| id == canonical_target)
-        {
-            return Err(ExecuteActionError::NoExecChannel(format!(
-                "source-side procedure cannot traverse selected target '{}'",
-                target_id
-            )));
-        }
-
         tracing::info!(
             target_id = %target_id,
             exec_target = %exec_target,
             backend_id = %channel.backend_id,
             chain = %format_exec_chain(&channel.backend_id, &channel.hops, &exec_target),
-            "selected source-side execution route"
+            auth_identity_id = ?plan.auth_identity_id,
+            "selected client execution route"
         );
 
         if channel.hops.is_empty() {
@@ -2838,21 +2822,7 @@ impl Campaign {
             return;
         };
 
-        let system_id = cmd
-            .exec_chain
-            .iter()
-            .rev()
-            .map(String::as_str)
-            .find(|id| self.get_system_entity(id).is_some())
-            .or_else(|| {
-                let target_id_arg = cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
-                self.get_system_entity(target_id_arg).map(|_| target_id_arg)
-            })
-            .or_else(|| {
-                self.get_system_entity(&cmd.target_id)
-                    .map(|_| cmd.target_id.as_str())
-            })
-            .map(str::to_string);
+        let system_id = self.execution_system_id(cmd).map(str::to_string);
         let Some(system_id) = system_id else {
             return;
         };
@@ -2876,6 +2846,40 @@ impl Campaign {
             ..Default::default()
         };
         let _ = self.apply_system_update(&system_id, &absent_update);
+    }
+
+    /// Execution evidence belongs to the physical environment. A native API
+    /// response says nothing about binaries or process state on its resource.
+    fn execution_system_id<'a>(&self, cmd: &'a ExecTtp) -> Option<&'a str> {
+        if matches!(
+            cmd.operation,
+            ExecutionOperation::KubernetesRequest { .. }
+                | ExecutionOperation::AuthenticatedHttpRequest { .. }
+        ) {
+            return None;
+        }
+        cmd.exec_chain
+            .iter()
+            .rev()
+            .map(String::as_str)
+            .find(|id| self.get_system_entity(id).is_some())
+            .or_else(|| {
+                if matches!(cmd.operation, ExecutionOperation::LocalShell { .. }) {
+                    cmd.args
+                        .get("SRC")
+                        .map(String::as_str)
+                        .filter(|id| self.get_system_entity(id).is_some())
+                } else {
+                    cmd.args
+                        .get("TARGET_ID")
+                        .map(String::as_str)
+                        .filter(|id| self.get_system_entity(id).is_some())
+                        .or_else(|| {
+                            self.get_system_entity(&cmd.target_id)
+                                .map(|_| cmd.target_id.as_str())
+                        })
+                }
+            })
     }
 
     /// Process a C2 result and retain whether it completed with an operational
@@ -3072,16 +3076,7 @@ impl Campaign {
         // Only records if currently Unknown - preserves more precise paths set by
         // sys.has-binary(${OUTPUT}) or from a real parser.
         if let Some(tool) = procedure_tool(&cmd.procedure) {
-            let system_id = cmd
-                .exec_chain
-                .iter()
-                .rev()
-                .map(String::as_str)
-                .find(|id| self.get_system_entity(id).is_some())
-                .or_else(|| {
-                    self.get_system_entity(&cmd.target_id)
-                        .map(|_| cmd.target_id.as_str())
-                });
+            let system_id = self.execution_system_id(cmd);
 
             if let Some(id) = system_id {
                 let already_known = self
@@ -3105,16 +3100,7 @@ impl Campaign {
         // A successful command execution on a pod is direct evidence that the
         // pod is currently running. Emit an in-flight pod update before the
         // rule fixpoint so `KubeletExecSourceRule` can qualify it.
-        let exec_system_id = cmd
-            .exec_chain
-            .iter()
-            .rev()
-            .map(String::as_str)
-            .find(|id| self.get_system_entity(id).is_some())
-            .or_else(|| {
-                self.get_system_entity(&cmd.target_id)
-                    .map(|_| cmd.target_id.as_str())
-            });
+        let exec_system_id = self.execution_system_id(cmd);
 
         if let Some(system_id) = exec_system_id {
             if let Some(CampaignSystemEntityRef::Pod(pod)) = self.get_system_entity(system_id) {
@@ -3763,7 +3749,24 @@ impl Campaign {
         procedure_id: Option<&str>,
         target_id: &str,
         exec_system_id: Option<&str>,
+        auth_identity_id: Option<&str>,
     ) -> Result<Procedure, ExecuteActionError> {
+        let planner = ClientExecutionPlanner::new(self);
+        let readiness = |procedure: &Procedure| {
+            if ProcedureExecutionSemantics::from_definition(procedure).needs_client_plan() {
+                planner
+                    .plan(ttp, procedure, target_id, auth_identity_id, exec_system_id)
+                    .map(|plan| plan.readiness)
+            } else {
+                Ok(procedure_readiness(
+                    ttp,
+                    procedure,
+                    self,
+                    target_id,
+                    exec_system_id,
+                ))
+            }
+        };
         if let Some(proc_id) = procedure_id.map(str::trim).filter(|id| !id.is_empty()) {
             let procedure = ttp
                 .procedures
@@ -3775,9 +3778,7 @@ impl Campaign {
                         proc_id, ttp.id
                     ))
                 })?;
-            if procedure_readiness(ttp, procedure, self, target_id, exec_system_id)
-                == ProcedureReadiness::Unavailable
-            {
+            if readiness(procedure)? == ProcedureReadiness::Unavailable {
                 let tool = procedure_required_tool(procedure).unwrap_or("unknown");
                 return Err(ExecuteActionError::InvalidInput(format!(
                     "procedure '{}' requires tool '{}' which is known to be absent from the execution system",
@@ -3787,9 +3788,24 @@ impl Campaign {
             return Ok(procedure.clone());
         }
 
-        recommended_procedure(ttp, self, target_id, exec_system_id)
-            .cloned()
-            .ok_or_else(|| {
+        let mut unknown = None;
+        let mut planning_error = None;
+        for procedure in &ttp.procedures {
+            match readiness(procedure) {
+                Ok(ProcedureReadiness::Ready) => return Ok(procedure.clone()),
+                Ok(ProcedureReadiness::Unknown) => {
+                    unknown.get_or_insert(procedure);
+                }
+                Ok(ProcedureReadiness::Unavailable) => {}
+                Err(error) => {
+                    planning_error.get_or_insert(error);
+                }
+            }
+        }
+        unknown.cloned().ok_or_else(|| {
+                if let Some(error) = planning_error {
+                    return error;
+                }
                 let reason = if ttp.procedures.is_empty() {
                     format!("No procedure found for action '{}'", ttp.id)
                 } else {
@@ -3925,18 +3941,16 @@ fn procedure_tool(procedure: &Procedure) -> Option<&str> {
 ///
 /// Resolution order:
 /// 1. `procedure.tool` - explicit annotation (e.g. `tool: cat`)
-/// 2. `procedure.id` - when it is a single bare word (e.g. key `nmap`, `curl`)
-/// 3. First word of `procedure.command` - final fallback
+/// 2. The default HTTP adapter for structured requests.
+/// 3. First word of `procedure.command` - legacy shell fallback.
+///
+/// Procedure IDs are selectors, not evidence of binary requirements.
 fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
-    if let Some(tool) = procedure_tool(procedure) {
+    if let Some(tool) = procedure_tool(procedure).filter(|tool| *tool != "k8s-request") {
         return Some(tool);
     }
-
-    // Use the procedure ID only when it looks like a bare binary name
-    // (no spaces, no path separators).
-    let id = procedure.id.trim();
-    if !id.is_empty() && !id.contains(' ') && !id.contains('/') {
-        return Some(id);
+    if procedure.k8s_request.is_some() || procedure.http_request.is_some() {
+        return Some("curl");
     }
 
     // Fall back to the first word of the command.
@@ -4001,9 +4015,8 @@ fn procedure_readiness_on_system(
 }
 
 /// Resolve one procedure's tool readiness for a semantic target and optional
-/// physical execution system. Source-side procedures remain unknown until an
-/// execution system is supplied because they deliberately do not run on the
-/// semantic target.
+/// physical execution system. Client procedures assess their planned executor;
+/// uncertainty about tools never substitutes for a missing execution channel.
 pub fn procedure_readiness(
     ttp: &armory::Ttp,
     procedure: &Procedure,
@@ -4011,6 +4024,12 @@ pub fn procedure_readiness(
     target_id: &str,
     exec_system_id: Option<&str>,
 ) -> ProcedureReadiness {
+    if ProcedureExecutionSemantics::from_definition(procedure).needs_client_plan() {
+        return ClientExecutionPlanner::new(campaign)
+            .plan(ttp, procedure, target_id, None, exec_system_id)
+            .map(|plan| plan.readiness)
+            .unwrap_or(ProcedureReadiness::Unavailable);
+    }
     if !needs_remote_channel(procedure, &ttp.tactic) {
         return ProcedureReadiness::Ready;
     }
@@ -4033,39 +4052,61 @@ pub fn recommended_procedure<'a>(
     target_id: &str,
     exec_system_id: Option<&str>,
 ) -> Option<&'a Procedure> {
+    let planner = ClientExecutionPlanner::new(campaign);
+    let states = ttp
+        .procedures
+        .iter()
+        .map(|procedure| {
+            let readiness =
+                if ProcedureExecutionSemantics::from_definition(procedure).needs_client_plan() {
+                    planner
+                        .plan(ttp, procedure, target_id, None, exec_system_id)
+                        .map(|plan| plan.readiness)
+                        .unwrap_or(ProcedureReadiness::Unavailable)
+                } else {
+                    procedure_readiness(ttp, procedure, campaign, target_id, exec_system_id)
+                };
+            (procedure, readiness)
+        })
+        .collect::<Vec<_>>();
     [ProcedureReadiness::Ready, ProcedureReadiness::Unknown]
         .into_iter()
         .find_map(|wanted| {
-            ttp.procedures.iter().find(|procedure| {
-                procedure_readiness(ttp, procedure, campaign, target_id, exec_system_id) == wanted
-            })
+            states
+                .iter()
+                .find(|(_, readiness)| *readiness == wanted)
+                .map(|(procedure, _)| *procedure)
         })
 }
 
 /// Best-case tool readiness for a TTP against `target_id`, i.e. the readiness of
 /// the most-runnable procedure (the runtime falls back to whichever procedure
-/// can run). Returns `1.0` when the target isn't a system entity (no binary map
-/// to assess) or the TTP has no procedures.
+/// can run). Client tool evidence comes from the executor, not the addressed
+/// resource. Missing channel evidence does not contradict tool availability.
 ///
 /// Shared by the applicability gate ([`ttp_tool_satisfied`](crate::ttp_applicability::ttp_tool_satisfied),
 /// which treats `> 0.0` as runnable) and the `reliability` consideration (which
 /// uses the value to prefer confirmed-runnable actions) so the two never drift.
 pub fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &str) -> f32 {
-    let Some(sys_ref) = campaign.get_system_entity(target_id) else {
-        return 1.0;
-    };
     if ttp.procedures.is_empty() {
         return 1.0;
     }
-    let sys = sys_ref.entity().system();
+    let planner = ClientExecutionPlanner::new(campaign);
     ttp.procedures
         .iter()
         .map(|procedure| {
-            let readiness = if procedure.run_on_target == Some(false) {
-                ProcedureReadiness::Unknown
-            } else {
-                procedure_readiness_on_system(procedure, &ttp.tactic, sys)
-            };
+            let readiness =
+                if ProcedureExecutionSemantics::from_definition(procedure).needs_client_plan() {
+                    match planner.plan(ttp, procedure, target_id, None, None) {
+                        Ok(plan) => plan.readiness,
+                        // Tool confidence and channel availability are independent.
+                        // Without a binding there is no contradictory tool evidence.
+                        Err(ExecuteActionError::NoExecChannel(_)) => ProcedureReadiness::Unknown,
+                        Err(_) => ProcedureReadiness::Unavailable,
+                    }
+                } else {
+                    procedure_readiness(ttp, procedure, campaign, target_id, None)
+                };
             match readiness {
                 ProcedureReadiness::Ready => 1.0,
                 ProcedureReadiness::Unknown => UNKNOWN_TOOL_READINESS,
