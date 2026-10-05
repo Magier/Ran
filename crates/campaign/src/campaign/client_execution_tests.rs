@@ -173,6 +173,8 @@ fn bundled_node_proxy_request_has_equivalent_implicit_and_explicit_client_routes
             .procedure
             .command
             .contains("/api/v1/nodes/node-01/proxy/pods"));
+        assert!(exec.procedure.command.contains("--cacert"));
+        assert!(!exec.procedure.command.contains("--insecure"));
         assert_eq!(exec.args.get("NODE").map(String::as_str), Some("node-01"));
         assert_eq!(exec.auth_identity_id.as_deref(), Some(auth_id.as_str()));
     }
@@ -1060,6 +1062,37 @@ fn client_can_reach_downstream_executor_from_a_session_only_origin() {
 }
 
 #[test]
+fn explicit_active_runner_is_not_replaced_by_a_derived_path_to_the_same_system() {
+    let (mut campaign, target_id, entry_id, auth_id) = request_fixture("Node");
+    let mut runner = Pod::new("runner", "controlled");
+    runner.system.set_binary("curl", "/runner/curl");
+    runner.system.sessions.push(SessionInfo {
+        id: "runner-ranplant".into(),
+        kind: "ranplant".into(),
+        port: Some(4444),
+        status: SessionStatus::Active,
+    });
+    let runner_id = runner.entity_id().0;
+    campaign.entities.insert_typed(runner);
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&entry_id, &runner_id).with_envelope("remote-run ${CMD}"),
+    );
+
+    let exec = campaign
+        .prepare_action(
+            request_for(&target_id, Some(&auth_id), Some(&runner_id)),
+            &request_armory(request_action("Node", false)),
+        )
+        .expect("the selected runner has its own active execution channel");
+
+    assert_eq!(exec.exec_system_id, "session/runner-ranplant");
+    assert_eq!(exec.exec_chain, vec![runner_id]);
+    assert!(exec.procedure.command.starts_with("/runner/curl"));
+    assert!(!exec.procedure.command.contains("remote-run"));
+}
+
+#[test]
 fn alternative_source_finds_a_longer_route_that_avoids_the_semantic_target() {
     let (mut campaign, target_id, source_id, _) = request_fixture("Node");
     campaign
@@ -1521,6 +1554,10 @@ fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
     );
     let words = shell_words::split(&exec.procedure.command).unwrap();
     assert_eq!(&words[..2], &["/tmp/ranplant", "kubelet-exec"]);
+    assert!(words.iter().any(|word| word == "--ca-file"));
+    assert!(!words
+        .iter()
+        .any(|word| word == "--insecure-skip-tls-verify"));
     let url_index = words.iter().position(|word| word == "--url").unwrap() + 1;
     let url = url::Url::parse(&words[url_index]).unwrap();
     assert_eq!(url.host_str(), Some("[2001:db8::1]"));

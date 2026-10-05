@@ -15,6 +15,14 @@ parameters:
     type: Node
     default: ${TARGET}
     description: the name of the node for which the running pods will be listed
+  USE_CA:
+    type: bool
+    default: "true"
+    description: verify the API server certificate; disable only as an explicit controlled-lab opt-in
+  CA_PATH:
+    type: string
+    default: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    description: CA certificate used to verify the Kubernetes API server
 procedures:
   - k8s_request:
       authentication: ${K8S_AUTH}
@@ -22,7 +30,8 @@ procedures:
       api: /api/v1
       resource: nodes/${NODE}/proxy/pods
       cluster_scoped: true
-      use_ca: false
+      use_ca: ${USE_CA}
+      ca_path: ${CA_PATH}
 
 effects:
   - k8s.podList
