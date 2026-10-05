@@ -2447,6 +2447,17 @@ components:
           items:
             $ref: '#/components/schemas/KubetierRole'
 
+    ExecutionEnvironment:
+      type: object
+      description: Physical execution provenance. Missing legacy provenance is unknown, not the semantic target.
+      properties:
+        system_id:
+          type: string
+          description: Actual command host, including the operator host for local clients.
+        tool:
+          type: string
+          description: Actual binary executed. Absent for native API requests.
+
     ExecutionRecordEntry:
       type: object
       description: |
@@ -2474,6 +2485,8 @@ components:
         - discovered_relations
         - parseAudits
       properties:
+        execution_environment:
+          $ref: '#/components/schemas/ExecutionEnvironment'
         id:
           type: string
           description: Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events

@@ -26,7 +26,7 @@ pub use relations::{
     RceCanExec, RelationSummary, RunsOn, SessionChannel, Uses,
 };
 pub use types::{
-    AccessLevel, BinaryPresence, Confidence, Container, ContainerPort, EntityId, K8sMeta,
-    KnowledgeProvenance, Mount, NameConfidence, OutputTransformKind, OwnerRef, Process,
-    SessionInfo, SessionStatus, SoftwareFact, SystemInfo,
+    AccessLevel, BinaryPresence, Confidence, Container, ContainerPort, EntityId,
+    ExecutionEnvironment, K8sMeta, KnowledgeProvenance, Mount, NameConfidence, OutputTransformKind,
+    OwnerRef, Process, SessionInfo, SessionStatus, SoftwareFact, SystemInfo,
 };

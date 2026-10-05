@@ -86,6 +86,8 @@ impl ExecutionOperation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecTtp {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_environment: Option<ran_domain::ExecutionEnvironment>,
     pub id: String,
     pub ttp: Ttp,
     pub procedure: Procedure,

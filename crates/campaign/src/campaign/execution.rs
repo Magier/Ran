@@ -891,7 +891,7 @@ struct HttpRequestSpec {
     response_output_field: String,
 }
 
-fn http_response_output_transform(procedure: &Procedure) -> Option<OutputTransform> {
+pub(super) fn http_response_output_transform(procedure: &Procedure) -> Option<OutputTransform> {
     let request = procedure.http_request.as_ref()?.clone();
     let spec: HttpRequestSpec = serde_json::from_value(request).ok()?;
     let field = spec.response_output_field.trim();
@@ -1465,7 +1465,7 @@ impl Campaign {
             )));
         }
 
-        let resolution = crate::action_resolution::resolve_action(
+        let (resolution, procedure_plans) = crate::action_resolution::resolve_action_planned(
             &ttp,
             self,
             &target_id,
@@ -1475,6 +1475,7 @@ impl Campaign {
                 procedure_id: procedure_id.clone(),
                 exec_system_id: exec_system_id.clone(),
             },
+            &ClientExecutionPlanner::new(self),
         )
         .ok_or_else(|| {
             ExecuteActionError::NotFound(format!("failed to get target entity: {target_id}"))
@@ -1565,15 +1566,7 @@ impl Campaign {
             procedure_id.as_deref(),
             &target_id,
             exec_system_id.as_deref(),
-            requested_auth_identity_id
-                .as_deref()
-                .or_else(|| args.get("K8S_AUTH").map(String::as_str))
-                .or_else(|| {
-                    args.get("TOKEN").map(String::as_str).filter(|id| {
-                        self.entities
-                            .contains::<ServiceAccount>(&EntityId::new(id.trim()))
-                    })
-                }),
+            &procedure_plans,
         )?;
         let execution_semantics = ProcedureExecutionSemantics::from_definition(&procedure);
         let resolved_auth = if execution_semantics.uses_k8s_auth {
@@ -1651,7 +1644,13 @@ impl Campaign {
                 .or_else(|| {
                     (eligible_identities.len() == 1).then(|| eligible_identities[0].id.clone())
                 });
-            let identity_id = requested_identity.or(legacy_identity).or(implicit_identity);
+            let identity_id = requested_identity.or(legacy_identity).or({
+                if uses_default_kubeconfig {
+                    None
+                } else {
+                    implicit_identity
+                }
+            });
             match identity_id {
                 None if uses_default_kubeconfig => {
                     // An explicitly local procedure is executed on the Ran
@@ -1725,13 +1724,20 @@ impl Campaign {
         // Plan clients from the original definition. Lowering only produces a
         // payload and must never decide where that payload executes.
         let client_plan = if execution_semantics.needs_client_plan() {
-            Some(ClientExecutionPlanner::new(self).plan(
-                &ttp,
-                &procedure,
-                &target_id,
-                auth_identity_id.as_deref(),
-                exec_system_id.as_deref(),
-            )?)
+            let index = ttp
+                .procedures
+                .iter()
+                .position(|definition| definition.id == procedure.id)
+                .expect("selected definition exists");
+            let plan = procedure_plans[index]
+                .clone()
+                .expect("client definition was planned")?;
+            if plan.auth_identity_id != auth_identity_id {
+                return Err(ExecuteActionError::InvariantViolation(
+                    "authentication binding changed after execution planning".into(),
+                ));
+            }
+            Some(plan)
         } else {
             None
         };
@@ -1876,6 +1882,10 @@ impl Campaign {
         }
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
+        let executed_tool = procedure_required_tool(&procedure).map(str::to_string);
+        let planned_executor = client_plan
+            .as_ref()
+            .map(|plan| plan.executor_id().map(str::to_string));
         let mut route = self.route_exec_channel(
             &target_id,
             &ttp.tactic,
@@ -1897,6 +1907,28 @@ impl Campaign {
             route.output_transform = procedure_output_transform;
         }
         let operation = materialize_execution_operation(&procedure, use_kubeconfig)?;
+        let execution_environment = Some(ran_domain::ExecutionEnvironment {
+            system_id: planned_executor.unwrap_or_else(|| {
+                if route.exec_chain.is_empty() {
+                    self.graph
+                        .sources_of(&EntityId::new(BUILTIN_C2_ID), "contains")
+                        .into_iter()
+                        .find(|id| self.entities.contains::<ran_domain::OperatorHost>(id))
+                        .map(|id| id.0.clone())
+                } else {
+                    route.exec_chain.last().cloned()
+                }
+            }),
+            tool: if matches!(
+                operation,
+                ExecutionOperation::KubernetesRequest { .. }
+                    | ExecutionOperation::AuthenticatedHttpRequest { .. }
+            ) {
+                None
+            } else {
+                executed_tool
+            },
+        });
 
         let cmd_id = generate_cmd_id();
 
@@ -1915,6 +1947,7 @@ impl Campaign {
         }
 
         Ok(ExecTtp {
+            execution_environment,
             id: cmd_id,
             ttp,
             procedure,
@@ -2126,6 +2159,14 @@ impl Campaign {
     ) -> Result<ExecRoute, ExecuteActionError> {
         let target_id = plan.target_id;
         let Some(channel) = plan.channel else {
+            if let Some(system) = plan
+                .local_system_id
+                .as_deref()
+                .and_then(|id| self.get_system_entity(id))
+            {
+                procedure.command =
+                    ground_binaries(&procedure.command, &system.entity().system().binaries);
+            }
             return Ok(ExecRoute::direct(
                 BUILTIN_C2_ID.to_string(),
                 target_id,
@@ -2161,7 +2202,14 @@ impl Campaign {
             ));
         }
 
-        let wrap = self.wrap_command_for_hops(procedure, &channel.hops, &exec_target, args)?;
+        let wrap = self.wrap_command_for_hops(
+            procedure,
+            &channel.hops,
+            &exec_target,
+            &channel.edges,
+            &channel.kubelet_plans,
+            args,
+        )?;
         let exec_chain = channel
             .hops
             .into_iter()
@@ -2231,6 +2279,8 @@ impl Campaign {
                         procedure,
                         &[hint.to_string()],
                         exec_target.as_str(),
+                        &ch.edges,
+                        &ch.kubelet_plans,
                         args,
                     )?;
                     return Ok(ExecRoute {
@@ -2243,8 +2293,14 @@ impl Campaign {
                     });
                 }
 
-                let wrap =
-                    self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args)?;
+                let wrap = self.wrap_command_for_hops(
+                    procedure,
+                    &ch.hops,
+                    exec_target.as_str(),
+                    &ch.edges,
+                    &ch.kubelet_plans,
+                    args,
+                )?;
                 let exec_chain: Vec<String> = ch
                     .hops
                     .iter()
@@ -2289,7 +2345,14 @@ impl Campaign {
                     ));
                 }
 
-                let wrap = self.wrap_command_for_hops(procedure, &ch.hops, &exec_target, args)?;
+                let wrap = self.wrap_command_for_hops(
+                    procedure,
+                    &ch.hops,
+                    &exec_target,
+                    &ch.edges,
+                    &ch.kubelet_plans,
+                    args,
+                )?;
                 let exec_chain: Vec<String> = ch
                     .hops
                     .iter()
@@ -2394,8 +2457,14 @@ impl Campaign {
                 None,
             ))
         } else {
-            let wrap =
-                self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args)?;
+            let wrap = self.wrap_command_for_hops(
+                procedure,
+                &ch.hops,
+                exec_target.as_str(),
+                &ch.edges,
+                &ch.kubelet_plans,
+                args,
+            )?;
             let exec_chain: Vec<String> = ch
                 .hops
                 .iter()
@@ -2546,13 +2615,43 @@ impl Campaign {
         procedure: &mut Procedure,
         hops: &[String],
         exec_target: &str,
-        args: &HashMap<String, String>,
+        selected_edges: &[cortex::SelectedExecEdge],
+        kubelet_plans: &[super::KubeletExecPlan],
+        _args: &HashMap<String, String>,
     ) -> Result<HopWrap, ExecuteActionError> {
         let full_chain: Vec<&str> = hops
             .iter()
             .map(String::as_str)
             .chain(std::iter::once(exec_target))
             .collect();
+
+        if selected_edges.len() + 1 != full_chain.len()
+            || selected_edges.iter().enumerate().any(|(i, edge)| {
+                edge.source.0 != full_chain[i]
+                    || edge.target.0 != full_chain[i + 1]
+                    || !self.graph.validate_selected_edge(edge)
+                    || !edge.data.is_realizable(&edge.target)
+            })
+        {
+            return Err(ExecuteActionError::InvariantViolation(
+                "selected execution transport changed or does not match the planned chain".into(),
+            ));
+        }
+        for plan in kubelet_plans {
+            if self
+                .plan_kubelet_pair(
+                    &EntityId::new(&plan.source_id),
+                    &EntityId::new(&plan.node_id),
+                    &EntityId::new(&plan.pod_id),
+                )
+                .as_ref()
+                != Some(plan)
+            {
+                return Err(ExecuteActionError::InvariantViolation(
+                    "selected kubelet realization changed after execution planning".into(),
+                ));
+            }
+        }
 
         let mut output_transform: Option<OutputTransform> = None;
         // Hops are recorded innermost-first as the loop wraps from the inside
@@ -2568,7 +2667,10 @@ impl Campaign {
 
             // Ground all command-name occurrences in the inner command against
             // the target system's binary map before embedding it in the envelope.
-            if let Some(sys) = self.get_system_entity(tgt) {
+            if let Some(sys) = self
+                .get_system_entity(tgt)
+                .filter(|_| selected_edges[i - 1].data.grants_target_execution())
+            {
                 procedure.command =
                     ground_binaries(&procedure.command, &sys.entity().system().binaries);
             }
@@ -2579,80 +2681,58 @@ impl Campaign {
                 inner_command = procedure.command.clone();
             }
 
-            let src_eid = EntityId::new(src);
-            let tgt_eid_inner = EntityId::new(tgt);
-            let found = self
-                .graph
-                .outgoing(&src_eid)
-                .into_iter()
-                .find(|(t, d)| *t == &tgt_eid_inner && d.is_exec_channel)
-                .map(|(t, d)| ran_domain::RelationSummary {
-                    name: d.relation_name.clone(),
-                    source_id: src.to_string(),
-                    target_id: t.0.clone(),
-                    is_exec_channel: true,
-                    envelope: d.envelope.clone(),
-                    output_transform: d.output_transform.clone(),
-                    weight: d.weight,
-                    session_id: d.session_id.clone(),
-                    broken: d.broken,
-                });
-            // Capture the relation name and envelope template for this hop
-            // before the match consumes `found` to rewrite the command.
-            let hop_relation = found
-                .as_ref()
-                .map(|r| r.name.clone())
-                .unwrap_or_else(|| "kubectl-exec".to_string());
-            let hop_envelope = found.as_ref().and_then(|r| r.envelope.clone());
-            let wrapped_command = match found {
-                Some(ref rel) => {
-                    if let Some(ref transform) = rel.output_transform {
-                        output_transform = Some(transform.clone());
-                    }
-
-                    // For chained kubelet routing (pod -> node via kubelet-exec
-                    // envelope, then node -> pod via kubelet-pod-exec), the
-                    // sink hop is structural: the outer envelope already executes
-                    // the inner command inside the final pod. Wrapping the sink
-                    // with RelationSummary::wrap_command would fall back to
-                    // `kubectl exec ...` (because kubelet-pod-exec has no
-                    // envelope), causing token reads to run with a missing
-                    // kubectl binary in the target pod.
-                    if rel.name == "rce.can-exec" && rel.envelope.is_none() {
-                        return Err(ExecuteActionError::InvariantViolation(format!(
-                            "rce.can-exec channel from '{src}' to '{tgt}' has no command envelope"
-                        )));
-                    } else if rel.name == "kubelet-pod-exec" && rel.envelope.is_none() && i > 1 {
-                        let outer_src = full_chain[i - 2];
-                        let outer_rel_has_envelope = self
-                            .graph
-                            .outgoing(&EntityId::new(outer_src))
-                            .into_iter()
-                            .find(|(t, d)| *t == &src_eid && d.is_exec_channel)
-                            .and_then(|(_, d)| d.envelope.clone())
-                            .is_some();
-
-                        if outer_rel_has_envelope {
-                            // Modern channel edges with envelope metadata on the
-                            // outer kubelet hop can pass the command through.
-                            procedure.command.clone()
-                        } else if let Some(cmd) =
-                            self.build_kubelet_exec_command(src, tgt, &procedure.command, args)
-                        {
-                            output_transform = Some(OutputTransform::JsonEnvelope);
-                            cmd
-                        } else {
-                            procedure.command.clone()
-                        }
-                    } else {
-                        rel.wrap_command(&procedure.command)
-                    }
+            let d = &selected_edges[i - 1].data;
+            let rel = ran_domain::RelationSummary {
+                name: d.relation_name.clone(),
+                source_id: src.to_string(),
+                target_id: tgt.to_string(),
+                is_exec_channel: true,
+                envelope: d.envelope.clone(),
+                output_transform: d.output_transform.clone(),
+                weight: d.weight,
+                session_id: d.session_id.clone(),
+                broken: d.broken,
+            };
+            let hop_relation = rel.name.clone();
+            let hop_envelope = rel.envelope.clone();
+            if let Some(transform) = d.realization_output_transform() {
+                if output_transform.is_some() {
+                    return Err(ExecuteActionError::InvariantViolation(
+                        "selected route requires unsupported output-transform composition".into(),
+                    ));
                 }
-                None => {
-                    return Err(ExecuteActionError::InvariantViolation(format!(
-                        "resolved execution chain has no exec-channel edge from '{src}' to '{tgt}'"
-                    )));
+                output_transform = Some(transform);
+            }
+            let wrapped_command = if rel.name == "kubelet-pod-exec" && rel.envelope.is_none() {
+                if i <= 1 || selected_edges[i - 2].data.relation_name != "kubelet-exec" {
+                    return Err(ExecuteActionError::InvariantViolation(
+                        "kubelet sink has no selected transit transport".into(),
+                    ));
                 }
+                procedure.command.clone()
+            } else if rel.name == "kubelet-exec" && rel.envelope.is_none() {
+                let sink = selected_edges
+                    .get(i)
+                    .filter(|edge| edge.data.relation_name == "kubelet-pod-exec")
+                    .ok_or_else(|| {
+                        ExecuteActionError::InvariantViolation(
+                            "selected kubelet source has no Pod sink".into(),
+                        )
+                    })?;
+                let plan = kubelet_plans
+                    .iter()
+                    .find(|plan| {
+                        plan.source_id == src && plan.node_id == tgt && plan.pod_id == sink.target.0
+                    })
+                    .ok_or_else(|| {
+                        ExecuteActionError::InvariantViolation(
+                            "selected kubelet pair has no typed realization".into(),
+                        )
+                    })?;
+                plan.render(&procedure.command)
+                    .map_err(ExecuteActionError::InvalidInput)?
+            } else {
+                rel.wrap_command(&procedure.command)
             };
             let embedded_command = hop_envelope
                 .as_deref()
@@ -2661,7 +2741,10 @@ impl Campaign {
 
             // After wrapping, ground the outer tool (first word of the wrapped
             // command) against the source system's binary map.
-            if let Some(sys) = self.get_system_entity(src) {
+            if let Some(sys) = self
+                .get_system_entity(src)
+                .filter(|_| i == 1 || selected_edges[i - 2].data.grants_target_execution())
+            {
                 procedure.command =
                     ground_binary_in_cmd(&procedure.command, &sys.entity().system().binaries);
             }
@@ -2689,105 +2772,6 @@ impl Campaign {
             traversal,
             inner_command,
         })
-    }
-
-    /// Build a direct Ranplant kubelet exec command for `node -> pod` sink hops.
-    ///
-    /// Used as a compatibility fallback when historical graph edges lack
-    /// envelope metadata on `kubelet-exec` relations.
-    fn build_kubelet_exec_command(
-        &self,
-        node_id: &str,
-        pod_id: &str,
-        inner_cmd: &str,
-        args: &HashMap<String, String>,
-    ) -> Option<String> {
-        let (namespace, pod_name) = split_pod_entity_id(pod_id)?;
-        let node_host = self
-            .preferred_kubelet_host(node_id, pod_id, args)
-            .unwrap_or_else(|| node_id.strip_prefix("node/").unwrap_or(node_id).to_string());
-
-        let container = self
-            .entities
-            .find::<Pod>(&EntityId::new(pod_id))
-            .and_then(|p| p.containers.first().map(|c| c.name.clone()))
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| "main".to_string());
-
-        let encoded_cmd = urlencoding::encode(inner_cmd);
-        let url = format!(
-            "wss://{}:10250/exec/{}/{}/{}?output=1&error=1&command={}",
-            node_host, namespace, pod_name, container, encoded_cmd
-        );
-
-        Some(format!(
-            "ranplant kubelet-exec --url {} --token-file /var/run/secrets/kubernetes.io/serviceaccount/token --ca-file /var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
-            shell_words::quote(&url)
-        ))
-    }
-
-    fn preferred_kubelet_host(
-        &self,
-        node_id: &str,
-        pod_id: &str,
-        args: &HashMap<String, String>,
-    ) -> Option<String> {
-        if let Some(host_ip) = self
-            .get_system_entity(pod_id)
-            .and_then(|entity| match entity {
-                CampaignSystemEntityRef::Pod(pod) => pod.host_ip.map(|ip| ip.to_string()),
-                _ => None,
-            })
-        {
-            return Some(host_ip);
-        }
-
-        if let Some(node_ip) = args
-            .get("NODE.IP")
-            .map(|v| v.trim())
-            .filter(|v| !v.is_empty() && !v.contains("${"))
-        {
-            return Some(node_ip.to_string());
-        }
-
-        if let Some(node_host) = args
-            .get("NODE")
-            .map(|v| v.trim())
-            .filter(|v| !v.is_empty() && !v.contains("${"))
-        {
-            return Some(node_host.to_string());
-        }
-
-        self.preferred_node_endpoint(node_id)
-    }
-
-    fn preferred_node_endpoint(&self, node_id: &str) -> Option<String> {
-        let bare = node_id.strip_prefix("node/").unwrap_or(node_id).trim();
-
-        let mut candidates = vec![node_id.to_string()];
-        if !bare.is_empty() {
-            let prefixed = format!("node/{}", bare);
-            if prefixed != node_id {
-                candidates.push(prefixed);
-            }
-        }
-
-        for candidate in candidates {
-            if let Some(CampaignSystemEntityRef::Node(node)) = self.get_system_entity(&candidate) {
-                if let Some(ip) = node.system.ips.first() {
-                    return Some(ip.to_string());
-                }
-                if !node.name.trim().is_empty() {
-                    return Some(node.name.clone());
-                }
-            }
-        }
-
-        if bare.is_empty() {
-            None
-        } else {
-            Some(bare.to_string())
-        }
     }
 
     /// Apply the non-graph writes described by a parsed effect. Graph facts
@@ -2851,35 +2835,11 @@ impl Campaign {
     /// Execution evidence belongs to the physical environment. A native API
     /// response says nothing about binaries or process state on its resource.
     fn execution_system_id<'a>(&self, cmd: &'a ExecTtp) -> Option<&'a str> {
-        if matches!(
-            cmd.operation,
-            ExecutionOperation::KubernetesRequest { .. }
-                | ExecutionOperation::AuthenticatedHttpRequest { .. }
-        ) {
-            return None;
-        }
-        cmd.exec_chain
-            .iter()
-            .rev()
-            .map(String::as_str)
-            .find(|id| self.get_system_entity(id).is_some())
-            .or_else(|| {
-                if matches!(cmd.operation, ExecutionOperation::LocalShell { .. }) {
-                    cmd.args
-                        .get("SRC")
-                        .map(String::as_str)
-                        .filter(|id| self.get_system_entity(id).is_some())
-                } else {
-                    cmd.args
-                        .get("TARGET_ID")
-                        .map(String::as_str)
-                        .filter(|id| self.get_system_entity(id).is_some())
-                        .or_else(|| {
-                            self.get_system_entity(&cmd.target_id)
-                                .map(|_| cmd.target_id.as_str())
-                        })
-                }
-            })
+        cmd.execution_environment
+            .as_ref()?
+            .system_id
+            .as_deref()
+            .filter(|id| self.get_system_entity(id).is_some())
     }
 
     /// Process a C2 result and retain whether it completed with an operational
@@ -2994,8 +2954,8 @@ impl Campaign {
         // Build the effect-parsing context: start with the TTP args and add
         // PROCEDURE_CMD so relation-effect handlers (e.g. rce.can-exec) that
         // need the executed command template can read it without special-casing.
-        // TARGET_ID resolves the `sys` placeholder used in relation effects like
-        // `k8s.kubelet-exec(sys, all(k8s.Node))` to the actual executing entity.
+        // Resource effects retain TARGET_ID. Physical `sys` effects use a
+        // separate, reserved EXECUTOR_ID derived only from persisted provenance.
         let mut effect_ctx = cmd.args.clone();
         effect_ctx
             .entry("PROCEDURE_CMD".to_string())
@@ -3003,6 +2963,10 @@ impl Campaign {
         effect_ctx
             .entry("TARGET_ID".to_string())
             .or_insert_with(|| cmd.target_id.clone());
+        effect_ctx.remove("EXECUTOR_ID");
+        if let Some(executor) = crate::output_parsers::resolve_executor_id(self, cmd) {
+            effect_ctx.insert("EXECUTOR_ID".into(), executor);
+        }
         // TARGET_NODE_ID is the entity ID of the node the executing pod runs on.
         // Used by kubelet-exec and container.escape effects.
         // Resolution order:
@@ -3075,7 +3039,11 @@ impl Campaign {
         // KubeletExecSourceRule can see the updated binary map in campaign state.
         // Only records if currently Unknown - preserves more precise paths set by
         // sys.has-binary(${OUTPUT}) or from a real parser.
-        if let Some(tool) = procedure_tool(&cmd.procedure) {
+        if let Some(tool) = cmd
+            .execution_environment
+            .as_ref()
+            .and_then(|environment| environment.tool.as_deref())
+        {
             let system_id = self.execution_system_id(cmd);
 
             if let Some(id) = system_id {
@@ -3485,7 +3453,7 @@ impl Campaign {
 
         // When a C2 channel relation is added to a system entity, ensure
         // access_level reflects at least Exec so the field stays consistent.
-        if rel.is_exec_channel() {
+        if rel.grants_target_execution() {
             if let Some(pod) = self.entities.find_mut::<Pod>(tgt) {
                 if pod.system.access_level == ran_domain::AccessLevel::None {
                     pod.system.access_level = ran_domain::AccessLevel::Exec;
@@ -3749,13 +3717,18 @@ impl Campaign {
         procedure_id: Option<&str>,
         target_id: &str,
         exec_system_id: Option<&str>,
-        auth_identity_id: Option<&str>,
+        procedure_plans: &crate::action_resolution::ProcedurePlans,
     ) -> Result<Procedure, ExecuteActionError> {
-        let planner = ClientExecutionPlanner::new(self);
         let readiness = |procedure: &Procedure| {
             if ProcedureExecutionSemantics::from_definition(procedure).needs_client_plan() {
-                planner
-                    .plan(ttp, procedure, target_id, auth_identity_id, exec_system_id)
+                let index = ttp
+                    .procedures
+                    .iter()
+                    .position(|definition| definition.id == procedure.id)
+                    .expect("definition exists");
+                procedure_plans[index]
+                    .clone()
+                    .expect("client definition was planned")
                     .map(|plan| plan.readiness)
             } else {
                 Ok(procedure_readiness(
@@ -4088,10 +4061,23 @@ pub fn recommended_procedure<'a>(
 /// which treats `> 0.0` as runnable) and the `reliability` consideration (which
 /// uses the value to prefer confirmed-runnable actions) so the two never drift.
 pub fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &str) -> f32 {
+    best_tool_readiness_with_context(
+        ttp,
+        campaign,
+        target_id,
+        &ClientExecutionPlanner::new(campaign),
+    )
+}
+
+pub(crate) fn best_tool_readiness_with_context(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    target_id: &str,
+    planner: &ClientExecutionPlanner<'_>,
+) -> f32 {
     if ttp.procedures.is_empty() {
         return 1.0;
     }
-    let planner = ClientExecutionPlanner::new(campaign);
     ttp.procedures
         .iter()
         .map(|procedure| {

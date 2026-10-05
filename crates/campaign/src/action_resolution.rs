@@ -2,8 +2,7 @@ use crate::campaign::execution_planning::{
     ClientExecutionPlan, ClientExecutionPlanner, ProcedureExecutionSemantics,
 };
 use crate::ttp_applicability::{
-    eligible_auth_identities, resolve_target_context, software_requirement_states,
-    ttp_applicable_for_target, RequirementState,
+    eligible_auth_identities, resolve_target_context, software_requirement_states, RequirementState,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -157,24 +156,70 @@ pub fn resolve_action(
     target_id: &str,
     input: &ActionResolutionInput,
 ) -> Option<ActionResolution> {
+    resolve_action_with_context(
+        ttp,
+        campaign,
+        target_id,
+        input,
+        &ClientExecutionPlanner::new(campaign),
+    )
+}
+
+/// Share snapshot-scoped graph work across a complete action enumeration.
+pub fn resolve_action_with_context(
+    ttp: &armory::Ttp,
+    campaign: &crate::Campaign,
+    target_id: &str,
+    input: &ActionResolutionInput,
+    planner: &crate::ExecutionPlanningContext<'_>,
+) -> Option<ActionResolution> {
+    resolve_action_planned(ttp, campaign, target_id, input, planner)
+        .map(|(resolution, _)| resolution)
+}
+
+pub(crate) type ProcedurePlans =
+    Vec<Option<Result<ClientExecutionPlan, crate::ExecuteActionError>>>;
+
+pub(crate) fn resolve_action_planned(
+    ttp: &armory::Ttp,
+    campaign: &crate::Campaign,
+    target_id: &str,
+    input: &ActionResolutionInput,
+    planner: &ClientExecutionPlanner<'_>,
+) -> Option<(ActionResolution, ProcedurePlans)> {
+    if !planner.belongs_to(campaign) {
+        return None;
+    }
     let target = campaign
         .get_entities()
         .into_iter()
         .find(|entity| entity.entity_id().0 == target_id)?;
     let target_context = resolve_target_context(campaign, target_id)?;
     let applicable = !ttp.status.eq_ignore_ascii_case("disabled")
-        && ttp_applicable_for_target(ttp, campaign, &target_context);
+        && crate::ttp_applicability::ttp_applicable_with_context(
+            ttp,
+            campaign,
+            &target_context,
+            planner,
+        );
 
     let mut arguments = ttp
         .params
         .iter()
         .map(|param| resolve_argument(param, ttp, campaign, &target, target_id, input))
         .collect::<Vec<_>>();
-    let planner = ClientExecutionPlanner::new(campaign);
     let auth_identity_id = input
         .auth_identity_id
         .as_deref()
         .or_else(|| input.args.get("K8S_AUTH").map(String::as_str))
+        .or_else(|| {
+            input.args.get("TOKEN").map(String::as_str).filter(|id| {
+                campaign.get_entities().iter().any(|entity| {
+                    matches!(entity, crate::CampaignEntityRef::ServiceAccount(_))
+                        && entity.entity_id().0 == id.trim()
+                })
+            })
+        })
         .or_else(|| {
             arguments
                 .iter()
@@ -333,16 +378,19 @@ pub fn resolve_action(
         ActionReadinessStatus::Ready
     };
 
-    Some(ActionResolution {
-        action_id: ttp.id.clone(),
-        target_id: target_id.to_string(),
-        status,
-        reasons,
-        arguments,
-        procedures,
-        requirements,
-        recommended_procedure_id,
-    })
+    Some((
+        ActionResolution {
+            action_id: ttp.id.clone(),
+            target_id: target_id.to_string(),
+            status,
+            reasons,
+            arguments,
+            procedures,
+            requirements,
+            recommended_procedure_id,
+        },
+        client_plans,
+    ))
 }
 
 pub fn summarize(resolution: &ActionResolution) -> ActionState {
@@ -380,7 +428,6 @@ fn resolve_procedure(
     if let Some(client_plan) = client_plan {
         match client_plan {
             Ok(plan) => {
-                let local = plan.channel.is_none();
                 return ProcedureState {
                     procedure_id: procedure.id.clone(),
                     status: match plan.readiness {
@@ -390,7 +437,7 @@ fn resolve_procedure(
                             ProcedureReadinessStatus::Unavailable
                         }
                     },
-                    required_tool: if local { None } else { required_tool.clone() },
+                    required_tool: plan.required_tool.clone(),
                     reason: (plan.readiness == crate::ProcedureReadiness::Unknown).then(|| {
                         format!(
                             "required tool '{}' has not been observed on the execution system",

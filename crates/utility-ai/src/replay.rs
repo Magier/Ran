@@ -208,6 +208,7 @@ fn reconstruct_cmd(rec: &ExecutionRecord, armory: &[Ttp]) -> Option<ExecTtp> {
         // reconstruct. Semantic (target_id-keyed) effects still apply.
         exec_chain: Vec::new(),
         exec_system_id: rec.exec_system_id.clone(),
+        execution_environment: rec.execution_environment.clone(),
         auth_identity_id: rec.auth_identity_id.clone(),
         started_at_ms: rec.started_at_ms,
         execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
@@ -257,6 +258,7 @@ mod tests {
             tactic: "Discovery".to_string(),
             target_id: target_id.to_string(),
             exec_system_id: target_id.to_string(),
+            execution_environment: None,
             auth_identity_id: None,
             procedure_id: "shell".to_string(),
             command: "id".to_string(),
@@ -279,6 +281,45 @@ mod tests {
         let mut c = Campaign::bootstrap("test", K8sCluster::new("test"));
         let pod = c.seed_pod_for_trigger("nginx", "default").0;
         (c, pod)
+    }
+
+    #[test]
+    fn replayed_system_facts_use_persisted_executor_not_the_resource_target() {
+        use ran_domain::{BinaryPresence, ExecutionEnvironment};
+        for persisted in [false, true] {
+            let (campaign, pod) = campaign_with_pod();
+            let mut ttp = system_ttp("local-proof", "Discovery");
+            ttp.effects
+                .push("sys.has-binary(proof, /operator/proof)".into());
+            let mut rec = record("local-proof", &pod, true);
+            rec.execution_environment = persisted.then(|| ExecutionEnvironment {
+                system_id: Some("system/operator-host".into()),
+                tool: None,
+            });
+            let (_, replayed) = replay_trace(campaign, &[ttp], &[rec]);
+            assert_eq!(
+                replayed
+                    .get_system_entity(&pod)
+                    .unwrap()
+                    .entity()
+                    .system()
+                    .has_binary("proof"),
+                BinaryPresence::Unknown
+            );
+            assert_eq!(
+                replayed
+                    .get_system_entity("system/operator-host")
+                    .unwrap()
+                    .entity()
+                    .system()
+                    .has_binary("proof"),
+                if persisted {
+                    BinaryPresence::Present("/operator/proof".into())
+                } else {
+                    BinaryPresence::Unknown
+                }
+            );
+        }
     }
 
     #[test]

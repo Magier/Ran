@@ -37,7 +37,7 @@ fn parse_network_discovery(
         || data.contains("<nmaprun")
         || data.contains("Host:");
     if looks_like_nmap {
-        let source_id = args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+        let source_id = args.get("EXECUTOR_ID").map(String::as_str).unwrap_or("");
         let cidr = args.get("CIDR").map(String::as_str);
         return parse_nmap(data, source_id, cidr);
     }

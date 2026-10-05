@@ -1287,12 +1287,20 @@ export interface components {
 			permissions: components['schemas']['KubetierPermission'][];
 			roles: components['schemas']['KubetierRole'][];
 		};
+		/** @description Physical execution provenance. Missing legacy provenance is unknown, not the semantic target. */
+		ExecutionEnvironment: {
+			/** @description Actual command host, including the operator host for local clients. */
+			system_id?: string;
+			/** @description Actual binary executed. Absent for native API requests. */
+			tool?: string;
+		};
 		/**
 		 * @description A completed TTP execution joined with the parse audits produced by its
 		 *     declared effects. The record fields are flattened at the top level;
 		 *     `parseAudits` is the list of per-effect audit entries.
 		 */
 		ExecutionRecordEntry: {
+			execution_environment?: components['schemas']['ExecutionEnvironment'];
 			/** @description Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events */
 			id: string;
 			ttp_id: string;

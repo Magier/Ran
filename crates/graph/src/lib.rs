@@ -8,4 +8,4 @@ pub mod edge;
 pub mod graph;
 
 pub use edge::{edge_data_for, relation_defaults, EdgeData};
-pub use graph::KnowledgeGraph;
+pub use graph::{ExecPath, KnowledgeGraph, SelectedExecEdge};

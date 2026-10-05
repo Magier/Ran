@@ -629,6 +629,7 @@ mod tests {
             target_id: "node/test".to_string(),
             exec_chain: vec!["node/test".to_string()],
             exec_system_id: "session/test".to_string(),
+            execution_environment: None,
             auth_identity_id: None,
             started_at_ms: 0,
             execution_timeout_seconds: 5,

@@ -68,7 +68,8 @@ pub struct Procedure {
     pub is_local_command: Option<bool>,
     /// Whether the procedure physically executes on its semantic target.
     /// `None` preserves target-side behavior for host commands; structured
-    /// requests independently select a client environment. `Some(false)` keeps
+    /// requests independently select a client environment. `Some(true)` pins
+    /// the client to the target environment. `Some(false)` keeps
     /// the target context but requires a route that excludes that target.
     #[serde(rename = "runOnTarget", skip_serializing_if = "Option::is_none")]
     pub run_on_target: Option<bool>,

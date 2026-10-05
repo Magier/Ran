@@ -915,10 +915,10 @@ impl InferenceRule for KubeletMountAnalyzer {
 // ---------------------------------------------------------------------------
 
 /// Set `system.access_level` to `Exec` on every system entity that receives
-/// an incoming exec-channel relation.
+/// an incoming terminal execution relation. Transit does not confer host access.
 ///
 /// Triggers on any relation that returns `true` for
-/// [`Relation::is_exec_channel`] - this covers `PodExec` (kubectl exec),
+/// [`Relation::grants_target_execution`] - this covers `PodExec` (kubectl exec),
 /// `KubeletExecSink` (kubelet exec), `RceCanExec` (exploit), and any future
 /// exec-channel type without needing a name-based allowlist.
 ///
@@ -941,7 +941,7 @@ impl InferenceRule for CanExecAccessAnalyzer {
         let exec_target_ids: Vec<ran_domain::EntityId> = update
             .new_relations
             .iter()
-            .filter(|r| r.is_exec_channel())
+            .filter(|r| r.grants_target_execution())
             .map(|r| r.target_id().clone())
             .collect();
 

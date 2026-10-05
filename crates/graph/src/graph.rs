@@ -11,6 +11,41 @@ use ran_domain::{EntityId, RelationSummary};
 
 use crate::edge::EdgeData;
 
+fn ordered_float_cost(cost: f32) -> u32 {
+    // Search admits only nonnegative finite costs, whose bit order is numeric.
+    cost.to_bits()
+}
+
+/// Exact transport selected by search. Generation prevents a deleted edge's
+/// recycled graph index from silently becoming a different channel.
+#[derive(Clone, PartialEq)]
+pub struct SelectedExecEdge {
+    pub source: EntityId,
+    pub target: EntityId,
+    pub data: EdgeData,
+    index: EdgeIndex,
+    generation: u64,
+}
+
+impl std::fmt::Debug for SelectedExecEdge {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SelectedExecEdge")
+            .field("source", &self.source)
+            .field("target", &self.target)
+            .field("relation", &self.data.relation_name)
+            .field("generation", &self.generation)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExecPath {
+    pub cost: f32,
+    pub nodes: Vec<EntityId>,
+    pub edges: Vec<SelectedExecEdge>,
+}
+
 #[derive(PartialEq)]
 struct ExecSearchEntry {
     cost: f32,
@@ -54,6 +89,8 @@ pub struct KnowledgeGraph {
     pub(crate) graph: StableGraph<EntityId, EdgeData>,
     /// `O(1)` lookup from entity id to its node index.
     pub(crate) index: HashMap<EntityId, NodeIndex>,
+    edge_generations: HashMap<EdgeIndex, u64>,
+    next_edge_generation: u64,
 }
 
 impl Default for KnowledgeGraph {
@@ -67,6 +104,8 @@ impl KnowledgeGraph {
         Self {
             graph: StableGraph::new(),
             index: HashMap::new(),
+            edge_generations: HashMap::new(),
+            next_edge_generation: 0,
         }
     }
 
@@ -130,7 +169,7 @@ impl KnowledgeGraph {
                 continue;
             }
             if !self.has_edge_between(keep_idx, tgt, &data.relation_name) {
-                self.graph.add_edge(keep_idx, tgt, data);
+                self.add_edge(keep_idx, tgt, data);
             }
         }
 
@@ -139,7 +178,7 @@ impl KnowledgeGraph {
                 continue;
             }
             if !self.has_edge_between(src, keep_idx, &data.relation_name) {
-                self.graph.add_edge(src, keep_idx, data);
+                self.add_edge(src, keep_idx, data);
             }
         }
     }
@@ -216,7 +255,169 @@ impl KnowledgeGraph {
             }
         }
 
-        Some(self.graph.add_edge(src_idx, tgt_idx, data))
+        Some(self.add_edge(src_idx, tgt_idx, data))
+    }
+
+    fn add_edge(&mut self, src: NodeIndex, tgt: NodeIndex, data: EdgeData) -> EdgeIndex {
+        let index = self.graph.add_edge(src, tgt, data);
+        self.next_edge_generation += 1;
+        self.edge_generations
+            .insert(index, self.next_edge_generation);
+        index
+    }
+
+    pub fn validate_selected_edge(&self, selected: &SelectedExecEdge) -> bool {
+        self.edge_generations.get(&selected.index) == Some(&selected.generation)
+            && self
+                .graph
+                .edge_endpoints(selected.index)
+                .is_some_and(|(src, tgt)| {
+                    self.graph[src] == selected.source && self.graph[tgt] == selected.target
+                })
+            && self
+                .graph
+                .edge_weight(selected.index)
+                .is_some_and(|data| !data.broken && data == &selected.data)
+    }
+
+    fn select_edge(&self, index: EdgeIndex) -> SelectedExecEdge {
+        let (src, tgt) = self
+            .graph
+            .edge_endpoints(index)
+            .expect("search edge exists");
+        SelectedExecEdge {
+            source: self.graph[src].clone(),
+            target: self.graph[tgt].clone(),
+            data: self.graph[index].clone(),
+            index,
+            generation: self.edge_generations[&index],
+        }
+    }
+
+    /// Search realizable transports, carrying terminal/transit and output-
+    /// transform state. Invalid shortcuts cannot hide a longer valid route.
+    pub fn executable_paths(
+        &self,
+        seeds: &[EntityId],
+        excluded: Option<&EntityId>,
+    ) -> HashMap<EntityId, ExecPath> {
+        self.executable_paths_with_transforms(seeds, excluded, true)
+    }
+
+    pub fn executable_paths_with_transforms(
+        &self,
+        seeds: &[EntityId],
+        excluded: Option<&EntityId>,
+        allow_output_transform: bool,
+    ) -> HashMap<EntityId, ExecPath> {
+        self.executable_paths_filtered(seeds, excluded, allow_output_transform, |_, _, _| true)
+    }
+
+    pub fn executable_paths_filtered(
+        &self,
+        seeds: &[EntityId],
+        excluded: Option<&EntityId>,
+        allow_output_transform: bool,
+        usable: impl Fn(&EntityId, &EntityId, &EdgeData) -> bool,
+    ) -> HashMap<EntityId, ExecPath> {
+        type State = (NodeIndex, bool, bool);
+        let excluded_idx = excluded.and_then(|id| self.index.get(id)).copied();
+        let mut costs: HashMap<State, f32> = HashMap::new();
+        let mut previous: HashMap<State, (State, EdgeIndex)> = HashMap::new();
+        // Reverse tuple ordering gives deterministic cost, entity, and state ties.
+        let mut queue = BinaryHeap::new();
+        for seed in seeds {
+            if let Some(&node) = self.index.get(seed) {
+                if Some(node) != excluded_idx {
+                    costs.insert((node, false, false), 0.0);
+                    queue.push(std::cmp::Reverse((
+                        ordered_float_cost(0.0),
+                        seed.0.clone(),
+                        node,
+                        false,
+                        false,
+                    )));
+                }
+            }
+        }
+        while let Some(std::cmp::Reverse((bits, _, node, transit, transformed))) = queue.pop() {
+            let cost = f32::from_bits(bits);
+            let state = (node, transit, transformed);
+            if cost > costs[&state] {
+                continue;
+            }
+            let mut edges = self
+                .graph
+                .edges_directed(node, Direction::Outgoing)
+                .filter(|edge| {
+                    let data = edge.weight();
+                    Some(edge.target()) != excluded_idx
+                        && data.is_realizable(&self.graph[edge.target()])
+                        && data.relation_name != "c2.session"
+                        && usable(&self.graph[node], &self.graph[edge.target()], data)
+                        && (data.relation_name == "kubelet-pod-exec") == transit
+                        && !(transformed && data.realization_output_transform().is_some())
+                        && (allow_output_transform || data.realization_output_transform().is_none())
+                })
+                .collect::<Vec<_>>();
+            edges.sort_by(|a, b| {
+                self.graph[a.target()]
+                    .0
+                    .cmp(&self.graph[b.target()].0)
+                    .then_with(|| a.weight().weight.total_cmp(&b.weight().weight))
+                    .then_with(|| a.weight().relation_name.cmp(&b.weight().relation_name))
+                    .then_with(|| a.weight().envelope.cmp(&b.weight().envelope))
+                    .then_with(|| a.weight().session_id.cmp(&b.weight().session_id))
+                    .then_with(|| {
+                        a.weight()
+                            .output_transform
+                            .cmp(&b.weight().output_transform)
+                    })
+            });
+            for edge in edges {
+                let next = (
+                    edge.target(),
+                    !edge.weight().grants_target_execution(),
+                    transformed || edge.weight().realization_output_transform().is_some(),
+                );
+                let next_cost = cost + edge.weight().weight;
+                if next_cost.is_finite() && costs.get(&next).is_none_or(|known| next_cost < *known)
+                {
+                    costs.insert(next, next_cost);
+                    previous.insert(next, (state, edge.id()));
+                    queue.push(std::cmp::Reverse((
+                        ordered_float_cost(next_cost),
+                        self.graph[next.0].0.clone(),
+                        next.0,
+                        next.1,
+                        next.2,
+                    )));
+                }
+            }
+        }
+        let mut destinations = costs
+            .iter()
+            .filter(|((_, transit, _), _)| !transit)
+            .collect::<Vec<_>>();
+        destinations.sort_by(|(a, ac), (b, bc)| ac.total_cmp(bc).then_with(|| a.2.cmp(&b.2)));
+        let mut paths = HashMap::new();
+        for (&state, &cost) in destinations {
+            let id = self.graph[state.0].clone();
+            if paths.contains_key(&id) {
+                continue;
+            }
+            let mut edges = Vec::new();
+            let mut current = state;
+            while let Some(&(parent, edge)) = previous.get(&current) {
+                edges.push(self.select_edge(edge));
+                current = parent;
+            }
+            edges.reverse();
+            let mut nodes = vec![self.graph[current.0].clone()];
+            nodes.extend(edges.iter().map(|edge| edge.target.clone()));
+            paths.insert(id, ExecPath { cost, nodes, edges });
+        }
+        paths
     }
 
     /// Remove all edges from `src` to `tgt` with the given relation name.
@@ -492,7 +693,7 @@ impl KnowledgeGraph {
         let idxs: Vec<petgraph::stable_graph::EdgeIndex> = self
             .graph
             .edges_directed(ti, petgraph::Direction::Incoming)
-            .filter(|e| e.weight().is_exec_channel)
+            .filter(|e| e.weight().grants_target_execution())
             .map(|e| e.id())
             .collect();
         let found = !idxs.is_empty();
@@ -503,6 +704,8 @@ impl KnowledgeGraph {
                 // edge becomes traversable again.
                 data.broken = false;
             }
+            self.next_edge_generation += 1;
+            self.edge_generations.insert(idx, self.next_edge_generation);
         }
         found
     }
@@ -531,6 +734,8 @@ impl KnowledgeGraph {
                 data.broken = true;
                 marked += 1;
             }
+            self.next_edge_generation += 1;
+            self.edge_generations.insert(idx, self.next_edge_generation);
         }
         marked
     }
@@ -595,6 +800,143 @@ impl KnowledgeGraph {
 mod tests {
     use super::*;
     use crate::edge::edge_data_for;
+
+    #[test]
+    fn executable_routes_preserve_live_cheapest_parallel_edges_in_any_insertion_order() {
+        for reverse in [false, true] {
+            let mut graph = KnowledgeGraph::new();
+            let source = EntityId::new("ns/default/pod/source");
+            let target = EntityId::new("ns/default/pod/target");
+            let mut broken = EdgeData::new("container.escape", 0.1, true)
+                .with_envelope(Some("BROKEN ${CMD}".into()));
+            broken.broken = true;
+            let expensive = EdgeData::new("k8s.can-exec", 4.0, true)
+                .with_envelope(Some("EXPENSIVE ${CMD}".into()));
+            let cheap =
+                EdgeData::new("rce.can-exec", 2.0, true).with_envelope(Some("SAFE ${CMD}".into()));
+            let mut edges = vec![broken, expensive, cheap];
+            if reverse {
+                edges.reverse();
+            }
+            for edge in edges {
+                graph.insert_edge(&source, &target, edge);
+            }
+            let path = graph
+                .executable_paths(&[source], None)
+                .remove(&target)
+                .unwrap();
+            assert_eq!(path.cost, 2.0);
+            assert_eq!(path.edges[0].data.envelope.as_deref(), Some("SAFE ${CMD}"));
+            assert!(graph.validate_selected_edge(&path.edges[0]));
+        }
+    }
+
+    #[test]
+    fn selected_transport_is_invalid_after_invalidation_or_index_recycling() {
+        let mut graph = KnowledgeGraph::new();
+        let source = EntityId::new("ns/default/pod/source");
+        let target = EntityId::new("ns/default/pod/target");
+        let data =
+            EdgeData::new("rce.can-exec", 1.0, true).with_envelope(Some("SAFE ${CMD}".into()));
+        graph.insert_edge(&source, &target, data.clone());
+        let selected = graph
+            .executable_paths(std::slice::from_ref(&source), None)
+            .remove(&target)
+            .unwrap()
+            .edges
+            .remove(0);
+        graph.graph[selected.index].broken = true;
+        assert!(!graph.validate_selected_edge(&selected));
+        graph.remove_edges(&source, &target, "rce.can-exec");
+        graph.insert_edge(&source, &target, data);
+        assert!(!graph.validate_selected_edge(&selected));
+    }
+
+    #[test]
+    fn a_recovered_session_requires_a_fresh_selected_transport() {
+        let mut graph = KnowledgeGraph::new();
+        let source = EntityId::new("ns/default/pod/source");
+        let target = EntityId::new("ns/default/pod/target");
+        graph.insert_edge(&source, &target, edge_data_for("k8s.can-exec", None, None));
+        graph.activate_session_on_incoming_exec(&target, "session/live".into());
+        let selected = graph
+            .executable_paths(std::slice::from_ref(&source), None)
+            .remove(&target)
+            .unwrap()
+            .edges
+            .remove(0);
+        graph.mark_session_broken("session/live");
+        graph.activate_session_on_incoming_exec(&target, "session/live".into());
+        assert!(!graph.validate_selected_edge(&selected));
+        let fresh = graph
+            .executable_paths(&[source], None)
+            .remove(&target)
+            .unwrap()
+            .edges
+            .remove(0);
+        assert!(graph.validate_selected_edge(&fresh));
+    }
+
+    #[test]
+    fn unrealizable_shortcuts_do_not_hide_longer_realizable_routes() {
+        let mut graph = KnowledgeGraph::new();
+        let source = EntityId::new("ns/default/pod/source");
+        let middle = EntityId::new("ns/default/pod/middle");
+        let target = EntityId::new("ns/default/pod/target");
+        graph.insert_edge(&source, &target, EdgeData::new("rce.can-exec", 0.1, true));
+        graph.insert_edge(&source, &middle, edge_data_for("k8s.can-exec", None, None));
+        graph.insert_edge(&middle, &target, edge_data_for("k8s.can-exec", None, None));
+        let path = graph
+            .executable_paths(&[source], None)
+            .remove(&target)
+            .unwrap();
+        assert_eq!(path.nodes.len(), 3);
+        assert_eq!(path.cost, 2.0);
+    }
+
+    #[test]
+    fn kubelet_transit_cannot_terminate_or_continue_into_arbitrary_host_channels() {
+        let mut graph = KnowledgeGraph::new();
+        let source = EntityId::new("ns/default/pod/source");
+        let node = EntityId::new("node/worker");
+        let pod = EntityId::new("ns/default/pod/target");
+        let host = EntityId::new("node/other");
+        graph.insert_edge(
+            &source,
+            &node,
+            edge_data_for("kubelet-exec", Some("kubelet ${CMD}".into()), None),
+        );
+        graph.insert_edge(&node, &pod, edge_data_for("kubelet-pod-exec", None, None));
+        graph.insert_edge(
+            &node,
+            &host,
+            edge_data_for("rce.can-exec", Some("host-rce ${CMD}".into()), None),
+        );
+        let paths = graph.executable_paths(&[source], None);
+        assert!(!paths.contains_key(&node));
+        assert!(!paths.contains_key(&host));
+        assert_eq!(paths[&pod].edges.len(), 2);
+    }
+
+    #[test]
+    fn discovered_kubelet_pair_is_typed_transit_with_an_output_transform() {
+        let mut graph = KnowledgeGraph::new();
+        let source = EntityId::new("ns/controlled/pod/source");
+        let node = EntityId::new("node/worker");
+        let pod = EntityId::new("ns/other/pod/target");
+        graph.insert_edge(&source, &node, edge_data_for("kubelet-exec", None, None));
+        graph.insert_edge(&node, &pod, edge_data_for("kubelet-pod-exec", None, None));
+        let paths = graph.executable_paths(std::slice::from_ref(&source), None);
+        assert!(!paths.contains_key(&node));
+        assert_eq!(paths[&pod].edges.len(), 2);
+        assert_eq!(
+            paths[&pod].edges[0].data.realization_output_transform(),
+            Some(ran_domain::OutputTransformKind::JsonEnvelope)
+        );
+        assert!(!graph
+            .executable_paths_with_transforms(&[source], None, false)
+            .contains_key(&pod));
+    }
 
     #[test]
     fn multi_source_exec_paths_match_individual_searches_and_skip_broken_context_edges() {

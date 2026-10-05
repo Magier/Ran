@@ -1,4 +1,4 @@
-use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
+use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_with_context};
 
 use crate::{ApiError, ApiService, GetArmoryParams};
 
@@ -51,9 +51,10 @@ fn applicable_ttps_for_target(
     let target = resolve_target_context(campaign, target_id)
         .ok_or_else(|| ApplicableTtpsError::UnknownTarget(target_id.to_owned()))?;
 
+    let planning = campaign::ExecutionPlanningContext::new(campaign);
     Ok(ttps
         .into_iter()
-        .filter(|ttp| ttp_applicable_for_target(ttp, campaign, &target))
+        .filter(|ttp| ttp_applicable_with_context(ttp, campaign, &target, &planning))
         .collect())
 }
 

@@ -56,8 +56,12 @@ pub enum ExecuteActionError {
 }
 
 /// A resolved execution channel for a TTP.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExecChannel {
+    /// Typed realizations for envelope-less discovered kubelet pairs.
+    pub kubelet_plans: Vec<super::KubeletExecPlan>,
+    /// Exact transport choices, preserved from graph search through wrapping.
+    pub edges: Vec<cortex::SelectedExecEdge>,
     /// C2 backend ID forwarded to the C2Manager (e.g. [`c2::BUILTIN_C2_ID`]).
     pub backend_id: String,
     /// Ordered list of intermediate pod entity IDs to kubectl-exec through,
@@ -81,6 +85,8 @@ pub struct ExecChannel {
 impl ExecChannel {
     pub fn direct(backend_id: impl Into<String>) -> Self {
         Self {
+            kubelet_plans: vec![],
+            edges: vec![],
             backend_id: backend_id.into(),
             hops: vec![],
             exec_target_id: None,
@@ -90,6 +96,8 @@ impl ExecChannel {
     /// Convenience constructor for a single-hop channel.
     pub fn via(backend_id: impl Into<String>, intermediate_id: impl Into<String>) -> Self {
         Self {
+            kubelet_plans: vec![],
+            edges: vec![],
             backend_id: backend_id.into(),
             hops: vec![intermediate_id.into()],
             exec_target_id: None,

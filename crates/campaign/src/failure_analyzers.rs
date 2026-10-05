@@ -561,6 +561,7 @@ mod tests {
             target_id: "ns/default/pod/demo".to_string(),
             exec_chain: vec!["ns/default/pod/demo".to_string()],
             exec_system_id: String::new(),
+            execution_environment: None,
             auth_identity_id: None,
             started_at_ms: 0,
             execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,

@@ -438,9 +438,26 @@ pub fn ttp_applicable_for_target(
     campaign: &Campaign,
     tc: &TargetContext,
 ) -> bool {
+    ttp_applicable_with_context(
+        ttp,
+        campaign,
+        tc,
+        &crate::ExecutionPlanningContext::new(campaign),
+    )
+}
+
+pub fn ttp_applicable_with_context(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    tc: &TargetContext,
+    planner: &crate::ExecutionPlanningContext<'_>,
+) -> bool {
+    if !planner.belongs_to(campaign) {
+        return false;
+    }
     ttp_target_scope_satisfied(ttp, tc)
         && ttp_auth_satisfied_for_target(ttp, campaign, tc)
-        && ttp_execution_source_satisfied(ttp, campaign, tc)
+        && ttp_execution_source_satisfied(ttp, campaign, tc, planner)
         && ttp_exists_satisfied(ttp, campaign)
         && ttp_has_listener_satisfied(ttp, campaign)
         && ttp_has_session_satisfied(ttp, campaign, &tc.target_id)
@@ -455,7 +472,7 @@ pub fn ttp_applicable_for_target(
         && software_requirement_states(ttp, campaign, &tc.target_id)
             .iter()
             .all(|requirement| requirement.status != RequirementStatus::Contradicted)
-        && ttp_tool_satisfied(ttp, campaign, tc)
+        && crate::campaign::execution::best_tool_readiness_with_context(ttp, campaign, &tc.target_id, planner) > 0.0
         // Last: the only gate that touches the filesystem. `&&` short-circuits,
         // so it runs only for targets every cheaper gate already accepted.
         && ttp_operator_tool_satisfied(ttp)
@@ -497,11 +514,9 @@ fn ttp_execution_source_satisfied(
     ttp: &armory::Ttp,
     campaign: &Campaign,
     tc: &TargetContext,
+    planner: &crate::ExecutionPlanningContext<'_>,
 ) -> bool {
-    use crate::campaign::execution_planning::{
-        ClientExecutionPlanner, ProcedureExecutionSemantics,
-    };
-    let planner = ClientExecutionPlanner::new(campaign);
+    use crate::campaign::execution_planning::ProcedureExecutionSemantics;
     let client_procedures = ttp
         .procedures
         .iter()
@@ -1897,6 +1912,7 @@ mod tests {
             tactic: "Privilege Escalation".to_string(),
             target_id: target_id.to_string(),
             exec_system_id: target_id.to_string(),
+            execution_environment: None,
             auth_identity_id: None,
             procedure_id: "nsenter".to_string(),
             command: "nsenter --target 1 --mount --uts --ipc --net --pid hostname".to_string(),

@@ -151,6 +151,17 @@ pub enum AccessLevel {
     Exec,
 }
 
+/// Physical execution provenance. Unknown legacy locations stay unknown;
+/// an API resource or credential identity must never be used as a fallback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionEnvironment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_id: Option<String>,
+    /// Actual client binary executed, absent for native API operations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // K8sMeta
 // ---------------------------------------------------------------------------
@@ -420,7 +431,7 @@ pub fn merge_software_facts(existing: &mut Vec<SoftwareFact>, incoming: &[Softwa
 /// Stored on exec-channel graph edges so the routing layer can read the
 /// required transform directly from the relation, rather than pattern-matching
 /// on relation names.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputTransformKind {
     /// The raw output is a JSON response envelope (produced by Ranplant /

@@ -5,6 +5,7 @@ pub(crate) mod execution_planning;
 mod state;
 #[cfg(test)]
 mod tests;
+mod transport;
 mod types;
 
 pub use entity_refs::{CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef};
@@ -15,6 +16,7 @@ pub use execution::{
     ProcedureReadiness,
 };
 pub use state::{Campaign, InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge};
+pub use transport::KubeletExecPlan;
 pub use types::{
     ExecChannel, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,
     ExecutedActionEvent, TtpExecutionProcessing,

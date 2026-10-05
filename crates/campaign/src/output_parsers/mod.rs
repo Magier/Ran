@@ -69,9 +69,12 @@ pub(crate) struct CapturedFile {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) enum ParserOutput {
-    /// Parser updated system-level fields on the target entity.
+    /// Physical system fields, attributed exclusively to persisted executor
+    /// provenance by the dispatcher. Parsers cannot select a fallback host.
     Success(SystemFieldUpdates, String),
-    /// Parser produced new entities and relations (not tied to a system target).
+    /// Resource facts whose attribution is explicit in the emitted entity and
+    /// relation IDs. Kubernetes resources, scan subjects, and IAM identities
+    /// are not implicitly reattributed to the physical command executor.
     SuccessWithFacts(FactsUpdate, String),
     KnownFailure(String),
     UnknownFormat(String),
@@ -173,6 +176,13 @@ pub fn parse_output_effect(
     let mut system_updates = Vec::new();
     let mut captured_files = Vec::new();
     let mut file_content_target = None;
+    // TARGET_ID remains the resource subject. EXECUTOR_ID is reserved context,
+    // supplied from persisted provenance, never trusted from submitted args.
+    let mut parser_args = cmd.args.clone();
+    parser_args.insert(
+        "EXECUTOR_ID".into(),
+        resolve_executor_id(campaign, cmd).unwrap_or_default(),
+    );
 
     let parser_output = match declaration {
         OutputEffect::SysHasBinary => {
@@ -183,13 +193,12 @@ pub fn parse_output_effect(
             let path = sys::extract_effect_args(effect_id).unwrap_or("");
             sys::parse_sys_hasfile(stdout, path)
         }
-        OutputEffect::SysSoftware => sys::parse_sys_software(stdout, stderr, &cmd.args),
+        OutputEffect::SysSoftware => sys::parse_sys_software(stdout, stderr, &parser_args),
         OutputEffect::Nmap => {
-            let source_id = cmd
-                .args
-                .get("TARGET_ID")
+            let source_id = parser_args
+                .get("EXECUTOR_ID")
                 .map(String::as_str)
-                .unwrap_or(&cmd.target_id);
+                .unwrap_or("");
             let cidr = cmd.args.get("CIDR").map(String::as_str);
             network::parse_nmap(stdout, source_id, cidr)
         }
@@ -211,7 +220,7 @@ pub fn parse_output_effect(
             let path = file::extract_path(effect_id)
                 .or_else(|| cmd.args.get("PATH").map(String::as_str))
                 .unwrap_or(effect_id);
-            file_content_target = resolve_target_id(campaign, cmd);
+            file_content_target = resolve_executor_id(campaign, cmd);
             if let Some(target_id) = &file_content_target {
                 system_updates.push(TargetedSystemUpdate {
                     target_id: target_id.clone(),
@@ -238,7 +247,7 @@ pub fn parse_output_effect(
             )
         }
         OutputEffect::Kubeconfig => {
-            let source_id = resolve_target_id(campaign, cmd);
+            let source_id = resolve_executor_id(campaign, cmd);
             let source_path = cmd.args.get("PATH").map(String::as_str);
             if let Some(path) = source_path.filter(|path| !path.trim().is_empty()) {
                 if !stdout.trim().is_empty() {
@@ -258,7 +267,7 @@ pub fn parse_output_effect(
             }
             iam::parse_raw_service_account_token(stdout, stderr, &parser_args)
         }
-        OutputEffect::Registered(parser) => parser(stdout, stderr, &cmd.args),
+        OutputEffect::Registered(parser) => parser(stdout, stderr, &parser_args),
         OutputEffect::Event(_) | OutputEffect::DeployContainer => unreachable!(),
     };
 
@@ -287,14 +296,14 @@ pub fn parse_output_effect(
             parsed_effect(effect_id, cmd, event, ParseResult::Parsed, &detail, facts)
         }
         ParserOutput::Success(updates, detail) => {
-            let target_id = file_content_target.or_else(|| resolve_target_id(campaign, cmd));
+            let target_id = file_content_target.or_else(|| resolve_executor_id(campaign, cmd));
             let Some(target_id) = target_id else {
                 return Some(parsed_effect(
                     effect_id,
                     cmd,
                     event,
                     ParseResult::KnownFailure,
-                    "target is not a system entity (checked target_id and exec_system_id)",
+                    "physical executor provenance is missing or does not resolve to a system entity",
                     FactsUpdate::default(),
                 ));
             };
@@ -407,11 +416,12 @@ fn command_cluster_id(campaign: &Campaign, cmd: &ExecTtp) -> Option<EntityId> {
 /// - An entity alias is emitted from the current node target (placeholder) to
 ///   the real node, so `apply_facts` migrates all graph edges and entity data.
 ///
-/// Target resolution:
-/// - If the semantic target is already a node entity (e.g. `node/escape-host-...`),
+/// Host-resource attribution is explicit:
+/// - If the physical executor is a node (e.g. `node/escape-host-...`),
 ///   it is aliased directly.
-/// - If the semantic target is a pod (the escape was attributed to the pod),
-///   the pod's `runs-on` graph edge is followed to find the placeholder node.
+/// - For a Pod executor, this host-observation effect uses its `runs-on`
+///   relation to identify the observed host. A local operator or unknown
+///   executor cannot rename a semantic Kubernetes Node target.
 fn parse_sys_node_name(campaign: &Campaign, cmd: &ExecTtp, stdout: &str) -> ParserOutput {
     use indexmap::IndexSet;
     use ran_domain::{EntityId, K8sNode, NameConfidence, RunsOn};
@@ -430,17 +440,20 @@ fn parse_sys_node_name(campaign: &Campaign, cmd: &ExecTtp, stdout: &str) -> Pars
     let real_node_id = EntityId::new(format!("node/{}", name));
 
     // Find the stale placeholder node, if any, to alias it to the real ID.
-    let target_eid = EntityId::new(&cmd.target_id);
-    let stale_node_id: Option<EntityId> = if cmd.target_id.starts_with("node/") {
-        // The semantic target is already a node - alias it if it's not already real.
+    let Some(executor) = resolve_executor_id(campaign, cmd) else {
+        return ParserOutput::KnownFailure(
+            "sys.node-name: missing physical executor provenance".into(),
+        );
+    };
+    let target_eid = EntityId::new(&executor);
+    let stale_node_id: Option<EntityId> = if campaign.entities.contains::<K8sNode>(&target_eid) {
         if target_eid != real_node_id {
             Some(target_eid)
         } else {
             None
         }
-    } else {
-        // The semantic target is a pod (escape attributed to the pod).
-        // Follow its runs-on edge to find the node that needs updating.
+    } else if campaign.entities.contains::<ran_domain::Pod>(&target_eid) {
+        // The declared effect observes this executor's Kubernetes host.
         campaign
             .graph
             .targets_of(&target_eid, RunsOn::RELATION_NAME)
@@ -448,6 +461,10 @@ fn parse_sys_node_name(campaign: &Campaign, cmd: &ExecTtp, stdout: &str) -> Pars
             .filter(|n| n.0 != real_node_id.0)
             .cloned()
             .cloned()
+    } else {
+        return ParserOutput::KnownFailure(
+            "sys.node-name: executor is not a Kubernetes Node or Pod".into(),
+        );
     };
 
     let mut real_node = K8sNode::new(name);
@@ -499,31 +516,13 @@ pub fn build_parse_audit(
     )
 }
 
-/// Resolve the system entity that should receive parsed output facts.
-///
-/// System-level facts (binary presence, env vars, IPs, mounts, …) are facts
-/// about the machine that **executed** the command, not the logical target.
-/// For lateral movement, the last element of `exec_chain` is the source pod
-/// (where the command runs) and `target_id` is the victim/destination - so we
-/// prefer the physical execution target (last in chain) when it resolves to a
-/// known system entity.
-///
-/// Priority:
-/// 1. `exec_chain` (last → first) - the actual execution host(s); last element
-///    for lateral movement and for actions routed through a hop chain.
-/// 2. `target_id` - used for direct (non-lateral) execution where the target
-///    IS the execution host.
-fn resolve_target_id(campaign: &Campaign, cmd: &ExecTtp) -> Option<String> {
-    // Prefer the physical execution target (last in chain) - for lateral movement
-    // this is the source pod, for direct exec it's the target pod.
-    let exec_target = cmd.exec_target();
-    if !exec_target.is_empty() && campaign.get_system_entity(exec_target).is_some() {
-        return Some(exec_target.to_string());
-    }
-    if campaign.get_system_entity(&cmd.target_id).is_some() {
-        return Some(cmd.target_id.clone());
-    }
-    None
+/// Physical system facts use persisted executor provenance exclusively.
+/// Neither a displayed transport chain nor an API resource is evidence of
+/// where a command executed. Legacy records without provenance stay unknown.
+pub(crate) fn resolve_executor_id(campaign: &Campaign, cmd: &ExecTtp) -> Option<String> {
+    let executor = cmd.execution_environment.as_ref()?.system_id.as_deref()?;
+    let canonical = campaign.canonical_entity_id(executor);
+    campaign.get_system_entity(&canonical).map(|_| canonical)
 }
 
 fn build_audit(
@@ -905,6 +904,10 @@ mod tests {
             target_id: "ns/default/pod/demo".to_string(),
             exec_chain: vec!["ns/default/pod/demo".to_string()],
             exec_system_id: String::new(),
+            execution_environment: Some(ran_domain::ExecutionEnvironment {
+                system_id: Some("ns/default/pod/demo".into()),
+                tool: Some("env".into()),
+            }),
             auth_identity_id: None,
             started_at_ms: 0,
             execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
@@ -1048,6 +1051,7 @@ users:
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let mut cmd = sample_cmd();
         cmd.target_id = "system/operator-host".to_string();
+        cmd.execution_environment.as_mut().unwrap().system_id = Some(cmd.target_id.clone());
         cmd.exec_chain.clear();
         cmd.args.insert(
             "PATH".to_string(),
@@ -1184,7 +1188,7 @@ users:
     }
 
     #[test]
-    fn parse_output_effect_falls_back_to_exec_chain_for_updates() {
+    fn parse_output_effect_uses_executor_for_non_system_semantic_targets() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
         campaign.entities.insert_typed(pod);
@@ -1366,10 +1370,10 @@ users:
     }
 
     #[test]
-    fn parse_output_effect_prefers_exec_chain_over_target_for_lateral_movement() {
+    fn parse_output_effect_uses_executor_provenance_for_lateral_movement() {
         // Regression: for lateral movement the command runs on src-pod but the
         // effect should NOT be written to dst-pod (the victim/target).
-        // exec_chain (src) must take priority over target_id (dst).
+        // Persisted provenance takes priority over the logical target.
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let src_pod = Pod::new("src-pod", "default");
         let dst_pod = Pod::new("dst-pod", "default");
@@ -1379,6 +1383,8 @@ users:
         let mut cmd = sample_cmd();
         cmd.target_id = "ns/default/pod/dst-pod".to_string();
         cmd.exec_chain = vec!["ns/default/pod/src-pod".to_string()];
+        cmd.execution_environment.as_mut().unwrap().system_id =
+            Some("ns/default/pod/src-pod".into());
         cmd.ttp.effects = vec!["sys.has-binary(/usr/bin/redis-cli)".to_string()];
         // Empty results simulates the tool being absent (exit non-zero / no stdout).
         let event = sample_event(vec![]);
@@ -1414,6 +1420,80 @@ users:
             BinaryPresence::Unknown,
             "dst-pod (victim) must NOT be updated"
         );
+    }
+
+    #[test]
+    fn missing_executor_provenance_never_writes_physical_system_fields() {
+        for (effect, stdout) in [
+            ("sys.has-binary(/usr/bin/curl)", ""),
+            ("sys.envvar", "LOCAL_PROOF=1"),
+            ("sys.ip", "192.0.2.1"),
+            ("sys.userid", "uid=0(root) gid=0(root)"),
+            ("file:content(/tmp/proof)", "proof"),
+        ] {
+            let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+            campaign.entities.insert_typed(Pod::new("demo", "default"));
+            let mut cmd = sample_cmd();
+            cmd.execution_environment = None;
+            let parsed =
+                parse_output_effect(&campaign, effect, &cmd, &sample_event(vec![stdout.into()]))
+                    .unwrap();
+            assert!(parsed.system_updates.is_empty(), "{effect}");
+        }
+    }
+
+    #[test]
+    fn local_host_observation_cannot_rename_a_semantic_kubernetes_node() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        campaign
+            .entities
+            .insert_typed(ran_domain::K8sNode::new("remote-worker"));
+        let mut cmd = sample_cmd();
+        cmd.target_id = "node/remote-worker".into();
+        cmd.execution_environment.as_mut().unwrap().system_id = Some("system/operator-host".into());
+        let parsed = parse_output_effect(
+            &campaign,
+            "sys.node-name",
+            &cmd,
+            &sample_event(vec!["operator-hostname".into()]),
+        )
+        .unwrap();
+        assert!(matches!(
+            parsed.audit.parse_result,
+            ParseResult::KnownFailure
+        ));
+        assert!(parsed.updates.new_entities.is_empty());
+        assert!(parsed.updates.entity_aliases.is_empty());
+    }
+
+    #[test]
+    fn scan_subjects_remain_resources_but_reachability_uses_physical_executor() {
+        let campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let mut cmd = sample_cmd();
+        cmd.args
+            .insert("TARGET_ID".into(), "node/semantic-resource".into());
+        cmd.args
+            .insert("EXECUTOR_ID".into(), "node/submitted-spoof".into());
+        cmd.execution_environment.as_mut().unwrap().system_id = Some("system/operator-host".into());
+        let event = sample_event(vec![
+            "Nmap scan report for 192.0.2.10\nHost is up (0.001s latency).\n".into(),
+        ]);
+        for effect in ["nmap", "network.discovery", "sys.software"] {
+            let parsed = parse_output_effect(&campaign, effect, &cmd, &event).unwrap();
+            assert!(
+                matches!(parsed.audit.parse_result, ParseResult::Parsed),
+                "{effect}"
+            );
+            let reachability = parsed
+                .updates
+                .new_relations
+                .iter()
+                .filter(|r| r.relation_name() == "can-reach")
+                .collect::<Vec<_>>();
+            assert_eq!(reachability.len(), 1);
+            assert_eq!(reachability[0].source_id().0, "system/operator-host");
+            assert!(!parsed.updates.new_entities.is_empty());
+        }
     }
 
     #[test]
@@ -1525,6 +1605,7 @@ users:
         let mut cmd = sample_cmd();
         cmd.target_id = "system/remote-host".to_string();
         cmd.exec_chain = vec![cmd.target_id.clone()];
+        cmd.execution_environment.as_mut().unwrap().system_id = Some(cmd.target_id.clone());
         cmd.ttp.effects = vec!["linux.mounts".to_string()];
         let event = sample_event(vec!["/dev/sda1 on / type ext4 (rw)".to_string()]);
 
