@@ -1358,6 +1358,68 @@ fn current_time_millis() -> u64 {
 // ---------------------------------------------------------------------------
 
 impl Campaign {
+    /// Select an observed executor-local API trust file only for that Pod's
+    /// in-cluster API origin. Never infer kubelet trust from an API-server CA,
+    /// borrow a path from the semantic target, or override explicit CA input.
+    fn bind_request_trust(
+        &self,
+        procedure: &mut Procedure,
+        args: &HashMap<String, String>,
+        executor: Option<&str>,
+        native: bool,
+    ) {
+        if native {
+            return;
+        }
+        let Some(executor) = executor.and_then(|id| self.entities.find::<Pod>(&EntityId::new(id)))
+        else {
+            return;
+        };
+        const CA: &str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
+        if !executor.system.files.iter().any(|path| path == CA) {
+            return;
+        }
+        let Some(request) = procedure
+            .k8s_request
+            .as_mut()
+            .or(procedure.http_request.as_mut())
+        else {
+            return;
+        };
+        let mut grounded = request.clone();
+        ground_json_value(&mut grounded, args);
+        let endpoint = grounded
+            .get("api_server")
+            .or_else(|| grounded.get("url"))
+            .and_then(JsonValue::as_str)
+            .and_then(|url| url::Url::parse(url).ok());
+        let Some(endpoint) = endpoint else {
+            return;
+        };
+        let cluster_api = url::Url::parse(crate::grounding::DEFAULT_API_SERVER)
+            .expect("valid default API origin");
+        if endpoint.origin() != cluster_api.origin() {
+            return;
+        }
+        let Ok(verify) = grounded
+            .get("use_ca")
+            .cloned()
+            .map(serde_json::from_value::<BoolOrString>)
+            .transpose()
+        else {
+            return;
+        };
+        if !verify.unwrap_or_default().is_true()
+            || grounded
+                .get("ca_path")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|path| !path.is_empty())
+        {
+            return;
+        }
+        request["ca_path"] = JsonValue::String(CA.into());
+    }
+
     /// Prepare a TTP action for execution via a clean six-stage pipeline.
     ///
     /// ```text
@@ -1482,6 +1544,11 @@ impl Campaign {
         })?;
         for argument in resolution.arguments {
             match argument.status {
+                crate::action_resolution::ArgumentResolutionStatus::Omitted => {
+                    // Omitted optional inputs have an empty value at the
+                    // rendering boundary, not an unresolved ${NAME} path.
+                    args.insert(argument.name, String::new());
+                }
                 crate::action_resolution::ArgumentResolutionStatus::Resolved
                 | crate::action_resolution::ArgumentResolutionStatus::Defaulted => {
                     if let Some(value) = argument.value {
@@ -1819,6 +1886,14 @@ impl Campaign {
                 auth.kubectl_arg(procedure.is_local_command == Some(true)),
             );
         }
+        self.bind_request_trust(
+            &mut procedure,
+            &args,
+            client_plan
+                .as_ref()
+                .and_then(ClientExecutionPlan::executor_id),
+            use_kubeconfig,
+        );
         let procedure_envelope = materialize_procedure_envelope(
             &procedure,
             &args,

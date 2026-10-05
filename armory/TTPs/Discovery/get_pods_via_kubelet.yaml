@@ -25,8 +25,9 @@ parameters:
     description: verify the kubelet certificate; disable only as an explicit controlled-lab opt-in
   CA_PATH:
     type: string
-    default: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-    description: CA certificate used to verify the kubelet endpoint
+    required: false
+    default: ""
+    description: CA file on the selected executor for this kubelet endpoint; empty uses the executor's system trust. The API server CA is not assumed to trust the kubelet.
 procedures:
   - http_request:
       url: https://${NODE}:10250/pods

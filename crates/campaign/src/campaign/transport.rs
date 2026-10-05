@@ -70,26 +70,37 @@ impl Campaign {
     /// Source-side prerequisites are checked during route search. A concrete
     /// discovered edge is authorization evidence; an unrelated selected action
     /// identity must not change this transport's ambient token source.
-    pub(super) fn kubelet_source_endpoint(
-        &self,
-        source: &EntityId,
-        node: &EntityId,
-    ) -> Option<String> {
+    pub(super) fn kubelet_source_usable(&self, source: &EntityId, node: &EntityId) -> bool {
         // This adapter uses Pod-mounted credentials. Other source environments
         // require a different explicit credential binding, not these paths.
-        let source = self.entities.find::<Pod>(source)?;
+        let Some(source) = self.entities.find::<Pod>(source) else {
+            return false;
+        };
         if source.automount_service_account_token == ran_domain::Confidence::No {
-            return None;
+            return false;
         }
         if source.system.has_binary("ranplant") == BinaryPresence::Absent {
+            return false;
+        }
+        self.entities.contains::<K8sNode>(node)
+    }
+
+    /// Address evidence belongs to the concrete Node/Pod sink pair. In
+    /// particular, status.hostIP remains usable before Node address discovery.
+    pub(super) fn kubelet_endpoint(&self, node: &EntityId, target: &EntityId) -> Option<String> {
+        let node = self.entities.find::<K8sNode>(node)?;
+        let pod = self.entities.find::<Pod>(target)?;
+        if pod
+            .node_name
+            .as_deref()
+            .is_some_and(|name| name != node.name)
+        {
             return None;
         }
-        let node = self.entities.find::<K8sNode>(node)?;
-        let host = node
-            .system
-            .ips
-            .first()
-            .map(ToString::to_string)
+        let host = pod
+            .host_ip
+            .or_else(|| node.system.ips.first().copied())
+            .map(|ip| ip.to_string())
             .unwrap_or_else(|| node.name.clone());
         let host = match host.parse::<std::net::IpAddr>() {
             Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
@@ -114,7 +125,10 @@ impl Campaign {
         node: &EntityId,
         target: &EntityId,
     ) -> Option<KubeletExecPlan> {
-        let endpoint = self.kubelet_source_endpoint(source, node)?;
+        if !self.kubelet_source_usable(source, node) {
+            return None;
+        }
+        let endpoint = self.kubelet_endpoint(node, target)?;
         let pod = self.entities.find::<Pod>(target)?;
         let namespace = pod.meta.namespace.as_ref()?.clone();
         if namespace.is_empty() || pod.meta.name.is_empty() {

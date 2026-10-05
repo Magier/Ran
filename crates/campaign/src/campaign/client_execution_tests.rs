@@ -173,7 +173,11 @@ fn bundled_node_proxy_request_has_equivalent_implicit_and_explicit_client_routes
             .procedure
             .command
             .contains("/api/v1/nodes/node-01/proxy/pods"));
-        assert!(exec.procedure.command.contains("--cacert"));
+        assert!(!exec.procedure.command.contains("--cacert"));
+        assert!(!exec
+            .procedure
+            .command
+            .contains("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"));
         assert!(!exec.procedure.command.contains("--insecure"));
         assert_eq!(exec.args.get("NODE").map(String::as_str), Some("node-01"));
         assert_eq!(exec.auth_identity_id.as_deref(), Some(auth_id.as_str()));
@@ -1814,6 +1818,7 @@ fn unrealizable_discovered_kubelet_transports_do_not_hide_longer_valid_routes() 
         "missing-shell",
         "no-mounted-token",
         "invalid-endpoint",
+        "conflicting-host",
     ] {
         let (mut campaign, target, source, _) = request_fixture("Pod");
         campaign
@@ -1866,6 +1871,15 @@ fn unrealizable_discovered_kubelet_transports_do_not_hide_longer_valid_routes() 
                     .unwrap()
                     .automount_service_account_token = ran_domain::Confidence::No;
             }
+            "conflicting-host" => {
+                let pod = campaign
+                    .entities
+                    .get_mut::<Pod>()
+                    .get_mut(&EntityId::new(&target))
+                    .unwrap();
+                pod.node_name = Some("different-worker".into());
+                pod.host_ip = Some("192.0.2.44".parse().unwrap());
+            }
             _ => {}
         }
         push_relation(
@@ -1899,6 +1913,195 @@ fn unrealizable_discovered_kubelet_transports_do_not_hide_longer_valid_routes() 
             .unwrap();
         assert_eq!(exec.exec_chain, [source, middle_id, target], "{failure}");
         assert!(exec.output_transform.is_none());
+    }
+}
+
+#[test]
+fn kubelet_pair_retains_the_destination_host_ip_before_node_address_discovery() {
+    for address in ["192.0.2.44", "2001:db8::44"] {
+        let (mut campaign, target, source, _) = request_fixture("Pod");
+        let node = K8sNode::new("not-resolvable.invalid");
+        let node_id = node.entity_id().0;
+        campaign.entities.insert_typed(node);
+        let pod = campaign
+            .entities
+            .get_mut::<Pod>()
+            .get_mut(&EntityId::new(&target))
+            .unwrap();
+        pod.host_ip = Some(address.parse().unwrap());
+        pod.node_name = Some("not-resolvable.invalid".into());
+        push_relation(
+            &mut campaign,
+            &ran_domain::KubeletExecSource::new(&source, &node_id),
+        );
+        push_relation(
+            &mut campaign,
+            &ran_domain::KubeletExecSink::new(&node_id, &target),
+        );
+        let channel = campaign.resolve_exec_channel(&target).unwrap();
+        assert_eq!(channel.kubelet_plans.len(), 1);
+        let mut request = request_for(&target, None, None);
+        request.procedure_id = None;
+        let exec = campaign
+            .prepare_action(request, &armory_with_command("request", "printf ok", None))
+            .unwrap();
+        let words = shell_words::split(&exec.procedure.command).unwrap();
+        let url =
+            url::Url::parse(&words[words.iter().position(|word| word == "--url").unwrap() + 1])
+                .unwrap();
+        assert_eq!(url.host_str().unwrap().trim_matches(['[', ']']), address);
+        assert_eq!(url.port(), Some(10250));
+        assert!(campaign.resolve_exec_channel(&node_id).is_err());
+    }
+}
+
+#[test]
+fn discovery_tls_uses_client_trust_without_assuming_a_pod_ca_mount() {
+    let (mut campaign, target, source, auth) = request_fixture("Node");
+    campaign
+        .entities
+        .get_mut::<ServiceAccount>()
+        .get_mut(&EntityId::new(&auth))
+        .unwrap()
+        .entitlements
+        .push(RbacPermission::new("get", "nodes/proxy"));
+    campaign
+        .entities
+        .get_mut::<Pod>()
+        .get_mut(&EntityId::new(&source))
+        .unwrap()
+        .automount_service_account_token = ran_domain::Confidence::No;
+    let armory = Armory::load_from_dir(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs"),
+    )
+    .unwrap();
+    for ca in ["", "/executor/trust/api-ca.pem"] {
+        let mut request = request_for(&target, Some(&auth), Some(&source));
+        request.action_id = "get-pods-via-node-proxy".into();
+        request.args.insert("CA_PATH".into(), ca.into());
+        let exec = campaign.prepare_action(request, &armory).unwrap();
+        assert!(!exec.procedure.command.contains("--insecure"));
+        assert!(!exec
+            .procedure
+            .command
+            .contains("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"));
+        assert_eq!(exec.procedure.command.contains("--cacert"), !ca.is_empty());
+        if !ca.is_empty() {
+            assert!(exec.procedure.command.contains(ca));
+        }
+    }
+}
+
+#[test]
+fn request_trust_is_bound_to_observed_executor_files_and_endpoint_origin() {
+    const CA: &str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
+    for http in [false, true] {
+        for (executor_has_ca, endpoint, explicit_ca, expected_ca) in [
+            (true, crate::grounding::DEFAULT_API_SERVER, "", Some(CA)),
+            (false, crate::grounding::DEFAULT_API_SERVER, "", None),
+            (true, "https://node-01:10250", "", None),
+            (true, "https://api.example", "", None),
+            (
+                true,
+                crate::grounding::DEFAULT_API_SERVER,
+                "/custom/api.pem",
+                Some("/custom/api.pem"),
+            ),
+        ] {
+            let (mut campaign, target, source, auth) = request_fixture("Pod");
+            // Semantic-target files are never a source of executor-local trust.
+            campaign
+                .entities
+                .get_mut::<Pod>()
+                .get_mut(&EntityId::new(&target))
+                .unwrap()
+                .system
+                .files
+                .push(CA.into());
+            if executor_has_ca {
+                campaign
+                    .entities
+                    .get_mut::<Pod>()
+                    .get_mut(&EntityId::new(&source))
+                    .unwrap()
+                    .system
+                    .files
+                    .push(CA.into());
+            }
+            let mut ttp = request_action("Pod", http);
+            let request = if http {
+                ttp.procedures[0].http_request.as_mut().unwrap()
+            } else {
+                ttp.procedures[0].k8s_request.as_mut().unwrap()
+            };
+            request[if http { "url" } else { "api_server" }] = serde_json::json!(endpoint);
+            request["use_ca"] = serde_json::json!(true);
+            request["ca_path"] = serde_json::json!(explicit_ca);
+            let exec = campaign
+                .prepare_action(
+                    request_for(&target, (!http).then_some(auth.as_str()), Some(&source)),
+                    &request_armory(ttp),
+                )
+                .unwrap();
+            assert!(!exec.procedure.command.contains("--insecure"));
+            assert_eq!(
+                exec.procedure.command.contains("--cacert"),
+                expected_ca.is_some()
+            );
+            if let Some(ca) = expected_ca {
+                assert!(exec.procedure.command.contains(ca));
+            }
+        }
+    }
+}
+
+#[test]
+fn bundled_native_proxy_keeps_tls_controls_and_omits_automatic_remote_placement() {
+    let (mut campaign, target, _, _) = request_fixture("Node");
+    let mut credential = K8sCredential::new("https://api.example").with_name("native");
+    credential.active = true;
+    credential
+        .entitlements
+        .push(RbacPermission::new("get", "nodes/proxy"));
+    let identity = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    let armory = Armory::load_from_dir(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs"),
+    )
+    .unwrap();
+    for (verify, ca) in [
+        ("true", ""),
+        ("true", "/operator/trust/api.pem"),
+        ("false", ""),
+    ] {
+        let mut action = request_for(&target, Some(&identity), None);
+        action.action_id = "get-pods-via-node-proxy".into();
+        action.args.insert("USE_CA".into(), verify.into());
+        // Omission and an explicit empty path must both inherit client trust.
+        if !ca.is_empty() {
+            action.args.insert("CA_PATH".into(), ca.into());
+        }
+        let exec = campaign.prepare_action(action, &armory).unwrap();
+        assert!(exec.exec_chain.is_empty());
+        assert_eq!(
+            exec.execution_environment
+                .as_ref()
+                .unwrap()
+                .system_id
+                .as_deref(),
+            Some("system/operator-host")
+        );
+        let c2::ExecutionOperation::KubernetesRequest { request } = exec.operation else {
+            panic!("native identity must retain the structured request");
+        };
+        assert_eq!(
+            request.get("use_ca").and_then(serde_json::Value::as_str),
+            Some(verify)
+        );
+        assert_eq!(
+            request.get("ca_path").and_then(serde_json::Value::as_str),
+            Some(ca)
+        );
     }
 }
 

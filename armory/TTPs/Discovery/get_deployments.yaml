@@ -33,7 +33,7 @@ procedures:
       namespace: ${NS}
       cluster_scoped: ${ALL_NS}
       query: limit=500
-      ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      ca_path: ""
 effects:
   - k8s.deploymentList
   - k8s.workloadImage

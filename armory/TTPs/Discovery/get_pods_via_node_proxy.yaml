@@ -21,8 +21,9 @@ parameters:
     description: verify the API server certificate; disable only as an explicit controlled-lab opt-in
   CA_PATH:
     type: string
-    default: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-    description: CA certificate used to verify the Kubernetes API server
+    required: false
+    default: ""
+    description: CA file on the physical executor for the API server; empty uses native kubeconfig trust, an observed executor-local CA for the in-cluster API origin, or shell system trust. Verification remains enabled.
 procedures:
   - k8s_request:
       authentication: ${K8S_AUTH}

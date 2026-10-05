@@ -37,6 +37,42 @@
   ],
   "procedureFields": [
     {
+      "name": "http_request.use_ca",
+      "valueTypes": ["boolean", "string"],
+      "required": false,
+      "support": "enforced",
+      "scope": "request TLS verification",
+      "resolution": "true verifies the endpoint certificate; false is an explicit insecure opt-in. Shell HTTP requests default to verification. Native authenticated HTTP requests without a control inherit kubeconfig TLS settings; an explicit true overrides insecure-skip-tls-verify.",
+      "description": "Applied by shell adapters and the native Kubernetes HTTP client. Verification controls cannot be silently dropped when authentication changes execution environment."
+    },
+    {
+      "name": "http_request.ca_path",
+      "valueTypes": ["string"],
+      "required": false,
+      "support": "enforced",
+      "scope": "physical executor and request endpoint",
+      "resolution": "When verification is enabled, a non-empty path selects a CA file on the physical executor. Native execution reads it on the operator host. Empty uses native kubeconfig trust, an observed executor-local service-account CA for the in-cluster API origin, or shell-system trust. Missing or invalid explicit CA material fails rather than disabling verification.",
+      "description": "Trust material is endpoint-specific. A Pod service-account CA path is not an environment-independent default and API-server trust is not assumed to cover a kubelet."
+    },
+    {
+      "name": "k8s_request.use_ca",
+      "valueTypes": ["boolean", "string"],
+      "required": false,
+      "support": "enforced",
+      "scope": "Kubernetes API request TLS verification",
+      "resolution": "true verifies the API server certificate and overrides insecure native kubeconfig settings. false explicitly opts out. Without a control, native execution inherits kubeconfig TLS; shell adapters default to verification.",
+      "description": "The native and shell request realizations honor explicitly authored TLS controls without changing the authentication identity."
+    },
+    {
+      "name": "k8s_request.ca_path",
+      "valueTypes": ["string"],
+      "required": false,
+      "support": "enforced",
+      "scope": "physical executor and API endpoint",
+      "resolution": "A non-empty path supplies executor-local CA material when verification is enabled. Native execution reads the file on the operator host and replaces trust roots while preserving endpoint, server-name validation, authentication, and proxy configuration. Empty uses native kubeconfig trust, an observed executor-local service-account CA for the in-cluster API origin, or shell-system trust.",
+      "description": "No Pod-mounted CA is assumed on arbitrary executors. Explicit trust material that is unavailable or invalid fails closed."
+    },
+    {
       "name": "isLocal",
       "valueTypes": ["boolean"],
       "required": false,

@@ -62,6 +62,7 @@
 	let availableEntities: Entity[] = $state([]);
 	let namespaceArgName: string = '';
 	let selectedExecSystemId = $state('');
+	let execSelectionIsExplicit = $state(false);
 	let eligibleAuthIdentities = $state<AuthIdentity[]>([]);
 	let selectedAuthIdentityId = $state('');
 	let formElement: HTMLFormElement | undefined = $state();
@@ -74,6 +75,23 @@
 		ttp.procedures?.find((candidate) => candidate.id === procedureId) ?? ttp.procedures?.[0]
 	);
 	const runsOutsideTarget = $derived(selectedProcedure?.runOnTarget === false);
+	const nativeCredentialClient = $derived(
+		eligibleAuthIdentities.some(
+			(identity) => identity.id === selectedAuthIdentityId && identity.kind === 'K8sCredential'
+		)
+	);
+	// A UI default is not an operator placement constraint. Authentication and
+	// procedure changes may move an automatic client to the operator host.
+	const effectiveExecSystemId = $derived(
+		!execSelectionIsExplicit && (nativeCredentialClient || selectedProcedure?.isLocalCommand)
+			? ''
+			: selectedExecSystemId
+	);
+	$effect(() => {
+		if (!execSelectionIsExplicit && (nativeCredentialClient || selectedProcedure?.isLocalCommand)) {
+			selectedExecSystemId = '';
+		}
+	});
 	const execSystemOptions = $derived<ComboboxOption[]>(
 		compromisedSystems
 			.filter((system) => !runsOutsideTarget || system.id !== targetId)
@@ -155,7 +173,7 @@
 	$effect(() => {
 		const actionId = ttp?.id;
 		const selectedTargetId = targetId;
-		const executionSystemId = selectedExecSystemId || undefined;
+		const executionSystemId = effectiveExecSystemId || undefined;
 		const selectedProcedureId = procedureId || undefined;
 		const authIdentityId = selectedAuthIdentityId || undefined;
 		const partialArgs = Object.fromEntries(
@@ -651,6 +669,7 @@
 			const systems = campaignState.getCompromisedSystems();
 			const initialProcedure =
 				ttpProcedures?.find((procedure) => procedure.id === procedureId) ?? ttpProcedures?.[0];
+			execSelectionIsExplicit = false;
 			selectedExecSystemId =
 				initialProcedure?.runOnTarget === false || initialProcedure?.isLocalCommand
 					? ''
@@ -884,7 +903,7 @@
 
 		onExecute(
 			ttp.id,
-			selectedExecSystemId,
+			effectiveExecSystemId,
 			authIdentityId,
 			procedureId,
 			argsDict,
@@ -1021,13 +1040,18 @@
 				<span class="h6 label-text text-xs md:text-sm lg:text-base"
 					>{runsOutsideTarget ? 'Execute From' : 'Execute On'}</span
 				>
-				{#if runsOutsideTarget}
+				{#if runsOutsideTarget || nativeCredentialClient || selectedProcedure?.isLocalCommand}
 					<select
 						id="execSystem"
 						class="input mt-2 text-xs md:text-sm lg:text-base"
 						bind:value={selectedExecSystemId}
+						onchange={() => (execSelectionIsExplicit = selectedExecSystemId !== '')}
 					>
-						<option value="">Automatic reachable system</option>
+						<option value=""
+							>{nativeCredentialClient || selectedProcedure?.isLocalCommand
+								? 'Automatic local client'
+								: 'Automatic reachable system'}</option
+						>
 						{#each execSystemOptions as sys (sys.value)}
 							<option value={sys.value}>{sys.group}/{sys.label}</option>
 						{/each}
@@ -1044,6 +1068,7 @@
 						id="execSystem"
 						class="input mt-2 text-xs md:text-sm lg:text-base"
 						bind:value={selectedExecSystemId}
+						onchange={() => (execSelectionIsExplicit = selectedExecSystemId !== '')}
 					>
 						{#each execSystemOptions as sys (sys.value)}
 							<option value={sys.value}>{sys.group}/{sys.label}</option>
