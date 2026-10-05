@@ -2810,6 +2810,15 @@ impl Campaign {
     }
 
     fn record_missing_binary(&mut self, cmd: &ExecTtp, attempted: Option<&str>) {
+        // A routed shell result does not identify the stage that produced it.
+        // Even a name matching the outer wrapper can come from the payload or
+        // an intermediate host. Never turn this ambiguous output into a host
+        // fact. The chain check also protects records predating transport
+        // provenance. Resume attribution only with explicit failure-stage data.
+        if cmd.transport_environment.is_some() || cmd.exec_chain.len() > 1 {
+            tracing::debug!("skipping missing-binary evidence for an uncertain failure stage");
+            return;
+        }
         let binary = attempted
             .and_then(binary_map_key)
             .or_else(|| procedure_binary_name(&cmd.procedure));
@@ -2817,19 +2826,7 @@ impl Campaign {
             return;
         };
 
-        let system_id = cmd
-            .transport_environment
-            .as_ref()
-            .filter(|environment| {
-                attempted
-                    .and_then(binary_map_key)
-                    .zip(environment.tool.as_deref().and_then(binary_map_key))
-                    .is_some_and(|(attempted, transport)| attempted == transport)
-            })
-            .and_then(|environment| environment.system_id.as_deref())
-            .filter(|id| self.get_system_entity(id).is_some())
-            .or_else(|| self.execution_system_id(cmd))
-            .map(str::to_string);
+        let system_id = self.execution_system_id(cmd).map(str::to_string);
         let Some(system_id) = system_id else {
             return;
         };
@@ -2991,7 +2988,11 @@ impl Campaign {
             effect_ctx.insert("EXECUTOR_ID".into(), executor);
         }
         // TARGET_NODE_ID is the entity ID of the node the executing pod runs on.
-        // Used by kubelet-exec and container.escape effects.
+        // Host context is reserved provenance, never submitted action metadata.
+        // Remove it even when the executor or its physical host is unknown.
+        effect_ctx.remove("TARGET_NODE_ID");
+        effect_ctx.remove("TARGET_NODE_AUTHORITATIVE");
+        // Used by container.escape effects.
         // Resolution order:
         //   1. pod.node_name (set when the pod was parsed from the K8s API)
         //   2. runs-on graph edge from the pod (set when a RunsOn relation exists)
@@ -3003,20 +3004,23 @@ impl Campaign {
                     .as_ref()
                     .map(|n| format!("node/{}", n))
                     .or_else(|| {
-                        let target_eid = EntityId::new(executor_id);
-                        self.graph
-                            .targets_of(&target_eid, ran_domain::RunsOn::RELATION_NAME)
-                            .first()
-                            .map(|n| n.0.clone())
+                        let executor_eid = EntityId::new(executor_id);
+                        let hosts = self
+                            .graph
+                            .targets_of(&executor_eid, ran_domain::RunsOn::RELATION_NAME);
+                        // Conflicting host evidence must not be resolved by
+                        // relation insertion order.
+                        match hosts.as_slice() {
+                            [host] if self.entities.contains::<K8sNode>(host) => {
+                                Some(host.0.clone())
+                            }
+                            _ => None,
+                        }
                     });
                 if let Some(node_id) = node_id {
-                    effect_ctx
-                        .entry("TARGET_NODE_ID".to_string())
-                        .or_insert(node_id);
+                    effect_ctx.insert("TARGET_NODE_ID".to_string(), node_id);
                     if from_node_name {
-                        effect_ctx
-                            .entry("TARGET_NODE_AUTHORITATIVE".to_string())
-                            .or_insert_with(|| "true".to_string());
+                        effect_ctx.insert("TARGET_NODE_AUTHORITATIVE".to_string(), "true".into());
                     }
                 }
             }

@@ -373,6 +373,7 @@ mod tests {
         success: bool,
     ) -> campaign::ExecutionRecord {
         campaign::ExecutionRecord {
+            transport_environment: None,
             id: id.to_string(),
             ttp_id: ttp_id.to_string(),
             ttp_name: ttp_id.to_string(),

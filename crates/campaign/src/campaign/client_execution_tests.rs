@@ -6,6 +6,7 @@ use crate::campaign::execution_planning::{
     ClientExecutionPlanner, ExecutionPlacement, ProcedureExecutionSemantics,
 };
 use crate::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
+use ran_domain::NameConfidence;
 
 fn request_action(kind: &str, http: bool) -> Ttp {
     let mut ttp = Ttp::new("request", "Request", "Discovery");
@@ -1540,7 +1541,7 @@ fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
 }
 
 #[test]
-fn review_transport_failure_is_attributed_to_its_outer_executor() {
+fn review_transport_failure_with_unknown_stage_does_not_write_binary_facts() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let mut source = Pod::new("source", "controlled");
     source.system.set_binary("ranplant", "/tmp/ranplant");
@@ -1587,24 +1588,47 @@ fn review_transport_failure_is_attributed_to_its_outer_executor() {
         Some("ranplant")
     );
 
-    let event = c2::TtpExecuted {
-        id: exec.id.clone(),
-        success: false,
-        results: vec!["sh: 1: ranplant: not found".into()],
-        exit_code: 127,
-        fail_reason: "sh: 1: ranplant: not found".into(),
-        session_connected: None,
-    };
-    campaign.on_ttp_executed(&exec, &event).unwrap();
-    assert_eq!(
-        campaign
-            .get_system_entity(&target_id)
-            .unwrap()
-            .entity()
-            .system()
-            .has_binary("ranplant"),
-        BinaryPresence::Unknown
-    );
+    // Wrapper names, payload names, and unclassified errors are all ambiguous.
+    // Cover both explicit failures and zero-exit failures detected in output,
+    // including replay records that have no transport_environment field.
+    for legacy in [false, true] {
+        let mut exec = exec.clone();
+        if legacy {
+            exec.transport_environment = None;
+        }
+        for binary in ["ranplant", "printf", "curl"] {
+            for success in [false, true] {
+                let message = format!("sh: 1: {binary}: not found");
+                let event = c2::TtpExecuted {
+                    id: exec.id.clone(),
+                    success,
+                    results: vec![message.clone()],
+                    exit_code: if success { 0 } else { 127 },
+                    fail_reason: if success { String::new() } else { message },
+                    session_connected: None,
+                };
+                let outcome = campaign.on_ttp_executed(&exec, &event).unwrap();
+                assert!(!outcome.effective_success);
+                for id in [&source_id, &node_id, &target_id] {
+                    let expected = if id == &source_id && binary == "ranplant" {
+                        BinaryPresence::Present("/tmp/ranplant".into())
+                    } else {
+                        BinaryPresence::Unknown
+                    };
+                    assert_eq!(
+                        campaign
+                            .get_system_entity(id)
+                            .unwrap()
+                            .entity()
+                            .system()
+                            .has_binary(binary),
+                        expected,
+                        "legacy={legacy}, success={success}, host={id}, binary={binary}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -1629,13 +1653,18 @@ fn review_structural_effect_metadata_comes_from_the_persisted_executor() {
     let mut request = request_for(&target_id, None, None);
     request.action_id = "escape".into();
 
-    let exec = campaign.prepare_action(request, &armory).unwrap();
+    let mut exec = campaign.prepare_action(request, &armory).unwrap();
     assert_eq!(
         exec.execution_environment
             .as_ref()
             .and_then(|environment| environment.system_id.as_deref()),
         Some(source_id.as_str())
     );
+    // Even submitted reserved context cannot change the executor's host.
+    exec.args
+        .insert("TARGET_NODE_ID".into(), "node/target-host".into());
+    exec.args
+        .insert("TARGET_NODE_AUTHORITATIVE".into(), "false".into());
     campaign
         .on_ttp_executed(&exec, &sample_event("ok"))
         .unwrap();
@@ -1643,6 +1672,86 @@ fn review_structural_effect_metadata_comes_from_the_persisted_executor() {
         campaign.relation_targets(&EntityId::new(&source_id), "container.escape"),
         vec![EntityId::new("node/source-host")]
     );
+    assert_eq!(
+        campaign
+            .entities
+            .find::<K8sNode>(&EntityId::new("node/source-host"))
+            .unwrap()
+            .name_confidence,
+        NameConfidence::Authoritative
+    );
+}
+
+#[test]
+fn escape_host_context_uses_executor_relations_or_a_non_authoritative_placeholder() {
+    for hosts in [0, 1] {
+        let (mut campaign, target_id, source_id, _) = request_fixture("Pod");
+        campaign
+            .entities
+            .get_mut::<Pod>()
+            .get_mut(&EntityId::new(&target_id))
+            .unwrap()
+            .node_name = Some("target-host".into());
+        for name in ["source-host", "conflicting-host"].iter().take(hosts) {
+            let node = K8sNode::new(*name);
+            let node_id = node.entity_id();
+            campaign.entities.insert_typed(node);
+            campaign.upsert_relation(
+                &ran_domain::RunsOn::new(&source_id, &node_id.0),
+                ran_domain::KnowledgeProvenance::Action,
+            );
+        }
+        // Relation insertion also synchronizes Pod metadata. Clear that cache
+        // to exercise the graph-only fallback.
+        campaign
+            .entities
+            .get_mut::<Pod>()
+            .get_mut(&EntityId::new(&source_id))
+            .unwrap()
+            .node_name = None;
+        let mut ttp = Ttp::new("escape", "Escape", "Execution");
+        ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+        let mut procedure = Procedure::new("proc-1", "printf ok");
+        procedure.run_on_target = Some(false);
+        ttp.procedures.push(procedure);
+        ttp.effects.push("container.escape(sys)".into());
+        let mut request = request_for(&target_id, None, None);
+        request.action_id = "escape".into();
+        let mut exec = campaign
+            .prepare_action(request, &Armory::from_ttps(vec![ttp]))
+            .unwrap();
+        // Preparation runs inference, which may repopulate the metadata.
+        campaign
+            .entities
+            .get_mut::<Pod>()
+            .get_mut(&EntityId::new(&source_id))
+            .unwrap()
+            .node_name = None;
+        exec.args
+            .insert("TARGET_NODE_ID".into(), "node/target-host".into());
+        exec.args
+            .insert("TARGET_NODE_AUTHORITATIVE".into(), "true".into());
+        campaign
+            .on_ttp_executed(&exec, &sample_event("ok"))
+            .unwrap();
+        let expected = if hosts == 1 {
+            "node/source-host"
+        } else {
+            "node/escape_client"
+        };
+        assert_eq!(
+            campaign.relation_targets(&EntityId::new(&source_id), "container.escape"),
+            vec![EntityId::new(expected)]
+        );
+        assert_eq!(
+            campaign
+                .entities
+                .find::<K8sNode>(&EntityId::new(expected))
+                .unwrap()
+                .name_confidence,
+            NameConfidence::Derived
+        );
+    }
 }
 
 #[test]
