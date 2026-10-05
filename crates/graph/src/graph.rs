@@ -529,7 +529,11 @@ impl KnowledgeGraph {
         let mut result = Vec::new();
         while let Some(nx) = queue.pop_front() {
             for edge in self.graph.edges_directed(nx, Direction::Outgoing) {
-                if !edge.weight().is_exec_channel || edge.weight().broken {
+                if !edge.weight().is_exec_channel
+                    || edge.weight().broken
+                    || !edge.weight().weight.is_finite()
+                    || edge.weight().weight < 0.0
+                {
                     continue;
                 }
                 let tgt = edge.target();
@@ -562,7 +566,10 @@ impl KnowledgeGraph {
         let exec_graph = EdgeFiltered::from_fn(
             &self.graph,
             |e: petgraph::stable_graph::EdgeReference<EdgeData>| {
-                e.weight().is_exec_channel && !e.weight().broken
+                e.weight().is_exec_channel
+                    && !e.weight().broken
+                    && e.weight().weight.is_finite()
+                    && e.weight().weight >= 0.0
             },
         );
 
@@ -633,6 +640,8 @@ impl KnowledgeGraph {
                 .filter(|edge| {
                     edge.weight().is_exec_channel
                         && !edge.weight().broken
+                        && edge.weight().weight.is_finite()
+                        && edge.weight().weight >= 0.0
                         && Some(edge.target()) != excluded_idx
                 })
                 .map(|edge| (edge.target(), edge.weight().weight))
@@ -963,6 +972,39 @@ mod tests {
         for (target, route) in routes {
             assert_eq!(Some(route), graph.shortest_exec_path(&sources, &target));
         }
+    }
+
+    #[test]
+    fn exec_searches_reject_negative_and_non_finite_edge_costs() {
+        let mut graph = KnowledgeGraph::new();
+        let source = EntityId::new("source");
+        for (name, weight) in [
+            ("negative", -1.0),
+            ("nan", f32::NAN),
+            ("infinite", f32::INFINITY),
+        ] {
+            graph.insert_edge(
+                &source,
+                &EntityId::new(name),
+                EdgeData::new("rce.can-exec", weight, true)
+                    .with_envelope(Some("run ${CMD}".into())),
+            );
+        }
+        let valid = EntityId::new("valid");
+        graph.insert_edge(
+            &source,
+            &valid,
+            EdgeData::new("rce.can-exec", 1.0, true).with_envelope(Some("run ${CMD}".into())),
+        );
+
+        let routes = graph.shortest_exec_paths(std::slice::from_ref(&source), None);
+        assert_eq!(routes.len(), 2);
+        assert!(routes.contains_key(&source));
+        assert!(routes.contains_key(&valid));
+        assert_eq!(
+            graph.shortest_exec_path(std::slice::from_ref(&source), &valid),
+            Some((1.0, vec![source, valid]))
+        );
     }
 
     #[test]

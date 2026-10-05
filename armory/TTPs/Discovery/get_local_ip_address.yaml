@@ -19,6 +19,6 @@ procedures:
     tool: ip
     command: ip -o -4 addr show scope global | awk '{print $4}' | cut -d/ -f1
 effects:
-  - sys.ip
+  - executor::sys.ip
 # defend: {}
 references:

@@ -578,9 +578,12 @@ impl Campaign {
                     let tool = data
                         .envelope
                         .as_deref()
-                        .and_then(|command| command.split_whitespace().next())
-                        .or_else(|| (data.relation_name == "k8s.can-exec").then_some("kubectl"));
+                        .and_then(super::execution::simple_shell_tool)
+                        .or_else(|| {
+                            (data.relation_name == "k8s.can-exec").then(|| "kubectl".to_string())
+                        });
                     let tool = tool
+                        .as_deref()
                         .and_then(|word| std::path::Path::new(word).file_name())
                         .and_then(|word| word.to_str());
                     tool.is_none_or(|tool| {
@@ -972,7 +975,7 @@ impl Campaign {
         let mut reachable: std::collections::HashSet<String> =
             seeds.iter().map(|id| id.0.clone()).collect();
 
-        for id in self.graph.reachable_via_exec(&seeds) {
+        for id in self.executable_paths_from(&seeds, None, true).into_keys() {
             if self.entities.contains::<Pod>(&id) {
                 reachable.insert(id.0);
             }

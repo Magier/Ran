@@ -1561,7 +1561,7 @@ impl Campaign {
             }
         }
 
-        let mut procedure = self.select_procedure(
+        let (procedure_index, mut procedure) = self.select_procedure(
             &ttp,
             procedure_id.as_deref(),
             &target_id,
@@ -1724,12 +1724,7 @@ impl Campaign {
         // Plan clients from the original definition. Lowering only produces a
         // payload and must never decide where that payload executes.
         let client_plan = if execution_semantics.needs_client_plan() {
-            let index = ttp
-                .procedures
-                .iter()
-                .position(|definition| definition.id == procedure.id)
-                .expect("selected definition exists");
-            let plan = procedure_plans[index]
+            let plan = procedure_plans[procedure_index]
                 .clone()
                 .expect("client definition was planned")?;
             if plan.auth_identity_id != auth_identity_id {
@@ -1882,7 +1877,7 @@ impl Campaign {
         }
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
-        let executed_tool = procedure_required_tool(&procedure).map(str::to_string);
+        let executed_tool = procedure_required_tool(&procedure);
         let planned_executor = client_plan
             .as_ref()
             .map(|plan| plan.executor_id().map(str::to_string));
@@ -1932,6 +1927,9 @@ impl Campaign {
         let transport_environment =
             (route.exec_chain.len() > 1).then(|| ran_domain::ExecutionEnvironment {
                 system_id: route.exec_chain.first().cloned(),
+                // This is a runtime-generated transport wrapper, not the
+                // user procedure. Its first token is the selected transport
+                // binary and remains safe to persist as transport provenance.
                 tool: procedure
                     .command
                     .split_whitespace()
@@ -2821,6 +2819,7 @@ impl Campaign {
         }
         let binary = attempted
             .and_then(binary_map_key)
+            .map(str::to_string)
             .or_else(|| procedure_binary_name(&cmd.procedure));
         let Some(binary) = binary else {
             return;
@@ -2833,7 +2832,7 @@ impl Campaign {
 
         let current = self
             .get_system_entity(&system_id)
-            .map(|system| system.entity().system().has_binary(binary))
+            .map(|system| system.entity().system().has_binary(&binary))
             .unwrap_or(BinaryPresence::Unknown);
         if !missing_binary_invalidates_presence(&current, attempted) {
             tracing::warn!(
@@ -3034,7 +3033,8 @@ impl Campaign {
                 continue;
             }
 
-            match parse_effect_with_status(effect, &effect_ctx) {
+            let (_, effect_expression) = crate::output_parsers::split_effect_subject(effect);
+            match parse_effect_with_status(effect_expression, &effect_ctx) {
                 Ok(parsed_structural) if parsed_structural.handled => {
                     let facts_written = parsed_structural.updates.new_entities.len()
                         + parsed_structural.updates.new_relations.len();
@@ -3747,14 +3747,9 @@ impl Campaign {
         target_id: &str,
         exec_system_id: Option<&str>,
         procedure_plans: &crate::action_resolution::ProcedurePlans,
-    ) -> Result<Procedure, ExecuteActionError> {
-        let readiness = |procedure: &Procedure| {
+    ) -> Result<(usize, Procedure), ExecuteActionError> {
+        let readiness = |index: usize, procedure: &Procedure| {
             if ProcedureExecutionSemantics::from_definition(procedure).needs_client_plan() {
-                let index = ttp
-                    .procedures
-                    .iter()
-                    .position(|definition| definition.id == procedure.id)
-                    .expect("definition exists");
                 procedure_plans[index]
                     .clone()
                     .expect("client definition was planned")
@@ -3770,33 +3765,41 @@ impl Campaign {
             }
         };
         if let Some(proc_id) = procedure_id.map(str::trim).filter(|id| !id.is_empty()) {
-            let procedure = ttp
+            let mut matches = ttp
                 .procedures
                 .iter()
-                .find(|p| p.id == proc_id)
-                .ok_or_else(|| {
-                    ExecuteActionError::InvalidInput(format!(
-                        "procedure '{}' not found for action '{}'",
-                        proc_id, ttp.id
-                    ))
-                })?;
-            if readiness(procedure)? == ProcedureReadiness::Unavailable {
-                let tool = procedure_required_tool(procedure).unwrap_or("unknown");
+                .enumerate()
+                .filter(|(_, procedure)| procedure.id == proc_id);
+            let (index, procedure) = matches.next().ok_or_else(|| {
+                ExecuteActionError::InvalidInput(format!(
+                    "procedure '{}' not found for action '{}'",
+                    proc_id, ttp.id
+                ))
+            })?;
+            if matches.next().is_some() {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "procedure '{}' is ambiguous for action '{}' because its ID is not unique",
+                    proc_id, ttp.id
+                )));
+            }
+            if readiness(index, procedure)? == ProcedureReadiness::Unavailable {
+                let tool =
+                    procedure_required_tool(procedure).unwrap_or_else(|| "unknown".to_string());
                 return Err(ExecuteActionError::InvalidInput(format!(
                     "procedure '{}' requires tool '{}' which is known to be absent from the execution system",
                     proc_id, tool
                 )));
             }
-            return Ok(procedure.clone());
+            return Ok((index, procedure.clone()));
         }
 
         let mut unknown = None;
         let mut planning_error = None;
-        for procedure in &ttp.procedures {
-            match readiness(procedure) {
-                Ok(ProcedureReadiness::Ready) => return Ok(procedure.clone()),
+        for (index, procedure) in ttp.procedures.iter().enumerate() {
+            match readiness(index, procedure) {
+                Ok(ProcedureReadiness::Ready) => return Ok((index, procedure.clone())),
                 Ok(ProcedureReadiness::Unknown) => {
-                    unknown.get_or_insert(procedure);
+                    unknown.get_or_insert((index, procedure));
                 }
                 Ok(ProcedureReadiness::Unavailable) => {}
                 Err(error) => {
@@ -3804,7 +3807,9 @@ impl Campaign {
                 }
             }
         }
-        unknown.cloned().ok_or_else(|| {
+        unknown
+            .map(|(index, procedure)| (index, procedure.clone()))
+            .ok_or_else(|| {
                 if let Some(error) = planning_error {
                     return error;
                 }
@@ -3894,7 +3899,7 @@ fn rendered_envelope_payload(envelope: &str, rendered: &str) -> Option<String> {
 
 #[cfg(test)]
 mod rendered_envelope_payload_tests {
-    use super::rendered_envelope_payload;
+    use super::{rendered_envelope_payload, simple_shell_tool};
 
     #[test]
     fn extracts_the_exact_rendered_nested_data() {
@@ -3910,6 +3915,17 @@ mod rendered_envelope_payload_tests {
     #[test]
     fn declines_commands_that_do_not_match_the_envelope() {
         assert_eq!(rendered_envelope_payload("runner ${CMD}", "other id"), None);
+    }
+
+    #[test]
+    fn shell_tool_inference_skips_assignments_and_rejects_compound_programs() {
+        assert_eq!(
+            simple_shell_tool("TASK_VALUE=1 /usr/bin/curl --version"),
+            Some("/usr/bin/curl".to_string())
+        );
+        assert_eq!(simple_shell_tool("TASK_VALUE=1"), None);
+        assert_eq!(simple_shell_tool("curl --version; id"), None);
+        assert_eq!(simple_shell_tool("value=$(id) curl --version"), None);
     }
 }
 
@@ -3944,19 +3960,68 @@ fn procedure_tool(procedure: &Procedure) -> Option<&str> {
 /// Resolution order:
 /// 1. `procedure.tool` - explicit annotation (e.g. `tool: cat`)
 /// 2. The default HTTP adapter for structured requests.
-/// 3. First word of `procedure.command` - legacy shell fallback.
+/// 3. Executable in an unambiguous simple shell command.
 ///
 /// Procedure IDs are selectors, not evidence of binary requirements.
-fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
+fn procedure_binary_name(procedure: &Procedure) -> Option<String> {
     if let Some(tool) = procedure_tool(procedure).filter(|tool| *tool != "k8s-request") {
-        return Some(tool);
+        return Some(tool.to_string());
     }
     if procedure.k8s_request.is_some() || procedure.http_request.is_some() {
-        return Some("curl");
+        return Some("curl".to_string());
     }
 
-    // Fall back to the first word of the command.
-    procedure.command.split_whitespace().next()
+    simple_shell_tool(&procedure.command)
+}
+
+/// Infer the executable only for a single simple shell command. Leading
+/// environment assignments are shell syntax, not binaries. Commands with
+/// control operators or multiple statements are deliberately left unknown;
+/// those procedures should use the structured `tool` declaration.
+pub(crate) fn simple_shell_tool(command: &str) -> Option<String> {
+    let command = command.trim();
+    if command.is_empty()
+        || command.contains(['\n', '\r', ';', '|', '&', '<', '>', '(', ')', '`'])
+        || command.contains("$(")
+    {
+        return None;
+    }
+    let words = shell_words::split(command).ok()?;
+    let executable = words.iter().find(|word| !is_shell_assignment(word))?;
+    if matches!(
+        executable.as_str(),
+        "!" | "{"
+            | "}"
+            | "if"
+            | "then"
+            | "else"
+            | "fi"
+            | "for"
+            | "while"
+            | "until"
+            | "case"
+            | "esac"
+            | "do"
+            | "done"
+            | "export"
+            | "local"
+            | "readonly"
+            | "unset"
+    ) {
+        return None;
+    }
+    Some(executable.clone())
+}
+
+fn is_shell_assignment(word: &str) -> bool {
+    let Some((name, _)) = word.split_once('=') else {
+        return false;
+    };
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
 fn binary_map_key(attempted: &str) -> Option<&str> {
@@ -3977,7 +4042,7 @@ fn missing_binary_invalidates_presence(current: &BinaryPresence, attempted: Opti
 }
 
 /// Return the binary name used to evaluate a procedure's tool readiness.
-pub fn procedure_required_tool(procedure: &Procedure) -> Option<&str> {
+pub fn procedure_required_tool(procedure: &Procedure) -> Option<String> {
     procedure_binary_name(procedure)
 }
 
@@ -4008,7 +4073,7 @@ fn procedure_readiness_on_system(
     }
     match procedure_binary_name(procedure) {
         None => ProcedureReadiness::Ready,
-        Some(tool) => match sys.has_binary(tool) {
+        Some(tool) => match sys.has_binary(&tool) {
             ran_domain::BinaryPresence::Present(_) => ProcedureReadiness::Ready,
             ran_domain::BinaryPresence::Unknown => ProcedureReadiness::Unknown,
             ran_domain::BinaryPresence::Absent => ProcedureReadiness::Unavailable,

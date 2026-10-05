@@ -649,6 +649,10 @@ impl EffectKind {
     pub fn parse(effect: &str) -> Option<Self> {
         // Drop any relation argument list, then normalize the bare name.
         let name = effect.trim();
+        let name = name
+            .strip_prefix("executor::")
+            .or_else(|| name.strip_prefix("target::"))
+            .unwrap_or(name);
         let name = name.split('(').next().unwrap_or(name).trim();
         let kind = match name.to_ascii_lowercase().as_str() {
             "k8s.pod" => Self::K8sPod,
@@ -1847,6 +1851,10 @@ mod tests {
             Some(EffectKind::C2Session)
         );
         assert_eq!(EffectKind::parse("k8s.Pod"), Some(EffectKind::K8sPod));
+        assert_eq!(
+            EffectKind::parse("target::sys.has-binary(/tmp/tool)"),
+            Some(EffectKind::SysHasBinary)
+        );
         assert_eq!(EffectKind::parse("runs-on(a, b)"), Some(EffectKind::RunsOn));
         assert_eq!(EffectKind::parse("totally.unknown"), None);
     }

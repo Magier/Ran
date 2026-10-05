@@ -82,6 +82,29 @@ pub(crate) enum ParserOutput {
 
 pub(crate) type ParserFn = fn(&str, &str, &HashMap<String, String>) -> ParserOutput;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EffectSubject {
+    Executor,
+    Target,
+}
+
+/// Split the optional subject binding from an effect declaration.
+///
+/// Existing unbound declarations retain executor attribution for physical
+/// system updates. New or migrated declarations should state the contract as
+/// `executor::<effect>` or `target::<effect>` so placement and fact ownership
+/// cannot be conflated.
+pub(crate) fn split_effect_subject(effect: &str) -> (EffectSubject, &str) {
+    let effect = effect.trim();
+    if let Some(expression) = effect.strip_prefix("target::") {
+        (EffectSubject::Target, expression.trim())
+    } else if let Some(expression) = effect.strip_prefix("executor::") {
+        (EffectSubject::Executor, expression.trim())
+    } else {
+        (EffectSubject::Executor, effect)
+    }
+}
+
 static REGISTRY: OnceLock<HashMap<&'static str, ParserFn>> = OnceLock::new();
 
 fn get_registry() -> &'static HashMap<&'static str, ParserFn> {
@@ -120,8 +143,9 @@ pub fn parse_output_effect(
     cmd: &ExecTtp,
     event: &TtpExecuted,
 ) -> Option<ParsedEffect> {
-    let declaration = OutputEffect::resolve(effect_id)?;
-    let normalized = effect_id.trim().to_ascii_lowercase();
+    let (subject, expression) = split_effect_subject(effect_id);
+    let declaration = OutputEffect::resolve(expression)?;
+    let normalized = expression.to_ascii_lowercase();
 
     if let OutputEffect::Event(event_effect) = declaration {
         return Some(parsed_effect(
@@ -159,7 +183,7 @@ pub fn parse_output_effect(
 
     let stdout = match event.results.first() {
         Some(s) => s.as_str(),
-        None if declaration.stdout_optional(effect_id) => "",
+        None if declaration.stdout_optional(expression) => "",
         None => {
             return Some(parsed_effect(
                 effect_id,
@@ -186,11 +210,11 @@ pub fn parse_output_effect(
 
     let parser_output = match declaration {
         OutputEffect::SysHasBinary => {
-            let inner = sys::extract_effect_args(effect_id).unwrap_or("");
+            let inner = sys::extract_effect_args(expression).unwrap_or("");
             sys::parse_sys_has_binary(stdout, inner)
         }
         OutputEffect::SysHasFile => {
-            let path = sys::extract_effect_args(effect_id).unwrap_or("");
+            let path = sys::extract_effect_args(expression).unwrap_or("");
             sys::parse_sys_hasfile(stdout, path)
         }
         OutputEffect::SysSoftware => sys::parse_sys_software(stdout, stderr, &parser_args),
@@ -217,10 +241,10 @@ pub fn parse_output_effect(
             )
         }
         OutputEffect::FileContent => {
-            let path = file::extract_path(effect_id)
+            let path = file::extract_path(expression)
                 .or_else(|| cmd.args.get("PATH").map(String::as_str))
-                .unwrap_or(effect_id);
-            file_content_target = resolve_executor_id(campaign, cmd);
+                .unwrap_or(expression);
+            file_content_target = resolve_effect_subject_id(campaign, cmd, subject);
             if let Some(target_id) = &file_content_target {
                 system_updates.push(TargetedSystemUpdate {
                     target_id: target_id.clone(),
@@ -247,7 +271,7 @@ pub fn parse_output_effect(
             )
         }
         OutputEffect::Kubeconfig => {
-            let source_id = resolve_executor_id(campaign, cmd);
+            let source_id = resolve_effect_subject_id(campaign, cmd, subject);
             let source_path = cmd.args.get("PATH").map(String::as_str);
             if let Some(path) = source_path.filter(|path| !path.trim().is_empty()) {
                 if !stdout.trim().is_empty() {
@@ -296,7 +320,8 @@ pub fn parse_output_effect(
             parsed_effect(effect_id, cmd, event, ParseResult::Parsed, &detail, facts)
         }
         ParserOutput::Success(updates, detail) => {
-            let target_id = file_content_target.or_else(|| resolve_executor_id(campaign, cmd));
+            let target_id =
+                file_content_target.or_else(|| resolve_effect_subject_id(campaign, cmd, subject));
             let Some(target_id) = target_id else {
                 return Some(parsed_effect(
                     effect_id,
@@ -327,6 +352,20 @@ pub fn parse_output_effect(
     parsed.system_updates = system_updates;
     parsed.captured_files = captured_files;
     Some(parsed)
+}
+
+fn resolve_effect_subject_id(
+    campaign: &Campaign,
+    cmd: &ExecTtp,
+    subject: EffectSubject,
+) -> Option<String> {
+    match subject {
+        EffectSubject::Executor => resolve_executor_id(campaign, cmd),
+        EffectSubject::Target => {
+            let target = campaign.canonical_entity_id(&cmd.target_id);
+            campaign.get_system_entity(&target).map(|_| target)
+        }
+    }
 }
 
 /// Preserve the Kubernetes API-server attribution of resources discovered by

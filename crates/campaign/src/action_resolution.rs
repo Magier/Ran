@@ -424,7 +424,7 @@ fn resolve_procedure(
     exec_system_id: Option<&str>,
     client_plan: Option<&Result<ClientExecutionPlan, crate::ExecuteActionError>>,
 ) -> ProcedureState {
-    let required_tool = crate::procedure_required_tool(procedure).map(str::to_string);
+    let required_tool = crate::procedure_required_tool(procedure);
     if let Some(client_plan) = client_plan {
         match client_plan {
             Ok(plan) => {

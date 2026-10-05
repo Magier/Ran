@@ -1848,3 +1848,138 @@ fn unrealizable_discovered_kubelet_transports_do_not_hide_longer_valid_routes() 
         assert!(exec.output_transform.is_none());
     }
 }
+
+#[test]
+fn explicit_effect_subject_can_differ_from_the_physical_executor() {
+    let (mut campaign, armory, target, source) = local_shell_fixture();
+    let mut exec = campaign
+        .prepare_action(request_for(&target, None, None), &armory)
+        .unwrap();
+    exec.ttp.effects = vec!["target::sys.has-binary(installed-proof, /tmp/installed-proof)".into()];
+
+    campaign
+        .on_ttp_executed(&exec, &sample_event("ok"))
+        .unwrap();
+
+    assert_eq!(
+        campaign
+            .get_system_entity(&target)
+            .unwrap()
+            .entity()
+            .system()
+            .has_binary("installed-proof"),
+        BinaryPresence::Present("/tmp/installed-proof".into())
+    );
+    for id in [&source, "system/operator-host"] {
+        assert_eq!(
+            campaign
+                .get_system_entity(id)
+                .unwrap()
+                .entity()
+                .system()
+                .has_binary("installed-proof"),
+            BinaryPresence::Unknown,
+            "effect must not be attributed to {id}"
+        );
+    }
+}
+
+#[test]
+fn access_inference_uses_the_same_realizable_paths_as_dispatch() {
+    let (mut campaign, target, source, _) = request_fixture("Pod");
+    campaign
+        .entities
+        .get_mut::<Pod>()
+        .get_mut(&EntityId::new(&source))
+        .unwrap()
+        .system
+        .set_binary("ranplant", "/tmp/ranplant");
+    let mut node = K8sNode::new("worker");
+    node.system.ips.push("10.0.0.10".parse().unwrap());
+    let node_id = node.entity_id().0;
+    campaign.entities.insert_typed(node);
+    campaign.graph.insert_edge(
+        &EntityId::new(&source),
+        &EntityId::new(&node_id),
+        cortex::edge::EdgeData::new("kubelet-exec", 1.25, true),
+    );
+    campaign.graph.insert_edge(
+        &EntityId::new(&node_id),
+        &EntityId::new(&target),
+        cortex::edge::EdgeData::new("rce.can-exec", 2.5, true)
+            .with_envelope(Some("remote-run ${CMD}".into())),
+    );
+
+    assert!(campaign.resolve_exec_channel(&target).is_err());
+    assert!(!campaign.reachable_pods().contains(&target));
+    assert_eq!(
+        resolve_target_context(&campaign, &target)
+            .unwrap()
+            .access_level,
+        AccessLevel::None
+    );
+}
+
+#[test]
+fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
+    let (mut campaign, target, _, _) = request_fixture("Pod");
+    campaign
+        .entities
+        .get_mut::<Pod>()
+        .get_mut(&EntityId::new(&target))
+        .unwrap()
+        .system
+        .binaries
+        .insert("missing-tool".into(), BinaryPresence::Absent);
+    let mut ttp = Ttp::new("duplicate-plans", "Duplicate plans", "Discovery");
+    ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+    ttp.procedures
+        .push(Procedure::new("same-id", "missing-tool"));
+    let mut local = Procedure::new("same-id", "printf ok");
+    local.is_local_command = Some(true);
+    ttp.procedures.push(local);
+    let armory = Armory::from_ttps(vec![ttp]);
+    let mut request = request_for(&target, None, None);
+    request.action_id = "duplicate-plans".into();
+    request.procedure_id = None;
+
+    let selected = campaign.prepare_action(request.clone(), &armory).unwrap();
+    assert!(matches!(
+        selected.operation,
+        c2::ExecutionOperation::LocalShell { .. }
+    ));
+
+    request.procedure_id = Some("same-id".into());
+    let error = campaign.prepare_action(request, &armory).unwrap_err();
+    assert!(matches!(
+        error,
+        ExecuteActionError::InvalidInput(message) if message.contains("not unique")
+    ));
+}
+
+#[test]
+fn successful_prefixed_shell_command_never_records_assignment_as_binary() {
+    let (mut campaign, target, _, _) = request_fixture("Pod");
+    let mut ttp = Ttp::new("prefixed-shell", "Prefixed shell", "Discovery");
+    ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+    let mut procedure = Procedure::new("proc-1", "TASK_VALUE=1 /usr/bin/curl --version");
+    procedure.is_local_command = Some(true);
+    ttp.procedures.push(procedure);
+    let armory = Armory::from_ttps(vec![ttp]);
+    let mut request = request_for(&target, None, None);
+    request.action_id = "prefixed-shell".into();
+    let exec = campaign.prepare_action(request, &armory).unwrap();
+
+    campaign
+        .on_ttp_executed(&exec, &sample_event("curl 8"))
+        .unwrap();
+    let operator = campaign.get_system_entity("system/operator-host").unwrap();
+    assert_eq!(
+        operator.entity().system().has_binary("TASK_VALUE=1"),
+        BinaryPresence::Unknown
+    );
+    assert_eq!(
+        operator.entity().system().has_binary("/usr/bin/curl"),
+        BinaryPresence::Present("/usr/bin/curl".into())
+    );
+}

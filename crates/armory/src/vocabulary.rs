@@ -261,6 +261,11 @@ pub fn validate_ttp_vocabulary(
 }
 
 fn effect_kind(effect: &str) -> &str {
+    let effect = effect
+        .trim()
+        .strip_prefix("executor::")
+        .or_else(|| effect.trim().strip_prefix("target::"))
+        .unwrap_or(effect.trim());
     effect
         .split_once('(')
         .map(|(kind, _)| kind)
@@ -368,7 +373,7 @@ pub fn render_vocabulary_markdown(vocabulary: &ArmoryVocabulary) -> String {
     }
 
     output.push_str("\n## Effects\n\n");
-    output.push_str("Effect kinds are the part before the first `(`. Effect matching is ASCII case-insensitive. Every effect string is interpolated before processing.\n\n");
+    output.push_str("Effect kinds are the part after an optional `executor::` or `target::` subject binding and before the first `(`. Effect matching is ASCII case-insensitive. Every effect string is interpolated before processing. Physical system effects use `executor::` for persisted physical execution provenance or `target::` for the semantic target system.\n\n");
     output.push_str(
         "| Kind | Syntax | Support | Processing | Meaning |\n| --- | --- | --- | --- | --- |\n",
     );
@@ -411,6 +416,30 @@ mod tests {
         assert_eq!(armory.ttps().len(), 88, "unexpected bundled TTP count");
         for ttp in armory.ttps() {
             validate_ttp_vocabulary(ttp, &vocabulary).unwrap_or_else(|error| panic!("{error}"));
+            for effect in &ttp.effects {
+                let kind = effect_kind(effect).to_ascii_lowercase();
+                if matches!(
+                    kind.as_str(),
+                    "sys.envvar"
+                        | "sys.files"
+                        | "sys.has-binary"
+                        | "sys.hasbinary"
+                        | "sys.hasfile"
+                        | "sys.ip"
+                        | "sys.processes"
+                        | "sys.userid"
+                        | "linux.mounts"
+                        | "file:content"
+                        | "file:kubeconfig"
+                ) {
+                    assert!(
+                        effect.starts_with("executor::") || effect.starts_with("target::"),
+                        "bundled physical effect '{}' on '{}' must declare its subject",
+                        effect,
+                        ttp.id
+                    );
+                }
+            }
         }
     }
 

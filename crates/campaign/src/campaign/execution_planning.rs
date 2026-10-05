@@ -268,7 +268,7 @@ impl<'a> ClientExecutionPlanner<'a> {
         {
             None
         } else {
-            procedure_required_tool(procedure).map(str::to_string)
+            procedure_required_tool(procedure)
         };
         let make_plan = |channel, readiness| ClientExecutionPlan {
             target_id: target_id.to_string(),
@@ -358,7 +358,10 @@ impl<'a> ClientExecutionPlanner<'a> {
                 .campaign
                 .get_system_entity(id)
                 .expect("executor is a system");
-            match tool.map(|tool| system.entity().system().has_binary(tool)) {
+            match tool
+                .as_deref()
+                .map(|tool| system.entity().system().has_binary(tool))
+            {
                 None | Some(BinaryPresence::Present(_)) => {
                     if channel.kubelet_plans.iter().all(|plan| plan.is_confirmed()) {
                         ProcedureReadiness::Ready
@@ -381,7 +384,8 @@ impl<'a> ClientExecutionPlanner<'a> {
         let absent_tool = || {
             ExecuteActionError::InvalidInput(format!(
             "procedure '{}' requires tool '{}' which is known to be absent from the execution system",
-            procedure.id, tool.unwrap_or("unknown")
+            procedure.id,
+            tool.as_deref().unwrap_or("unknown")
         ))
         };
 

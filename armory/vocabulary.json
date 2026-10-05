@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "title": "Armory Vocabulary",
   "stability": "experimental",
   "extensionPolicy": "This vocabulary describes declarations shipped with Ran. Custom Armory content may use additional names, but unknown procedure fields have no built-in semantics, unknown requirements do not gate applicability, and unknown effects have no built-in semantics unless an external parser handles them.",
@@ -7,7 +7,7 @@
     "syntax": "${NAME} or ${NAME || fallback}",
     "appliesTo": ["title", "effects"],
     "unknownVariables": "preserved unchanged",
-    "description": "Titles are rendered with execution arguments when available and may declare a human-readable fallback for Armory views. Before effects are processed, Ran substitutes execution arguments into every effect string. Effect argument lookup is ASCII case-insensitive."
+    "description": "Titles are rendered with execution arguments when available and may declare a human-readable fallback for Armory views. Before effects are processed, Ran substitutes execution arguments into every effect string. Effect argument lookup is ASCII case-insensitive. Physical system effects declare executor:: or target:: subject binding independently of command placement."
   },
   "supportLevels": [
     {
@@ -60,8 +60,8 @@
       "required": false,
       "support": "enforced",
       "scope": "physical execution system",
-      "resolution": "An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. For procedures constructed without either value, Ran falls back to a bare procedure ID and then the first command word.",
-      "description": "Names the binary dependency for one procedure. Procedure readiness is evaluated independently, so an action remains runnable while any alternative procedure is present or has unknown availability. A known-absent tool makes only that procedure unavailable."
+      "resolution": "An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. Legacy fallback infers an executable only from one simple shell command, skips leading environment assignments, and leaves compound or ambiguous shell programs unknown.",
+      "description": "Names the binary dependency for one procedure. Procedure readiness is evaluated independently, so an action remains runnable while any alternative procedure is present or has unknown availability. A known-absent tool makes only that procedure unavailable, and shell syntax is never recorded as a binary."
     },
     {
       "name": "http_request.response_output_field",
@@ -264,8 +264,8 @@
     {"kind": "delete k8s.Pod", "syntax": "delete k8s.Pod", "support": "structural", "processing": "target removal", "description": "Removes the target Pod after successful execution."},
     {"kind": "delete k8s.ServiceAccount", "syntax": "delete k8s.ServiceAccount", "support": "structural", "processing": "target removal", "description": "Removes the target ServiceAccount after successful execution."},
     {"kind": "delete k8s.deployment", "syntax": "delete k8s.deployment", "support": "declarative-only", "processing": "none", "description": "Declares deletion of a Deployment."},
-    {"kind": "file:content", "syntax": "file:content(${PATH})", "support": "parsed", "processing": "stdout content parser", "description": "Captures file contents and dispatches content-specific parsing."},
-    {"kind": "file:kubeconfig", "syntax": "file:kubeconfig", "support": "parsed", "processing": "stdout kubeconfig parser", "description": "Creates Kubernetes credentials from kubeconfig content."},
+    {"kind": "file:content", "syntax": "executor::file:content(${PATH})", "support": "parsed", "processing": "stdout content parser", "description": "Captures file contents from the explicitly bound physical effect subject and dispatches content-specific parsing."},
+    {"kind": "file:kubeconfig", "syntax": "executor::file:kubeconfig", "support": "parsed", "processing": "stdout kubeconfig parser", "description": "Creates Kubernetes credentials from kubeconfig content and attributes the captured source to the explicitly bound physical effect subject."},
     {"kind": "k8s.Namespace.enforcedPSS=privileged", "syntax": "k8s.Namespace.enforcedPSS=privileged", "support": "declarative-only", "processing": "none", "description": "Declares a namespace Pod Security Standards change."},
     {"kind": "k8s.Role", "syntax": "k8s.Role", "support": "structural", "processing": "action arguments", "description": "Creates a Kubernetes Role entity from action arguments."},
     {"kind": "k8s.SelfSubjectRulesReview", "syntax": "k8s.SelfSubjectRulesReview", "support": "parsed", "processing": "stdout JSON", "description": "Records effective Kubernetes permissions for an identity."},
@@ -289,20 +289,20 @@
     {"kind": "k8s.serviceAccountList", "syntax": "k8s.serviceAccountList", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers ServiceAccount entities."},
     {"kind": "k8s.servicelist", "syntax": "k8s.servicelist", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Discovers Service entities and reachability facts."},
     {"kind": "k8s.workloadImage", "syntax": "k8s.workloadImage", "support": "parsed", "processing": "stdout Kubernetes JSON", "description": "Records derived software facts from Pod and Deployment image references."},
-    {"kind": "linux.mounts", "syntax": "linux.mounts", "support": "parsed", "processing": "stdout mount parser", "description": "Records mounted filesystems on the execution system."},
+    {"kind": "linux.mounts", "syntax": "executor::linux.mounts", "support": "parsed", "processing": "stdout mount parser", "description": "Records mounted filesystems on the explicitly bound physical effect subject."},
     {"kind": "network.discovery", "syntax": "network.discovery", "support": "parsed", "processing": "stdout network discovery parser", "description": "Discovers hosts and services from nmap or reverse-DNS output. Scan subjects are explicit resource facts; reachability originates only from the persisted physical executor, not the semantic target."},
     {"kind": "ns.contains", "syntax": "ns.contains($p2)", "support": "mixed", "processing": "deploy-container output parser", "description": "Only the literal ns.contains($p2) form contributes facts for Deploy Container; ns.contains($p) is declarative-only."},
     {"kind": "rawServiceaccountToken", "syntax": "rawServiceaccountToken", "support": "parsed", "processing": "stdout JWT parser", "description": "Validates and records captured Kubernetes service-account tokens."},
     {"kind": "rce.can-exec", "syntax": "rce.can-exec(<source>, <target>)", "support": "structural", "processing": "graph relation", "description": "Records remote-code-execution capability between entities."},
-    {"kind": "sys.envVar", "syntax": "sys.envVar", "support": "parsed", "processing": "stdout environment parser", "description": "Records environment variables on the execution system."},
-    {"kind": "sys.files", "syntax": "sys.files", "support": "parsed", "processing": "stdout file-list parser", "description": "Records files and directories on the execution system."},
-    {"kind": "sys.has-binary", "syntax": "sys.has-binary(<name-or-path>[, <output-source>])", "support": "parsed", "processing": "arguments and optional stdout", "description": "Records an executable as present exclusively on the persisted physical execution system. Missing or invalid executor provenance produces no physical system facts; execution-chain and semantic-target fallbacks are not allowed."},
+    {"kind": "sys.envVar", "syntax": "executor::sys.envVar", "support": "parsed", "processing": "stdout environment parser", "description": "Records environment variables on the explicitly bound physical effect subject."},
+    {"kind": "sys.files", "syntax": "executor::sys.files", "support": "parsed", "processing": "stdout file-list parser", "description": "Records files and directories on the explicitly bound physical effect subject."},
+    {"kind": "sys.has-binary", "syntax": "<executor|target>::sys.has-binary(<name-or-path>[, <output-source>])", "support": "parsed", "processing": "arguments and optional stdout", "description": "Records an executable on the declared effect subject. executor uses persisted physical execution provenance; target uses the semantic target and requires it to be a system entity. Missing or invalid subject provenance produces no physical system facts."},
     {"kind": "sys.hasBinary", "syntax": "sys.hasBinary", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Legacy binary-presence declaration without an argument."},
     {"kind": "sys.hasFile", "syntax": "sys.hasFile", "support": "declarative-only", "processing": "scoring taxonomy only", "description": "Legacy file-presence declaration without a path argument."},
-    {"kind": "sys.ip", "syntax": "sys.ip", "support": "parsed", "processing": "stdout IP parser", "description": "Records IP addresses on the execution system."},
-    {"kind": "sys.processes", "syntax": "sys.processes", "support": "parsed", "processing": "stdout process-list parser", "description": "Records processes on the execution system."},
+    {"kind": "sys.ip", "syntax": "executor::sys.ip", "support": "parsed", "processing": "stdout IP parser", "description": "Records IP addresses on the explicitly bound physical effect subject."},
+    {"kind": "sys.processes", "syntax": "executor::sys.processes", "support": "parsed", "processing": "stdout process-list parser", "description": "Records processes on the explicitly bound physical effect subject."},
     {"kind": "sys.node-name", "syntax": "sys.node-name", "support": "parsed", "processing": "stdout host identity parser", "description": "Records a Kubernetes host-name observation after host execution or escape. The observed host is the persisted Node executor, or the runs-on host of a persisted Pod executor. An operator-local or unknown executor cannot rename a semantic Node target."},
     {"kind": "sys.software", "syntax": "sys.software", "support": "parsed", "processing": "stdout nmap parser", "description": "Records package URL and version observations on explicit nmap scan subjects. Reachability uses persisted executor provenance. Authoritative qualifies the identity observation, not vulnerability status."},
-    {"kind": "sys.userID", "syntax": "sys.userID", "support": "parsed", "processing": "stdout identity parser", "description": "Records the user ID and access level on the execution system."}
+    {"kind": "sys.userID", "syntax": "executor::sys.userID", "support": "parsed", "processing": "stdout identity parser", "description": "Records the user ID and access level on the explicitly bound physical effect subject."}
   ]
 }

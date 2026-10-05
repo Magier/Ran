@@ -19,5 +19,5 @@ preconditions:
   kind: System
   accessLevel: user-exec
 effects:
-  - "sys.has-binary(ranplant, /tmp/ranplant)"
+  - "executor::sys.has-binary(ranplant, /tmp/ranplant)"
   - "k8s.kubelet-exec(sys, all(k8s.Node))"

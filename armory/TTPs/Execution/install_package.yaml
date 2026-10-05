@@ -26,7 +26,7 @@ procedures:
     tool: apk
     command: apk update -q 2>/dev/null; apk add -q ${PKG}; results=$(apk info -L ${PKG} 2>/dev/null | while read f; do [ -f "$f" ] && [ -x "$f" ] && echo "$f"; done); echo "$results"; [ -n "$results" ]
     # cleanup: apk del ${PKG}
-effects: ["sys.has-binary(${PKG})", "sys.has-binary(${OUTPUT})"]
+effects: ["executor::sys.has-binary(${PKG})", "executor::sys.has-binary(${OUTPUT})"]
 cleanup:
     key: ubuntu
     command: apt remove -y ${PKG}

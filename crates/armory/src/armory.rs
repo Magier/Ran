@@ -999,7 +999,7 @@ mod tests {
         let ttp = armory
             .get_ttp("read-local-kubeconfig")
             .expect("local kubeconfig TTP");
-        assert_eq!(ttp.effects, ["file:kubeconfig"]);
+        assert_eq!(ttp.effects, ["executor::file:kubeconfig"]);
         let procedure = ttp.procedures.first().expect("local read procedure");
         assert_eq!(procedure.command, "cat \"${PATH}\"");
         assert_eq!(procedure.is_local_command, Some(true));
@@ -1048,7 +1048,7 @@ mod tests {
             .get_ttp("get-local-ip-address")
             .expect("local IP discovery TTP");
         assert_eq!(ttp.tactic, "Discovery");
-        assert!(ttp.effects.iter().any(|e| e == "sys.ip"));
+        assert!(ttp.effects.iter().any(|e| e == "executor::sys.ip"));
 
         // Order is the fallback mechanism: the runtime defaults to
         // `procedures[0]` and a `NextProcedure` retry indexes into the list.
