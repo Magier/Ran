@@ -1929,6 +1929,16 @@ impl Campaign {
                 executed_tool
             },
         });
+        let transport_environment =
+            (route.exec_chain.len() > 1).then(|| ran_domain::ExecutionEnvironment {
+                system_id: route.exec_chain.first().cloned(),
+                tool: procedure
+                    .command
+                    .split_whitespace()
+                    .next()
+                    .and_then(binary_map_key)
+                    .map(str::to_string),
+            });
 
         let cmd_id = generate_cmd_id();
 
@@ -1948,6 +1958,7 @@ impl Campaign {
 
         Ok(ExecTtp {
             execution_environment,
+            transport_environment,
             id: cmd_id,
             ttp,
             procedure,
@@ -2806,7 +2817,19 @@ impl Campaign {
             return;
         };
 
-        let system_id = self.execution_system_id(cmd).map(str::to_string);
+        let system_id = cmd
+            .transport_environment
+            .as_ref()
+            .filter(|environment| {
+                attempted
+                    .and_then(binary_map_key)
+                    .zip(environment.tool.as_deref().and_then(binary_map_key))
+                    .is_some_and(|(attempted, transport)| attempted == transport)
+            })
+            .and_then(|environment| environment.system_id.as_deref())
+            .filter(|id| self.get_system_entity(id).is_some())
+            .or_else(|| self.execution_system_id(cmd))
+            .map(str::to_string);
         let Some(system_id) = system_id else {
             return;
         };
@@ -2972,27 +2995,29 @@ impl Campaign {
         // Resolution order:
         //   1. pod.node_name (set when the pod was parsed from the K8s API)
         //   2. runs-on graph edge from the pod (set when a RunsOn relation exists)
-        if let Some(CampaignSystemEntityRef::Pod(pod)) = self.get_system_entity(&cmd.target_id) {
-            let from_node_name = pod.node_name.is_some();
-            let node_id = pod
-                .node_name
-                .as_ref()
-                .map(|n| format!("node/{}", n))
-                .or_else(|| {
-                    let target_eid = EntityId::new(&cmd.target_id);
-                    self.graph
-                        .targets_of(&target_eid, ran_domain::RunsOn::RELATION_NAME)
-                        .first()
-                        .map(|n| n.0.clone())
-                });
-            if let Some(node_id) = node_id {
-                effect_ctx
-                    .entry("TARGET_NODE_ID".to_string())
-                    .or_insert(node_id);
-                if from_node_name {
+        if let Some(executor_id) = effect_ctx.get("EXECUTOR_ID") {
+            if let Some(CampaignSystemEntityRef::Pod(pod)) = self.get_system_entity(executor_id) {
+                let from_node_name = pod.node_name.is_some();
+                let node_id = pod
+                    .node_name
+                    .as_ref()
+                    .map(|n| format!("node/{}", n))
+                    .or_else(|| {
+                        let target_eid = EntityId::new(executor_id);
+                        self.graph
+                            .targets_of(&target_eid, ran_domain::RunsOn::RELATION_NAME)
+                            .first()
+                            .map(|n| n.0.clone())
+                    });
+                if let Some(node_id) = node_id {
                     effect_ctx
-                        .entry("TARGET_NODE_AUTHORITATIVE".to_string())
-                        .or_insert_with(|| "true".to_string());
+                        .entry("TARGET_NODE_ID".to_string())
+                        .or_insert(node_id);
+                    if from_node_name {
+                        effect_ctx
+                            .entry("TARGET_NODE_AUTHORITATIVE".to_string())
+                            .or_insert_with(|| "true".to_string());
+                    }
                 }
             }
         }

@@ -59,6 +59,8 @@ impl From<&ExecutionRelation> for ran_domain::RelationSummary {
 pub struct ExecutionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_environment: Option<ran_domain::ExecutionEnvironment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_environment: Option<ran_domain::ExecutionEnvironment>,
     /// Unique command identifier (same as `ExecTtp.id` / `TtpExecuted.id`).
     pub id: String,
     /// TTP identifier (e.g. `"k8s.exec-into-pod"`).
@@ -137,6 +139,7 @@ impl ExecutionRecord {
             target_id: request.target_id.clone(),
             exec_system_id: request.exec_system_id.clone().unwrap_or_default(),
             execution_environment: None,
+            transport_environment: None,
             auth_identity_id: request.auth_identity_id.clone(),
             procedure_id: request.procedure_id.clone().unwrap_or_default(),
             command: String::new(),
@@ -169,6 +172,7 @@ impl ExecutionRecord {
             target_id: cmd.target_id.clone(),
             exec_system_id: cmd.exec_target().to_string(),
             execution_environment: cmd.execution_environment.clone(),
+            transport_environment: cmd.transport_environment.clone(),
             auth_identity_id: cmd.auth_identity_id.clone(),
             procedure_id: cmd.procedure.id.clone(),
             command: cmd.procedure.command.clone(),

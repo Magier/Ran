@@ -2487,6 +2487,9 @@ components:
       properties:
         execution_environment:
           $ref: '#/components/schemas/ExecutionEnvironment'
+        transport_environment:
+          $ref: '#/components/schemas/ExecutionEnvironment'
+          description: Physical environment of an outer transport wrapper, when distinct from the payload environment.
         id:
           type: string
           description: Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events

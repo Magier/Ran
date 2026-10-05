@@ -1540,6 +1540,112 @@ fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
 }
 
 #[test]
+fn review_transport_failure_is_attributed_to_its_outer_executor() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let mut source = Pod::new("source", "controlled");
+    source.system.set_binary("ranplant", "/tmp/ranplant");
+    let source_id = source.entity_id().0;
+    campaign.entities.insert_typed(source);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &source_id);
+
+    let mut target = Pod::new("target", "other");
+    target.containers.push(Container {
+        name: "main".into(),
+        image: String::new(),
+        args: vec![],
+        ports: vec![],
+        volume_mounts: vec![],
+    });
+    let target_id = target.entity_id().0;
+    campaign.entities.insert_typed(target);
+    let node = K8sNode::new("worker");
+    let node_id = node.entity_id().0;
+    campaign.entities.insert_typed(node);
+    campaign.upsert_relation(
+        &ran_domain::KubeletExecSource::new(&source_id, &node_id),
+        ran_domain::KnowledgeProvenance::Action,
+    );
+    campaign.upsert_relation(
+        &ran_domain::KubeletExecSink::new(&node_id, &target_id),
+        ran_domain::KnowledgeProvenance::Action,
+    );
+
+    let armory = armory_with_command("request", "printf ok", None);
+    let mut request = request_for(&target_id, None, None);
+    request.procedure_id = None;
+    let exec = campaign.prepare_action(request, &armory).unwrap();
+    assert_eq!(
+        exec.transport_environment
+            .as_ref()
+            .and_then(|environment| environment.system_id.as_deref()),
+        Some(source_id.as_str())
+    );
+    assert_eq!(
+        exec.transport_environment
+            .as_ref()
+            .and_then(|environment| environment.tool.as_deref()),
+        Some("ranplant")
+    );
+
+    let event = c2::TtpExecuted {
+        id: exec.id.clone(),
+        success: false,
+        results: vec!["sh: 1: ranplant: not found".into()],
+        exit_code: 127,
+        fail_reason: "sh: 1: ranplant: not found".into(),
+        session_connected: None,
+    };
+    campaign.on_ttp_executed(&exec, &event).unwrap();
+    assert_eq!(
+        campaign
+            .get_system_entity(&target_id)
+            .unwrap()
+            .entity()
+            .system()
+            .has_binary("ranplant"),
+        BinaryPresence::Unknown
+    );
+}
+
+#[test]
+fn review_structural_effect_metadata_comes_from_the_persisted_executor() {
+    let (mut campaign, target_id, source_id, _) = request_fixture("Pod");
+    for (id, node_name) in [(&source_id, "source-host"), (&target_id, "target-host")] {
+        let mut pod = campaign
+            .entities
+            .find::<Pod>(&EntityId::new(id))
+            .unwrap()
+            .clone();
+        pod.node_name = Some(node_name.into());
+        campaign.entities.insert_typed(pod);
+    }
+    let mut ttp = Ttp::new("escape", "Escape", "Execution");
+    ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+    let mut procedure = Procedure::new("proc-1", "printf ok");
+    procedure.run_on_target = Some(false);
+    ttp.procedures.push(procedure);
+    ttp.effects.push("container.escape(sys)".into());
+    let armory = Armory::from_ttps(vec![ttp]);
+    let mut request = request_for(&target_id, None, None);
+    request.action_id = "escape".into();
+
+    let exec = campaign.prepare_action(request, &armory).unwrap();
+    assert_eq!(
+        exec.execution_environment
+            .as_ref()
+            .and_then(|environment| environment.system_id.as_deref()),
+        Some(source_id.as_str())
+    );
+    campaign
+        .on_ttp_executed(&exec, &sample_event("ok"))
+        .unwrap();
+    assert_eq!(
+        campaign.relation_targets(&EntityId::new(&source_id), "container.escape"),
+        vec![EntityId::new("node/source-host")]
+    );
+}
+
+#[test]
 fn unrealizable_discovered_kubelet_transports_do_not_hide_longer_valid_routes() {
     for failure in [
         "missing-ranplant",

@@ -1913,6 +1913,7 @@ mod tests {
             target_id: target_id.to_string(),
             exec_system_id: target_id.to_string(),
             execution_environment: None,
+            transport_environment: None,
             auth_identity_id: None,
             procedure_id: "nsenter".to_string(),
             command: "nsenter --target 1 --mount --uts --ipc --net --pid hostname".to_string(),

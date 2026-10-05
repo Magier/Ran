@@ -1288,6 +1288,7 @@ mod tests {
             exec_chain: vec!["node/test-node".to_string()],
             exec_system_id: exec_system_id.to_string(),
             execution_environment: None,
+            transport_environment: None,
             auth_identity_id: None,
             output_transform: None,
             is_cleanup: false,

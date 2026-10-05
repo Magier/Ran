@@ -1268,6 +1268,7 @@ mod listener_event_tests {
                 system_id: Some(target_id.to_string()),
                 tool: None,
             }),
+            transport_environment: None,
             auth_identity_id: None,
             started_at_ms: 0,
             execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,

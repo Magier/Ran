@@ -1301,6 +1301,8 @@ export interface components {
 		 */
 		ExecutionRecordEntry: {
 			execution_environment?: components['schemas']['ExecutionEnvironment'];
+			/** @description Physical environment of an outer transport wrapper, when distinct from the payload environment. */
+			transport_environment?: components['schemas']['ExecutionEnvironment'];
 			/** @description Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events */
 			id: string;
 			ttp_id: string;
