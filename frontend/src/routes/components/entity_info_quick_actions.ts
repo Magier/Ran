@@ -14,10 +14,28 @@ const EFFECT_FIELD_MAP: Record<string, string[]> = {
 	'k8s.SelfSubjectRulesReview': ['can']
 };
 
+type EffectSubject = 'executor' | 'target' | undefined;
+
+interface EffectDeclaration {
+	subject: EffectSubject;
+	kind: string;
+}
+
+function parseEffectDeclaration(effect: string): EffectDeclaration {
+	const match = effect.trim().match(/^(executor|target)::(.*)$/);
+	const subject = match?.[1] as EffectSubject;
+	const expression = (match?.[2] ?? effect).trim();
+	const argumentStart = expression.indexOf('(');
+	return {
+		subject,
+		kind: (argumentStart >= 0 ? expression.slice(0, argumentStart) : expression).trim()
+	};
+}
+
 /**
- * EntityInfo shortcuts are direct observations of the selected entity. An
- * action that executes from another system remains applicable in the Armory,
- * but must not be offered as an inline field action for this entity.
+ * EntityInfo shortcuts are direct observations of the selected entity.
+ * Executor-bound and legacy effects qualify only when execution stays on the
+ * selected entity. Target-bound effects qualify independently of placement.
  */
 function runsOnlyOnSelectedTarget(ttp: TTP): boolean {
 	return (
@@ -26,13 +44,21 @@ function runsOnlyOnSelectedTarget(ttp: TTP): boolean {
 	);
 }
 
+function effectObservesSelectedEntity(ttp: TTP, subject: EffectSubject): boolean {
+	return subject === 'target' || runsOnlyOnSelectedTarget(ttp);
+}
+
 export function quickActionsForField(label: string, kind: string | undefined, ttps: TTP[]): TTP[] {
 	if (kind && (FIELD_KIND_EXCLUDE[label] ?? []).includes(kind)) return [];
 
-	return ttps.filter(
-		(ttp) =>
-			runsOnlyOnSelectedTarget(ttp) &&
-			(ttp.effects ?? []).some((effect) => (EFFECT_FIELD_MAP[effect] ?? []).includes(label))
+	return ttps.filter((ttp) =>
+		(ttp.effects ?? []).some((effect) => {
+			const declaration = parseEffectDeclaration(effect);
+			return (
+				effectObservesSelectedEntity(ttp, declaration.subject) &&
+				(EFFECT_FIELD_MAP[declaration.kind] ?? []).includes(label)
+			);
+		})
 	);
 }
 

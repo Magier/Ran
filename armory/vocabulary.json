@@ -60,7 +60,7 @@
       "required": false,
       "support": "enforced",
       "scope": "physical execution system",
-      "resolution": "An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. Legacy fallback infers an executable only from one simple shell command, skips leading environment assignments, and leaves compound or ambiguous shell programs unknown.",
+      "resolution": "An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. Legacy fallback infers an executable only from one simple shell command, skips leading environment assignments, and leaves compound, dynamically expanded, or otherwise ambiguous shell programs unknown.",
       "description": "Names the binary dependency for one procedure. Procedure readiness is evaluated independently, so an action remains runnable while any alternative procedure is present or has unknown availability. A known-absent tool makes only that procedure unavailable, and shell syntax is never recorded as a binary."
     },
     {

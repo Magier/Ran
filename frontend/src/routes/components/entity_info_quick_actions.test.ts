@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TTP } from '$lib/api/index';
-import { quickActionsForField } from './entity_info_quick_actions';
+import { quickActionFields, quickActionsForField } from './entity_info_quick_actions';
 
 function tokenAction(id: string, runOnTarget?: boolean): TTP {
 	return {
@@ -52,7 +52,38 @@ describe('quickActionsForField', () => {
 	});
 
 	it('keeps runtime mount discovery available to the filesystem control', () => {
-		const action = { ...tokenAction('get-volume-mounts'), effects: ['linux.mounts'] };
+		const action = { ...tokenAction('get-volume-mounts'), effects: ['executor::linux.mounts'] };
 		expect(quickActionsForField('mounts', 'UnknownSystem', [action])).toEqual([action]);
+	});
+
+	it('maps every migrated physical effect declaration to its entity fields', () => {
+		const declarations: Array<[string, string[]]> = [
+			['executor::linux.mounts', ['mounts']],
+			['executor::sys.envVar', ['envVars']],
+			['executor::sys.ip', ['ips']],
+			['executor::sys.files', ['files', 'binaries']],
+			['executor::sys.userID', ['user_id']]
+		];
+		const actions = declarations.map(([effect], index) => ({
+			...tokenAction(`physical-${index}`),
+			effects: [effect]
+		}));
+
+		for (const [effect, fields] of declarations) {
+			const action = actions.find((candidate) => candidate.effects?.includes(effect));
+			for (const field of fields) {
+				expect(quickActionsForField(field, 'Pod', actions)).toContain(action);
+			}
+		}
+		expect(quickActionFields('Pod', actions)).toEqual(
+			new Set(['mounts', 'envVars', 'ips', 'files', 'binaries', 'user_id'])
+		);
+	});
+
+	it('uses the declared subject when the executor differs from the selected entity', () => {
+		const sourceSide = { ...tokenAction('upload', false), effects: ['target::sys.files'] };
+		const executorSide = { ...tokenAction('inspect', false), effects: ['executor::sys.files'] };
+
+		expect(quickActionsForField('files', 'Pod', [sourceSide, executorSide])).toEqual([sourceSide]);
 	});
 });

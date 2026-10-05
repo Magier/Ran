@@ -3926,6 +3926,9 @@ mod rendered_envelope_payload_tests {
         assert_eq!(simple_shell_tool("TASK_VALUE=1"), None);
         assert_eq!(simple_shell_tool("curl --version; id"), None);
         assert_eq!(simple_shell_tool("value=$(id) curl --version"), None);
+        assert_eq!(simple_shell_tool("\"$RAN_REVIEW_TOOL\" --version"), None);
+        assert_eq!(simple_shell_tool("~/bin/curl --version"), None);
+        assert_eq!(simple_shell_tool("curl-* --version"), None);
     }
 }
 
@@ -3988,6 +3991,9 @@ pub(crate) fn simple_shell_tool(command: &str) -> Option<String> {
     }
     let words = shell_words::split(command).ok()?;
     let executable = words.iter().find(|word| !is_shell_assignment(word))?;
+    if !is_static_shell_executable(executable) {
+        return None;
+    }
     if matches!(
         executable.as_str(),
         "!" | "{"
@@ -4011,6 +4017,14 @@ pub(crate) fn simple_shell_tool(command: &str) -> Option<String> {
         return None;
     }
     Some(executable.clone())
+}
+
+fn is_static_shell_executable(word: &str) -> bool {
+    !word.is_empty()
+        && !word.starts_with('~')
+        && !word
+            .chars()
+            .any(|ch| matches!(ch, '$' | '*' | '?' | '[' | ']' | '{' | '}'))
 }
 
 fn is_shell_assignment(word: &str) -> bool {

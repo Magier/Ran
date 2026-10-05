@@ -1983,3 +1983,26 @@ fn successful_prefixed_shell_command_never_records_assignment_as_binary() {
         BinaryPresence::Present("/usr/bin/curl".into())
     );
 }
+
+#[test]
+fn successful_dynamic_shell_command_does_not_record_expression_as_binary() {
+    let (mut campaign, target, _, _) = request_fixture("Pod");
+    let mut ttp = Ttp::new("dynamic-shell", "Dynamic shell", "Discovery");
+    ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+    let mut procedure = Procedure::new("proc-1", "\"$RAN_REVIEW_TOOL\" --version");
+    procedure.is_local_command = Some(true);
+    ttp.procedures.push(procedure);
+    let armory = Armory::from_ttps(vec![ttp]);
+    let mut request = request_for(&target, None, None);
+    request.action_id = "dynamic-shell".into();
+    let exec = campaign.prepare_action(request, &armory).unwrap();
+
+    campaign
+        .on_ttp_executed(&exec, &sample_event("curl 8"))
+        .unwrap();
+    let operator = campaign.get_system_entity("system/operator-host").unwrap();
+    assert_eq!(
+        operator.entity().system().has_binary("$RAN_REVIEW_TOOL"),
+        BinaryPresence::Unknown
+    );
+}
