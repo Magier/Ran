@@ -1303,6 +1303,13 @@ fn local_shell_fixture() -> (Campaign, Armory, String, String) {
 #[test]
 fn review_local_shell_placement_is_independent_of_request_format_or_auth() {
     let (mut campaign, armory, target, source) = local_shell_fixture();
+    campaign
+        .get_system_entity_mut("system/operator-host")
+        .unwrap()
+        .entity_mut()
+        .system_mut()
+        .binaries
+        .insert("printf".into(), BinaryPresence::Absent);
     let exec = campaign
         .prepare_action(request_for(&target, None, None), &armory)
         .unwrap();
@@ -1341,6 +1348,15 @@ fn review_local_shell_placement_is_independent_of_request_format_or_auth() {
             .system()
             .has_binary("review-proof"),
         BinaryPresence::Present("/local/review-proof".into())
+    );
+    assert_eq!(
+        campaign
+            .get_system_entity("system/operator-host")
+            .unwrap()
+            .entity()
+            .system()
+            .has_binary("printf"),
+        BinaryPresence::Absent
     );
 }
 

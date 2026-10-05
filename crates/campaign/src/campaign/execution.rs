@@ -3929,6 +3929,12 @@ mod rendered_envelope_payload_tests {
         assert_eq!(simple_shell_tool("\"$RAN_REVIEW_TOOL\" --version"), None);
         assert_eq!(simple_shell_tool("~/bin/curl --version"), None);
         assert_eq!(simple_shell_tool("curl-* --version"), None);
+        assert_eq!(simple_shell_tool("printf ok"), None);
+        assert_eq!(simple_shell_tool("command curl --version"), None);
+        assert_eq!(
+            simple_shell_tool("/usr/bin/printf ok"),
+            Some("/usr/bin/printf".to_string())
+        );
     }
 }
 
@@ -3994,29 +4000,68 @@ pub(crate) fn simple_shell_tool(command: &str) -> Option<String> {
     if !is_static_shell_executable(executable) {
         return None;
     }
-    if matches!(
-        executable.as_str(),
-        "!" | "{"
-            | "}"
-            | "if"
-            | "then"
-            | "else"
-            | "fi"
-            | "for"
-            | "while"
-            | "until"
-            | "case"
-            | "esac"
-            | "do"
-            | "done"
-            | "export"
-            | "local"
-            | "readonly"
-            | "unset"
-    ) {
+    if is_shell_builtin_or_keyword(executable) {
         return None;
     }
     Some(executable.clone())
+}
+
+fn is_shell_builtin_or_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "." | ":"
+            | "!"
+            | "["
+            | "{"
+            | "}"
+            | "alias"
+            | "bg"
+            | "break"
+            | "case"
+            | "cd"
+            | "command"
+            | "continue"
+            | "do"
+            | "done"
+            | "echo"
+            | "else"
+            | "esac"
+            | "eval"
+            | "exec"
+            | "exit"
+            | "export"
+            | "false"
+            | "fc"
+            | "fg"
+            | "fi"
+            | "for"
+            | "getopts"
+            | "hash"
+            | "if"
+            | "jobs"
+            | "kill"
+            | "local"
+            | "printf"
+            | "pwd"
+            | "read"
+            | "readonly"
+            | "return"
+            | "set"
+            | "shift"
+            | "test"
+            | "then"
+            | "times"
+            | "trap"
+            | "true"
+            | "type"
+            | "ulimit"
+            | "umask"
+            | "unalias"
+            | "unset"
+            | "until"
+            | "wait"
+            | "while"
+    )
 }
 
 fn is_static_shell_executable(word: &str) -> bool {

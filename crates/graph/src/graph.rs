@@ -588,7 +588,7 @@ impl KnowledgeGraph {
                 |_| 0.0f32,
             );
 
-            if let Some((cost, path)) = result {
+            if let Some((cost, path)) = result.filter(|(cost, _)| cost.is_finite()) {
                 if best.as_ref().is_none_or(|(c, _)| cost < *c) {
                     best = Some((cost, path));
                 }
@@ -654,6 +654,9 @@ impl KnowledgeGraph {
             });
             for (next, weight) in neighbors {
                 let next_cost = cost + weight;
+                if !next_cost.is_finite() {
+                    continue;
+                }
                 if costs.get(&next).is_none_or(|known| next_cost < *known) {
                     costs.insert(next, next_cost);
                     predecessors.insert(next, node);
@@ -996,14 +999,32 @@ mod tests {
             &valid,
             EdgeData::new("rce.can-exec", 1.0, true).with_envelope(Some("run ${CMD}".into())),
         );
+        let huge = EntityId::new("huge");
+        let overflow = EntityId::new("overflow");
+        graph.insert_edge(
+            &source,
+            &huge,
+            EdgeData::new("rce.can-exec", f32::MAX, true).with_envelope(Some("run ${CMD}".into())),
+        );
+        graph.insert_edge(
+            &huge,
+            &overflow,
+            EdgeData::new("rce.can-exec", f32::MAX, true).with_envelope(Some("run ${CMD}".into())),
+        );
 
         let routes = graph.shortest_exec_paths(std::slice::from_ref(&source), None);
-        assert_eq!(routes.len(), 2);
+        assert_eq!(routes.len(), 3);
         assert!(routes.contains_key(&source));
         assert!(routes.contains_key(&valid));
+        assert!(routes.contains_key(&huge));
+        assert!(!routes.contains_key(&overflow));
         assert_eq!(
             graph.shortest_exec_path(std::slice::from_ref(&source), &valid),
-            Some((1.0, vec![source, valid]))
+            Some((1.0, vec![source.clone(), valid]))
+        );
+        assert_eq!(
+            graph.shortest_exec_path(std::slice::from_ref(&source), &overflow),
+            None
         );
     }
 
