@@ -2003,12 +2003,12 @@ impl Campaign {
             (route.exec_chain.len() > 1).then(|| ran_domain::ExecutionEnvironment {
                 system_id: route.exec_chain.first().cloned(),
                 // This is a runtime-generated transport wrapper, not the
-                // user procedure. Its first token is the selected transport
+                // user procedure. Its first shell word is the selected transport
                 // binary and remains safe to persist as transport provenance.
-                tool: procedure
-                    .command
-                    .split_whitespace()
-                    .next()
+                tool: shell_words::split(&procedure.command)
+                    .ok()
+                    .and_then(|words| words.into_iter().next())
+                    .as_deref()
                     .and_then(binary_map_key)
                     .map(str::to_string),
             });

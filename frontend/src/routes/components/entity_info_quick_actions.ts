@@ -40,7 +40,9 @@ function parseEffectDeclaration(effect: string): EffectDeclaration {
 function runsOnlyOnSelectedTarget(ttp: TTP): boolean {
 	return (
 		ttp.procedures.length > 0 &&
-		ttp.procedures.every((procedure) => procedure.runOnTarget !== false)
+		ttp.procedures.every(
+			(procedure) => procedure.runOnTarget !== false && procedure.isLocalCommand !== true
+		)
 	);
 }
 

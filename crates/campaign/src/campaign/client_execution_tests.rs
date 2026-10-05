@@ -2189,11 +2189,52 @@ fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
         .insert("missing-tool".into(), BinaryPresence::Absent);
     let mut ttp = Ttp::new("duplicate-plans", "Duplicate plans", "Discovery");
     ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+    ttp.params.push(TtpParam {
+        name: "SOURCE_NAME".into(),
+        param_type: "string".into(),
+        default: "${SRC.NAME}".into(),
+        required: true,
+        description: String::new(),
+        options: vec![],
+    });
     ttp.procedures
         .push(Procedure::new("same-id", "missing-tool"));
-    let mut local = Procedure::new("same-id", "printf ok");
+    let mut local = Procedure::new("same-id", "printf '%s' '${SOURCE_NAME}'");
     local.is_local_command = Some(true);
     ttp.procedures.push(local);
+    let operator_name = campaign
+        .entities
+        .find::<ran_domain::OperatorHost>(&EntityId::new("system/operator-host"))
+        .unwrap()
+        .entity_name()
+        .to_string();
+    let resolution =
+        resolve_action(&ttp, &campaign, &target, &ActionResolutionInput::default()).unwrap();
+    assert_eq!(
+        resolution.recommended_procedure_id.as_deref(),
+        Some("same-id")
+    );
+    assert_eq!(
+        resolution.arguments[0].value.as_deref(),
+        Some(operator_name.as_str())
+    );
+    for id in ["same-id", " same-id "] {
+        let ambiguous = resolve_action(
+            &ttp,
+            &campaign,
+            &target,
+            &ActionResolutionInput {
+                procedure_id: Some(id.into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ambiguous.status, ActionReadinessStatus::Blocked);
+        assert!(ambiguous
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("not unique")));
+    }
     let armory = Armory::from_ttps(vec![ttp]);
     let mut request = request_for(&target, None, None);
     request.action_id = "duplicate-plans".into();
@@ -2204,6 +2245,7 @@ fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
         selected.operation,
         c2::ExecutionOperation::LocalShell { .. }
     ));
+    assert_eq!(selected.args["SOURCE_NAME"], operator_name);
 
     request.procedure_id = Some("same-id".into());
     let error = campaign.prepare_action(request, &armory).unwrap_err();
@@ -2211,6 +2253,42 @@ fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
         error,
         ExecuteActionError::InvalidInput(message) if message.contains("not unique")
     ));
+}
+
+#[test]
+fn quoted_transport_executable_preserves_binary_provenance() {
+    let (mut campaign, target, source, _) = request_fixture("Pod");
+    let binary = "/opt/ran plant/ranplant";
+    campaign
+        .entities
+        .get_mut::<Pod>()
+        .get_mut(&EntityId::new(&source))
+        .unwrap()
+        .system
+        .set_binary("ranplant", binary);
+    let node = K8sNode::new("worker");
+    let node_id = node.entity_id().0;
+    campaign.entities.insert_typed(node);
+    campaign.upsert_relation(
+        &ran_domain::KubeletExecSource::new(&source, &node_id),
+        ran_domain::KnowledgeProvenance::Action,
+    );
+    campaign.upsert_relation(
+        &ran_domain::KubeletExecSink::new(&node_id, &target),
+        ran_domain::KnowledgeProvenance::Action,
+    );
+    let mut request = request_for(&target, None, None);
+    request.procedure_id = None;
+    let exec = campaign
+        .prepare_action(request, &armory_with_command("request", "printf ok", None))
+        .unwrap();
+    assert_eq!(
+        shell_words::split(&exec.procedure.command).unwrap()[0],
+        binary
+    );
+    let transport = exec.transport_environment.as_ref().unwrap();
+    assert_eq!(transport.system_id.as_deref(), Some(source.as_str()));
+    assert_eq!(transport.tool.as_deref(), Some("ranplant"));
 }
 
 #[test]
