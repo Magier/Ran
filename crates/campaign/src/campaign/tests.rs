@@ -195,6 +195,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         execution_environment: Some(ran_domain::ExecutionEnvironment {
             system_id: Some(target_id.into()),
             tool: Some("env".into()),
+            auth_identity_id: None,
         }),
         transport_environment: None,
         auth_identity_id: None,
@@ -2392,6 +2393,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         execution_environment: Some(ran_domain::ExecutionEnvironment {
             system_id: Some(target_id.to_string()),
             tool: Some("nmap".into()),
+            auth_identity_id: None,
         }),
         transport_environment: None,
         auth_identity_id: None,

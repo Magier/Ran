@@ -1286,6 +1286,9 @@ struct ExecRoute {
     /// Bare inner command on the final target, before any hop envelopes wrap
     /// it. Empty when there is no multi-hop traversal.
     inner_command: String,
+    /// Authentication identity consumed by an outer transport layer. The
+    /// action-selected identity remains on `ExecTtp.auth_identity_id`.
+    transport_auth_identity_id: Option<String>,
 }
 
 /// Result of wrapping a command across intermediate hops.
@@ -1296,6 +1299,8 @@ struct HopWrap {
     traversal: Vec<TraversalHop>,
     /// Bare inner command on the final target, before any hop envelopes.
     inner_command: String,
+    /// Authentication identity consumed while realizing the selected hops.
+    transport_auth_identity_id: Option<String>,
 }
 
 impl ExecRoute {
@@ -1313,6 +1318,7 @@ impl ExecRoute {
             output_transform,
             traversal: Vec::new(),
             inner_command: String::new(),
+            transport_auth_identity_id: None,
         }
     }
 }
@@ -1998,6 +2004,10 @@ impl Campaign {
             } else {
                 executed_tool
             },
+            auth_identity_id: execution_semantics
+                .uses_k8s_auth
+                .then(|| auth_identity_id.clone())
+                .flatten(),
         });
         let transport_environment =
             (route.exec_chain.len() > 1).then(|| ran_domain::ExecutionEnvironment {
@@ -2011,6 +2021,7 @@ impl Campaign {
                     .as_deref()
                     .and_then(binary_map_key)
                     .map(str::to_string),
+                auth_identity_id: route.transport_auth_identity_id.clone(),
             });
 
         let cmd_id = generate_cmd_id();
@@ -2306,6 +2317,7 @@ impl Campaign {
             output_transform: wrap.output_transform,
             traversal: wrap.traversal,
             inner_command: wrap.inner_command,
+            transport_auth_identity_id: wrap.transport_auth_identity_id,
         })
     }
 
@@ -2374,6 +2386,7 @@ impl Campaign {
                         output_transform: wrap.output_transform,
                         traversal: wrap.traversal,
                         inner_command: wrap.inner_command,
+                        transport_auth_identity_id: wrap.transport_auth_identity_id,
                     });
                 }
 
@@ -2399,6 +2412,7 @@ impl Campaign {
                     output_transform: wrap.output_transform,
                     traversal: wrap.traversal,
                     inner_command: wrap.inner_command,
+                    transport_auth_identity_id: wrap.transport_auth_identity_id,
                 });
             }
 
@@ -2450,6 +2464,7 @@ impl Campaign {
                     output_transform: wrap.output_transform,
                     traversal: wrap.traversal,
                     inner_command: wrap.inner_command,
+                    transport_auth_identity_id: wrap.transport_auth_identity_id,
                 });
             }
 
@@ -2562,6 +2577,7 @@ impl Campaign {
                 output_transform: wrap.output_transform,
                 traversal: wrap.traversal,
                 inner_command: wrap.inner_command,
+                transport_auth_identity_id: wrap.transport_auth_identity_id,
             })
         }
     }
@@ -2738,6 +2754,7 @@ impl Campaign {
         }
 
         let mut output_transform: Option<OutputTransform> = None;
+        let mut transport_auth_identity_id: Option<String> = None;
         // Hops are recorded innermost-first as the loop wraps from the inside
         // out; reversed and prefixed with the C2 entry hop before returning.
         let mut traversal: Vec<TraversalHop> = Vec::new();
@@ -2813,6 +2830,18 @@ impl Campaign {
                             "selected kubelet pair has no typed realization".into(),
                         )
                     })?;
+                if let Some(identity) = &plan.auth_identity_id {
+                    if transport_auth_identity_id
+                        .as_ref()
+                        .is_some_and(|selected| selected != identity)
+                    {
+                        return Err(ExecuteActionError::InvariantViolation(
+                            "selected route consumes multiple transport authentication identities"
+                                .into(),
+                        ));
+                    }
+                    transport_auth_identity_id = Some(identity.clone());
+                }
                 plan.render(&procedure.command)
                     .map_err(ExecuteActionError::InvalidInput)?
             } else {
@@ -2855,6 +2884,7 @@ impl Campaign {
             output_transform,
             traversal,
             inner_command,
+            transport_auth_identity_id,
         })
     }
 

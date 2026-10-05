@@ -2457,6 +2457,9 @@ components:
         tool:
           type: string
           description: Actual binary executed. Absent for native API requests.
+        auth_identity_id:
+          type: string
+          description: Authentication identity consumed by this execution layer, distinct from the action-selected identity when a transport uses ambient credentials.
 
     ExecutionRecordEntry:
       type: object

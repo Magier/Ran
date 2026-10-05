@@ -12,6 +12,7 @@ pub struct KubeletExecPlan {
     pub(crate) source_id: String,
     pub(crate) node_id: String,
     pub(crate) pod_id: String,
+    pub(crate) auth_identity_id: Option<String>,
     endpoint: String,
     namespace: String,
     pod: String,
@@ -129,6 +130,26 @@ impl Campaign {
             return None;
         }
         let endpoint = self.kubelet_endpoint(node, target)?;
+        let source_pod = self.entities.find::<Pod>(source)?;
+        let declared_identity = source_pod
+            .namespace()
+            .zip(source_pod.service_account_name.as_deref())
+            .filter(|(namespace, name)| !namespace.is_empty() && !name.is_empty())
+            .map(|(namespace, name)| format!("ns/{namespace}/sa/{name}"));
+        let related_identities = self
+            .graph
+            .targets_of(source, "uses")
+            .into_iter()
+            .filter(|identity| {
+                self.entities
+                    .contains::<ran_domain::ServiceAccount>(identity)
+            })
+            .map(|identity| identity.0.clone())
+            .collect::<Vec<_>>();
+        let auth_identity_id = declared_identity.or_else(|| match related_identities.as_slice() {
+            [identity] => Some(identity.clone()),
+            _ => None,
+        });
         let pod = self.entities.find::<Pod>(target)?;
         let namespace = pod.meta.namespace.as_ref()?.clone();
         if namespace.is_empty() || pod.meta.name.is_empty() {
@@ -144,6 +165,7 @@ impl Campaign {
             source_id: source.0.clone(),
             node_id: node.0.clone(),
             pod_id: target.0.clone(),
+            auth_identity_id,
             endpoint,
             namespace,
             pod: pod.meta.name.clone(),

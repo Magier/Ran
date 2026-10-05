@@ -1293,6 +1293,8 @@ export interface components {
 			system_id?: string;
 			/** @description Actual binary executed. Absent for native API requests. */
 			tool?: string;
+			/** @description Authentication identity consumed by this execution layer, distinct from the action-selected identity when a transport uses ambient credentials. */
+			auth_identity_id?: string;
 		};
 		/**
 		 * @description A completed TTP execution joined with the parse audits produced by its

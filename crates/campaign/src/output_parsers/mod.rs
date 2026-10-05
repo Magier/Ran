@@ -949,6 +949,7 @@ mod tests {
             execution_environment: Some(ran_domain::ExecutionEnvironment {
                 system_id: Some("ns/default/pod/demo".into()),
                 tool: Some("env".into()),
+                auth_identity_id: None,
             }),
             transport_environment: None,
             auth_identity_id: None,

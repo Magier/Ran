@@ -181,6 +181,12 @@ fn bundled_node_proxy_request_has_equivalent_implicit_and_explicit_client_routes
         assert!(!exec.procedure.command.contains("--insecure"));
         assert_eq!(exec.args.get("NODE").map(String::as_str), Some("node-01"));
         assert_eq!(exec.auth_identity_id.as_deref(), Some(auth_id.as_str()));
+        assert_eq!(
+            exec.execution_environment
+                .as_ref()
+                .and_then(|environment| environment.auth_identity_id.as_deref()),
+            Some(auth_id.as_str())
+        );
     }
 }
 
@@ -1485,7 +1491,7 @@ fn physical_capability_effects_cannot_borrow_a_semantic_target_or_submitted_exec
 
 #[test]
 fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
-    let (mut campaign, target, source, _) = request_fixture("Pod");
+    let (mut campaign, target, source, selected_auth) = request_fixture("Pod");
     let mut node = K8sNode::new("worker");
     node.system.ips.push("2001:db8::1".parse().unwrap());
     let node_id = node.entity_id().0;
@@ -1541,7 +1547,7 @@ fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
     let mut ttp = armory_with_command("request", "printf '%s' 'a & b'; id", None).ttps()[0].clone();
     ttp.effects.push("sys.envvar".into());
     let armory = Armory::from_ttps(vec![ttp]);
-    let mut request = request_for(&target, None, None);
+    let mut request = request_for(&target, Some(&selected_auth), None);
     request.procedure_id = None;
     let exec = campaign.prepare_action(request, &armory).unwrap();
     assert_eq!(
@@ -1555,6 +1561,16 @@ fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
             .system_id
             .as_deref(),
         Some(target.as_str())
+    );
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(selected_auth.as_str())
+    );
+    assert_eq!(
+        exec.transport_environment
+            .as_ref()
+            .and_then(|environment| environment.auth_identity_id.as_deref()),
+        Some(account_id.as_str())
     );
     let words = shell_words::split(&exec.procedure.command).unwrap();
     assert_eq!(&words[..2], &["/tmp/ranplant", "kubelet-exec"]);
