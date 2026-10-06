@@ -1,13 +1,14 @@
 import type cytoscape from 'cytoscape';
 import { WORKLOAD_KINDS } from './workload_compounds';
 
-const KIND_SVG_MAP = {
+const KIND_SVG_MAP: Record<string, string> = {
 	AppService: 'k8s/ep.svg',
 	Ingress: 'k8s/ing.svg',
 	Pod: 'k8s/pod.svg',
 	Container: 'k8s/crio.svg',
-	Daemonset: 'k8s/daemontset.svg',
+	DaemonSet: 'k8s/ds.svg',
 	Deployment: 'k8s/deploy.svg',
+	ReplicaSet: 'k8s/rs.svg',
 	AbstractWorkload: 'k8s/deploy.svg',
 	ControlPlane: 'k8s/control-plane.svg',
 	ClusterNode: 'k8s/node.svg',
@@ -23,7 +24,7 @@ const KIND_SVG_MAP = {
 	ClusterRoleBinding: 'k8s/crb.svg',
 	Secret: 'k8s/secret.svg',
 	ServiceAccount: 'k8s/sa.svg',
-	Statefulset: 'k8s/sts.svg',
+	StatefulSet: 'k8s/sts.svg',
 	User: 'k8s/user.svg',
 	Volume: 'k8s/vol.svg',
 	KubeApiServer: 'k8s/api.svg',
@@ -513,24 +514,32 @@ export function applyCompromisedStyle(cy: cytoscape.Core) {
 		const shouldTint =
 			Boolean(n.data('compromised')) ||
 			(n.hasClass('cy-expand-collapse-collapsed-node') && Boolean(n.data('containsCompromised')));
-		const img = n.style('background-image');
-		const hasTint = typeof img === 'string' && img.includes(redTintSvg);
+		const currentImages = String(n.style('background-image'))
+			.split(/\s+/)
+			.filter((image) => image && image !== 'none' && image !== redTintSvg);
+		const hasTint = String(n.style('background-image')).includes(redTintSvg);
+		const kind = n.data('kind');
+		const icon = typeof kind === 'string' ? KIND_SVG_MAP[kind] : undefined;
+		const images = COMPOUND_KINDS.has(kind)
+			? n.isParent() || !icon
+				? []
+				: [`/${icon}`]
+			: currentImages;
 
 		if (!shouldTint && hasTint) {
-			const layers = img
-				.split(',')
-				.map((l: string) => l.trim())
-				.filter((l: string) => l !== redTintSvg);
+			// The current image may be a theme-specific inline override. Keep it
+			// while removing only the tint layer.
+			n.style('background-image', images.length > 0 ? images : 'none');
 			n.removeStyle('background-color');
 			n.removeStyle('background-opacity');
-			n.style({
-				color: '',
-				'background-image': layers.length > 0 ? layers.join(', ') : 'none'
-			});
-		} else if (shouldTint && !hasTint) {
+			n.removeStyle('color');
+		} else if (shouldTint) {
+			// Collapse events fire inside the plugin's Cytoscape batch. Reading the
+			// stylesheet immediately after removeStyle() can return the previous
+			// inline layers, so use the known icon for compound state changes.
 			n.style({
 				'background-color': 'red',
-				'background-image': [img, redTintSvg],
+				'background-image': [...images, redTintSvg],
 				'background-opacity': 0.4
 			});
 		}

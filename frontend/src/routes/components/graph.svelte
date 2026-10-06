@@ -921,6 +921,7 @@
 	}
 
 	function handleAfterCollapse(node: cytoscape.NodeSingular) {
+		applyCompromisedStyle(cy);
 		// After the expand-collapse plugin re-points every child edge at the
 		// collapsed compound, merge parallel edges sharing the same directed pair
 		// into one meta-edge so the node shows a single edge per relation to each

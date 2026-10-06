@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import cytoscape from 'cytoscape';
 
-import { getGraphStyle, getK8sCredentialIcon, getUnknownSystemIcon } from './graph_style';
+import {
+	applyCompromisedStyle,
+	getGraphStyle,
+	getK8sCredentialIcon,
+	getUnknownSystemIcon
+} from './graph_style';
 
 describe('getK8sCredentialIcon', () => {
 	it('selects a contrasting icon for each graph theme', () => {
@@ -101,6 +107,97 @@ describe('getK8sCredentialIcon', () => {
 
 		expect(deploymentIcon?.style['background-image']).toEqual(['/k8s/deploy.svg']);
 		expect(expandedCompound?.style['background-image']).toBe('none');
+	});
+
+	it('uses the available assets for Kubernetes workload kinds', () => {
+		const styles = getGraphStyle();
+		for (const [kind, icon] of [
+			['DaemonSet', '/k8s/ds.svg'],
+			['ReplicaSet', '/k8s/rs.svg'],
+			['StatefulSet', '/k8s/sts.svg']
+		]) {
+			expect(
+				styles.find((rule) => rule.selector === `node[kind='${kind}']`)?.style['background-image']
+			).toEqual([icon]);
+		}
+	});
+
+	it('keeps the icon on a compromised collapsed deployment and hides it when expanded', () => {
+		const cy = cytoscape({
+			headless: true,
+			styleEnabled: true,
+			style: getGraphStyle() as cytoscape.StylesheetJson,
+			elements: [
+				{
+					data: {
+						id: 'deployment',
+						name: 'deployment',
+						kind: 'Deployment',
+						compromised: true,
+						containsCompromised: true
+					}
+				},
+				{ data: { id: 'pod', name: 'pod', kind: 'Pod', parent: 'deployment' } }
+			]
+		});
+		const deployment = cy.getElementById('deployment');
+		const imageLayers = () =>
+			(deployment as unknown as { pstyle(name: string): { value: string[] } }).pstyle(
+				'background-image'
+			).value;
+
+		deployment.addClass('cy-expand-collapse-collapsed-node');
+		cy.getElementById('pod').remove();
+		cy.batch(() => {
+			for (let i = 0; i < 5; i++) applyCompromisedStyle(cy);
+		});
+		expect(imageLayers()).toHaveLength(2);
+		expect(imageLayers()[0]).toBe('/k8s/deploy.svg');
+		expect(imageLayers()[1]).toMatch(/^data:image\/svg\+xml,/);
+		const tint = imageLayers()[1];
+		deployment.style('background-image', [`/k8s/deploy.svg ${tint}`, tint, tint]);
+		applyCompromisedStyle(cy);
+		expect(imageLayers()).toEqual(['/k8s/deploy.svg', tint]);
+
+		cy.add({ data: { id: 'pod', name: 'pod', kind: 'Pod', parent: 'deployment' } });
+		deployment.removeClass('cy-expand-collapse-collapsed-node');
+		cy.batch(() => {
+			for (let i = 0; i < 5; i++) applyCompromisedStyle(cy);
+		});
+		expect(imageLayers()).toHaveLength(1);
+		expect(imageLayers()[0]).toMatch(/^data:image\/svg\+xml,/);
+
+		deployment.addClass('cy-expand-collapse-collapsed-node');
+		cy.getElementById('pod').remove();
+		cy.batch(() => {
+			for (let i = 0; i < 5; i++) applyCompromisedStyle(cy);
+		});
+		expect(imageLayers()).toHaveLength(2);
+		expect(imageLayers()[0]).toBe('/k8s/deploy.svg');
+		cy.destroy();
+	});
+
+	it.each([
+		['UnknownSystem', { os: 'Darwin' }, '/macos-dark.svg'],
+		['K8sCredential', undefined, '/k8s/account-key-dark.svg']
+	])('keeps the current-theme icon when %s is no longer compromised', (kind, entity, darkIcon) => {
+		const cy = cytoscape({
+			headless: true,
+			styleEnabled: true,
+			style: getGraphStyle(false) as cytoscape.StylesheetJson,
+			elements: [{ data: { id: 'target', name: 'target', kind, entity, compromised: true } }]
+		});
+		const node = cy.getElementById('target');
+
+		applyCompromisedStyle(cy);
+		// graph.svelte applies the new theme icon as an inline style.
+		node.style('background-image', darkIcon);
+		applyCompromisedStyle(cy);
+		node.data('compromised', false);
+		applyCompromisedStyle(cy);
+
+		expect(node.style('background-image')).toBe(darkIcon);
+		cy.destroy();
 	});
 
 	it('lets custom resource icons inherit the shared node sizing', () => {
