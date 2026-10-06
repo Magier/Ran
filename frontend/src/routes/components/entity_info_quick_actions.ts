@@ -33,9 +33,9 @@ function parseEffectDeclaration(effect: string): EffectDeclaration {
 }
 
 /**
- * EntityInfo shortcuts are direct observations of the selected entity.
- * Executor-bound and legacy effects qualify only when execution stays on the
- * selected entity. Target-bound effects qualify independently of placement.
+ * Executor-bound and legacy shortcuts must execute on the selected entity,
+ * not the operator host or another source. Explicit target-bound effects may
+ * observe that entity independently of placement, but still need a procedure.
  */
 function runsOnlyOnSelectedTarget(ttp: TTP): boolean {
 	return (
@@ -47,7 +47,7 @@ function runsOnlyOnSelectedTarget(ttp: TTP): boolean {
 }
 
 function effectObservesSelectedEntity(ttp: TTP, subject: EffectSubject): boolean {
-	return subject === 'target' || runsOnlyOnSelectedTarget(ttp);
+	return ttp.procedures.length > 0 && (subject === 'target' || runsOnlyOnSelectedTarget(ttp));
 }
 
 export function quickActionsForField(label: string, kind: string | undefined, ttps: TTP[]): TTP[] {

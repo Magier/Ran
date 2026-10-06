@@ -104,4 +104,12 @@ describe('quickActionsForField', () => {
 		mixed.procedures.push({ id: 'local', command: 'ls', isLocalCommand: true });
 		expect(quickActionsForField('files', 'Pod', [mixed])).toEqual([]);
 	});
+
+	it('never offers a declarative action without a procedure, regardless of effect subject', () => {
+		for (const effect of ['target::sys.files', 'executor::sys.files', 'sys.files']) {
+			const declarative = { ...tokenAction('no-procedures'), procedures: [], effects: [effect] };
+			expect(quickActionsForField('files', 'Pod', [declarative])).toEqual([]);
+			expect(quickActionFields('Pod', [declarative])).toEqual(new Set());
+		}
+	});
 });
