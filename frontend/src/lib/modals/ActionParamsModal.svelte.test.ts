@@ -103,6 +103,23 @@ describe('ActionParamsModal target-derived defaults', () => {
 					expect.objectContaining({ authIdentityId: identities[0].id, execSystemId: undefined })
 				)
 			);
+			await fireEvent.change(authControl, { target: { value: identities[1].id } });
+			await waitFor(() =>
+				expect(resolutionSpy).toHaveBeenLastCalledWith(
+					action.id,
+					expect.objectContaining({
+						authIdentityId: identities[1].id,
+						execSystemId: remote.id
+					})
+				)
+			);
+			await fireEvent.change(authControl, { target: { value: identities[0].id } });
+			await waitFor(() =>
+				expect(resolutionSpy).toHaveBeenLastCalledWith(
+					action.id,
+					expect.objectContaining({ authIdentityId: identities[0].id, execSystemId: undefined })
+				)
+			);
 			await fireEvent.submit(screen.getByRole('button', { name: 'Execute' }).closest('form')!);
 			expect(onExecute).toHaveBeenLastCalledWith(
 				action.id,

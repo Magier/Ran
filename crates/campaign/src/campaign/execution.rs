@@ -2018,12 +2018,11 @@ impl Campaign {
         let transport_environment =
             (route.exec_chain.len() > 1).then(|| ran_domain::ExecutionEnvironment {
                 system_id: route.exec_chain.first().cloned(),
-                // This is a runtime-generated transport wrapper, not the
-                // user procedure. Its first shell word is the selected transport
-                // binary and remains safe to persist as transport provenance.
-                tool: shell_words::split(&procedure.command)
-                    .ok()
-                    .and_then(|words| words.into_iter().next())
+                // This is a runtime-generated transport wrapper, not the user
+                // procedure. Apply the same shell-aware inference as procedure
+                // evidence so assignments, builtins, and dynamic words never
+                // become executable provenance.
+                tool: leading_shell_executable(&procedure.command)
                     .as_deref()
                     .and_then(binary_map_key)
                     .map(str::to_string),
@@ -3859,6 +3858,12 @@ impl Campaign {
         exec_system_id: Option<&str>,
         procedure_plans: &crate::action_resolution::ProcedurePlans,
     ) -> Result<(usize, Procedure), ExecuteActionError> {
+        if let Some(duplicate_id) = duplicate_procedure_id(ttp) {
+            return Err(ExecuteActionError::InvalidInput(format!(
+                "procedure '{}' is ambiguous for action '{}' because its ID is not unique",
+                duplicate_id, ttp.id
+            )));
+        }
         let readiness = |index: usize, procedure: &Procedure| {
             if ProcedureExecutionSemantics::from_definition(procedure).needs_client_plan() {
                 procedure_plans[index]
@@ -4094,6 +4099,16 @@ fn procedure_binary_name(procedure: &Procedure) -> Option<String> {
     simple_shell_tool(&procedure.command)
 }
 
+/// Procedure IDs are public request selectors, so duplicates make every
+/// recommendation and explicit selection using that ID ambiguous.
+pub(crate) fn duplicate_procedure_id(ttp: &Ttp) -> Option<&str> {
+    let mut seen = std::collections::HashSet::new();
+    ttp.procedures
+        .iter()
+        .map(|procedure| procedure.id.trim())
+        .find(|id| !seen.insert(*id))
+}
+
 /// Infer the executable only for a single simple shell command. Leading
 /// environment assignments are shell syntax, not binaries. Commands with
 /// control operators or multiple statements are deliberately left unknown;
@@ -4106,15 +4121,17 @@ pub(crate) fn simple_shell_tool(command: &str) -> Option<String> {
     {
         return None;
     }
+    leading_shell_executable(command)
+}
+
+/// Resolve the statically known executable at the start of a shell command.
+/// Unlike procedure inference, transport provenance may wrap an arbitrarily
+/// complex payload, so only the prefix is inspected.
+fn leading_shell_executable(command: &str) -> Option<String> {
     let words = shell_words::split(command).ok()?;
     let executable = words.iter().find(|word| !is_shell_assignment(word))?;
-    if !is_static_shell_executable(executable) {
-        return None;
-    }
-    if is_shell_builtin_or_keyword(executable) {
-        return None;
-    }
-    Some(executable.clone())
+    (is_static_shell_executable(executable) && !is_shell_builtin_or_keyword(executable))
+        .then(|| executable.clone())
 }
 
 fn is_shell_builtin_or_keyword(word: &str) -> bool {
@@ -4289,6 +4306,9 @@ pub fn recommended_procedure<'a>(
     target_id: &str,
     exec_system_id: Option<&str>,
 ) -> Option<&'a Procedure> {
+    if duplicate_procedure_id(ttp).is_some() {
+        return None;
+    }
     let planner = ClientExecutionPlanner::new(campaign);
     let states = ttp
         .procedures

@@ -88,8 +88,11 @@
 			: selectedExecSystemId
 	);
 	$effect(() => {
-		if (!execSelectionIsExplicit && (nativeCredentialClient || selectedProcedure?.isLocalCommand)) {
+		if (execSelectionIsExplicit) return;
+		if (nativeCredentialClient || selectedProcedure?.isLocalCommand) {
 			selectedExecSystemId = '';
+		} else if (selectedProcedure?.runOnTarget !== false && !selectedExecSystemId) {
+			selectedExecSystemId = defaultExecutionSystemId(targetId, compromisedSystems);
 		}
 	});
 	const execSystemOptions = $derived<ComboboxOption[]>(

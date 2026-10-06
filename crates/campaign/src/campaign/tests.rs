@@ -4561,6 +4561,41 @@ fn parallel_transit_edge_cannot_replace_selected_container_escape_transport() {
 }
 
 #[test]
+fn transport_provenance_skips_shell_assignment_prefixes() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0;
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &pod_id);
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0;
+    campaign.entities.insert_typed(node);
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &node_id).with_envelope("TASK_VALUE=1 /opt/runner ${CMD}"),
+    );
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure {
+            run_on_target: Some(true),
+            ..Procedure::new("shell", "id")
+        }],
+        ..Ttp::new("test-ttp", "Run on node", "Execution")
+    }]);
+
+    let exec = campaign
+        .prepare_action(action_request(&node_id, None), &armory)
+        .expect("assignment-prefixed transport remains executable");
+
+    assert_eq!(exec.procedure.command, "TASK_VALUE=1 /opt/runner id");
+    assert_eq!(
+        exec.transport_environment
+            .as_ref()
+            .and_then(|environment| environment.tool.as_deref()),
+        Some("runner")
+    );
+}
+
+#[test]
 fn container_escape_effect_creates_node_when_runs_on_exists_in_graph() {
     // When the pod already has a runs-on edge, the effect should reuse that
     // node (via TARGET_NODE_ID injected from the graph in on_ttp_executed).

@@ -5,6 +5,7 @@ use crate::action_resolution::{
 use crate::campaign::execution_planning::{
     ClientExecutionPlanner, ExecutionPlacement, ProcedureExecutionSemantics,
 };
+use crate::recommended_procedure;
 use crate::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
 use ran_domain::NameConfidence;
 
@@ -2215,7 +2216,7 @@ fn access_inference_uses_the_same_realizable_paths_as_dispatch() {
 }
 
 #[test]
-fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
+fn duplicate_procedure_ids_are_rejected_as_ambiguous_public_selectors() {
     let (mut campaign, target, _, _) = request_fixture("Pod");
     campaign
         .entities
@@ -2248,14 +2249,13 @@ fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
         .to_string();
     let resolution =
         resolve_action(&ttp, &campaign, &target, &ActionResolutionInput::default()).unwrap();
-    assert_eq!(
-        resolution.recommended_procedure_id.as_deref(),
-        Some("same-id")
-    );
+    assert_eq!(resolution.status, ActionReadinessStatus::Blocked);
+    assert!(resolution.recommended_procedure_id.is_none());
     assert_eq!(
         resolution.arguments[0].value.as_deref(),
         Some(operator_name.as_str())
     );
+    assert!(recommended_procedure(&ttp, &campaign, &target, None).is_none());
     for id in ["same-id", " same-id "] {
         let ambiguous = resolve_action(
             &ttp,
@@ -2278,12 +2278,13 @@ fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
     request.action_id = "duplicate-plans".into();
     request.procedure_id = None;
 
-    let selected = campaign.prepare_action(request.clone(), &armory).unwrap();
+    let error = campaign
+        .prepare_action(request.clone(), &armory)
+        .unwrap_err();
     assert!(matches!(
-        selected.operation,
-        c2::ExecutionOperation::LocalShell { .. }
+        error,
+        ExecuteActionError::InvalidInput(message) if message.contains("not unique")
     ));
-    assert_eq!(selected.args["SOURCE_NAME"], operator_name);
 
     request.procedure_id = Some("same-id".into());
     let error = campaign.prepare_action(request, &armory).unwrap_err();

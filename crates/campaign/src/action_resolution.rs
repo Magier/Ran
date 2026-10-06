@@ -273,9 +273,7 @@ pub(crate) fn resolve_action_planned(
                 })
                 .collect::<Vec<_>>()
         });
-    let ambiguous_procedure = requested_indices
-        .as_ref()
-        .is_some_and(|indices| indices.len() > 1);
+    let duplicate_procedure_id = crate::campaign::execution::duplicate_procedure_id(ttp);
     let selected_procedure_index = requested_indices
         .as_deref()
         .and_then(|indices| match indices {
@@ -301,8 +299,10 @@ pub(crate) fn resolve_action_planned(
                     .position(|procedure| procedure.status == status)
             })
         });
-    let recommended_procedure_id =
-        recommended_procedure_index.map(|index| procedures[index].procedure_id.clone());
+    let recommended_procedure_id = duplicate_procedure_id
+        .is_none()
+        .then(|| recommended_procedure_index.map(|index| procedures[index].procedure_id.clone()))
+        .flatten();
     let selected_client_plan = selected_procedure_index
         .or(recommended_procedure_index)
         // Keep failed client planning distinct from host-target grounding even
@@ -339,11 +339,10 @@ pub(crate) fn resolve_action_planned(
                 .filter_map(|procedure| procedure.reason.clone()),
         );
         ActionReadinessStatus::Inapplicable
-    } else if ambiguous_procedure {
+    } else if let Some(duplicate_id) = duplicate_procedure_id {
         reasons.push(format!(
             "procedure '{}' is ambiguous for action '{}' because its ID is not unique",
-            input.procedure_id.as_deref().unwrap_or_default(),
-            ttp.id
+            duplicate_id, ttp.id
         ));
         ActionReadinessStatus::Blocked
     } else if selected_procedure_unavailable {
