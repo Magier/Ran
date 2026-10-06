@@ -138,4 +138,26 @@ describe('quickActionsForField', () => {
 
 		expect(quickActionsForField('ips', 'Node', [targetClient])).toEqual([targetClient]);
 	});
+
+	it('keeps identity-bound permission review shortcuts for client procedures', () => {
+		const permissionReview = tokenAction('check-sa-token-permissions');
+		permissionReview.effects = ['k8s.SelfSubjectRulesReview'];
+		permissionReview.procedures = [
+			{ id: 'kubectl', command: 'kubectl auth can-i --list ${K8S_AUTH}' },
+			{
+				id: 'http',
+				command: '',
+				http_request: {
+					authentication: '${K8S_AUTH}',
+					method: 'POST',
+					url: 'https://kubernetes.default/apis/authorization.k8s.io/v1/selfsubjectrulesreviews'
+				}
+			}
+		];
+
+		expect(quickActionsForField('can', 'ServiceAccount', [permissionReview])).toEqual([
+			permissionReview
+		]);
+		expect(quickActionFields('ServiceAccount', [permissionReview])).toEqual(new Set(['can']));
+	});
 });

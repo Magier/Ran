@@ -4,14 +4,21 @@ const FIELD_KIND_EXCLUDE: Record<string, string[]> = {
 	service_account_name: ['ServiceAccount']
 };
 
-const EFFECT_FIELD_MAP: Record<string, string[]> = {
-	'linux.mounts': ['mounts'],
-	'sys.envVar': ['envVars'],
-	'sys.ip': ['ips'],
-	'sys.files': ['files', 'binaries'],
-	'sys.userID': ['user_id'],
-	rawServiceaccountToken: ['service_account_name'],
-	'k8s.SelfSubjectRulesReview': ['can']
+type EffectObservation = 'executor' | 'identity' | 'target-local';
+
+interface EffectFieldMapping {
+	fields: string[];
+	observation: EffectObservation;
+}
+
+const EFFECT_FIELD_MAP: Record<string, EffectFieldMapping> = {
+	'linux.mounts': { fields: ['mounts'], observation: 'executor' },
+	'sys.envVar': { fields: ['envVars'], observation: 'executor' },
+	'sys.ip': { fields: ['ips'], observation: 'executor' },
+	'sys.files': { fields: ['files', 'binaries'], observation: 'executor' },
+	'sys.userID': { fields: ['user_id'], observation: 'executor' },
+	rawServiceaccountToken: { fields: ['service_account_name'], observation: 'target-local' },
+	'k8s.SelfSubjectRulesReview': { fields: ['can'], observation: 'identity' }
 };
 
 type EffectSubject = 'executor' | 'target' | undefined;
@@ -49,8 +56,13 @@ function runsOnlyOnSelectedTarget(ttp: TTP): boolean {
 	);
 }
 
-function effectObservesSelectedEntity(ttp: TTP, subject: EffectSubject): boolean {
-	return ttp.procedures.length > 0 && (subject === 'target' || runsOnlyOnSelectedTarget(ttp));
+function effectObservesSelectedEntity(ttp: TTP, declaration: EffectDeclaration): boolean {
+	if (ttp.procedures.length === 0) return false;
+	if (declaration.subject === 'target') return true;
+	if (declaration.subject === 'executor') return runsOnlyOnSelectedTarget(ttp);
+	return (
+		EFFECT_FIELD_MAP[declaration.kind]?.observation === 'identity' || runsOnlyOnSelectedTarget(ttp)
+	);
 }
 
 export function quickActionsForField(label: string, kind: string | undefined, ttps: TTP[]): TTP[] {
@@ -60,8 +72,8 @@ export function quickActionsForField(label: string, kind: string | undefined, tt
 		(ttp.effects ?? []).some((effect) => {
 			const declaration = parseEffectDeclaration(effect);
 			return (
-				effectObservesSelectedEntity(ttp, declaration.subject) &&
-				(EFFECT_FIELD_MAP[declaration.kind] ?? []).includes(label)
+				effectObservesSelectedEntity(ttp, declaration) &&
+				(EFFECT_FIELD_MAP[declaration.kind]?.fields ?? []).includes(label)
 			);
 		})
 	);
@@ -69,7 +81,7 @@ export function quickActionsForField(label: string, kind: string | undefined, tt
 
 export function quickActionFields(kind: string | undefined, ttps: TTP[]): Set<string> {
 	const fields = new Set<string>();
-	for (const field of Object.values(EFFECT_FIELD_MAP).flat()) {
+	for (const field of Object.values(EFFECT_FIELD_MAP).flatMap((mapping) => mapping.fields)) {
 		if (quickActionsForField(field, kind, ttps).length > 0) fields.add(field);
 	}
 	return fields;
