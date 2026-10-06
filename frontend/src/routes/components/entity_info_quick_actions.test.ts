@@ -86,4 +86,30 @@ describe('quickActionsForField', () => {
 
 		expect(quickActionsForField('files', 'Pod', [sourceSide, executorSide])).toEqual([sourceSide]);
 	});
+
+	it('excludes local executor observations but preserves explicit target observations', () => {
+		for (const effect of ['executor::sys.files', 'sys.files']) {
+			const local = tokenAction('local-files');
+			local.procedures[0].isLocalCommand = true;
+			local.effects = [effect];
+			const targetBound = { ...local, id: 'target-files', effects: ['target::sys.files'] };
+			expect(quickActionsForField('files', 'Pod', [local, targetBound])).toEqual([targetBound]);
+			expect(quickActionFields('Pod', [local])).toEqual(new Set());
+		}
+	});
+
+	it('requires every procedure to stay on target for executor-bound shortcuts', () => {
+		const mixed = tokenAction('mixed-files');
+		mixed.effects = ['executor::sys.files'];
+		mixed.procedures.push({ id: 'local', command: 'ls', isLocalCommand: true });
+		expect(quickActionsForField('files', 'Pod', [mixed])).toEqual([]);
+	});
+
+	it('never offers a declarative action without a procedure, regardless of effect subject', () => {
+		for (const effect of ['target::sys.files', 'executor::sys.files', 'sys.files']) {
+			const declarative = { ...tokenAction('no-procedures'), procedures: [], effects: [effect] };
+			expect(quickActionsForField('files', 'Pod', [declarative])).toEqual([]);
+			expect(quickActionFields('Pod', [declarative])).toEqual(new Set());
+		}
+	});
 });

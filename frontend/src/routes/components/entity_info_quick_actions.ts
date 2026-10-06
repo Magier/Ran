@@ -33,19 +33,21 @@ function parseEffectDeclaration(effect: string): EffectDeclaration {
 }
 
 /**
- * EntityInfo shortcuts are direct observations of the selected entity. An
- * action that executes from another system remains applicable in the Armory,
- * but must not be offered as an inline field action for this entity.
+ * Executor-bound and legacy shortcuts must execute on the selected entity,
+ * not the operator host or another source. Explicit target-bound effects may
+ * observe that entity independently of placement, but still need a procedure.
  */
 function runsOnlyOnSelectedTarget(ttp: TTP): boolean {
 	return (
 		ttp.procedures.length > 0 &&
-		ttp.procedures.every((procedure) => procedure.runOnTarget !== false)
+		ttp.procedures.every(
+			(procedure) => procedure.runOnTarget !== false && procedure.isLocalCommand !== true
+		)
 	);
 }
 
 function effectObservesSelectedEntity(ttp: TTP, subject: EffectSubject): boolean {
-	return subject === 'target' || runsOnlyOnSelectedTarget(ttp);
+	return ttp.procedures.length > 0 && (subject === 'target' || runsOnlyOnSelectedTarget(ttp));
 }
 
 export function quickActionsForField(label: string, kind: string | undefined, ttps: TTP[]): TTP[] {
