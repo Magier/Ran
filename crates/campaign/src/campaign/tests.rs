@@ -4,9 +4,9 @@ use armory::{Armory, Procedure, ProcedureOperation, Ttp, TtpParam};
 use c2::{ExecTtp, ExecutionOperation, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     AccessLevel, AuthenticatesTo, BinaryPresence, C2Server, Container, ContainerEscape, Contains,
-    Entity, EntityId, JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Namespace,
-    OperatorHost, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn,
-    ServiceAccount, ServiceAccountToken, SessionInfo, SessionStatus, Uses,
+    Entity, EntityId, JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink,
+    KubeletExecSource, Namespace, OperatorHost, OutputTransformKind, Pod, PodExec, RbacPermission,
+    RceCanExec, RunsOn, ServiceAccount, ServiceAccountToken, SessionInfo, SessionStatus, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -195,6 +195,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         execution_environment: Some(ran_domain::ExecutionEnvironment {
             system_id: Some(target_id.into()),
             tool: Some("env".into()),
+            auth_identity_id: None,
         }),
         transport_environment: None,
         auth_identity_id: None,
@@ -2392,6 +2393,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         execution_environment: Some(ran_domain::ExecutionEnvironment {
             system_id: Some(target_id.to_string()),
             tool: Some("nmap".into()),
+            auth_identity_id: None,
         }),
         transport_environment: None,
         auth_identity_id: None,
@@ -4517,6 +4519,45 @@ fn container_escape_envelope_wraps_command_correctly() {
     // wrap_command should substitute ${CMD}.
     let wrapped = escape_edge.wrap_command("id");
     assert_eq!(wrapped, "nsenter -t 1 -m -u -i -n -p -- id");
+}
+
+#[test]
+fn parallel_transit_edge_cannot_replace_selected_container_escape_transport() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0;
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &pod_id);
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0;
+    campaign.entities.insert_typed(node);
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &node_id).with_envelope("nsenter -- ${CMD}"),
+    );
+    // Insert the transit-only parallel edge after the realizable terminal edge.
+    // Routing must retain the exact edge selected by Dijkstra.
+    push_relation(&mut campaign, &KubeletExecSource::new(&pod_id, &node_id));
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure {
+            run_on_target: Some(true),
+            ..Procedure::new("shell", "id")
+        }],
+        ..Ttp::new("test-ttp", "Run on node", "Execution")
+    }]);
+    let exec = campaign
+        .prepare_action(action_request(&node_id, None), &armory)
+        .expect("container escape remains a realizable terminal route");
+
+    assert_eq!(exec.exec_chain, vec![pod_id, node_id.clone()]);
+    assert_eq!(exec.procedure.command, "nsenter -- id");
+    assert_eq!(
+        exec.execution_environment
+            .as_ref()
+            .and_then(|environment| environment.system_id.as_deref()),
+        Some(node_id.as_str())
+    );
 }
 
 #[test]

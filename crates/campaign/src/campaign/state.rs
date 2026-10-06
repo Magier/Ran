@@ -564,14 +564,15 @@ impl Campaign {
                 allow_output_transform,
                 |source, target, data| {
                     if data.relation_name == "kubelet-exec" && data.envelope.is_none() {
-                        return self.kubelet_source_endpoint(source, target).is_some();
+                        return self.kubelet_source_usable(source, target);
                     }
                     if data.relation_name == "kubelet-pod-exec"
-                        && self.entities.find::<Pod>(target).is_none_or(|pod| {
-                            pod.meta.name.is_empty()
-                                || pod.meta.namespace.as_deref().is_none_or(str::is_empty)
-                                || pod.system.has_binary("sh") == BinaryPresence::Absent
-                        })
+                        && (self.kubelet_endpoint(source, target).is_none()
+                            || self.entities.find::<Pod>(target).is_none_or(|pod| {
+                                pod.meta.name.is_empty()
+                                    || pod.meta.namespace.as_deref().is_none_or(str::is_empty)
+                                    || pod.system.has_binary("sh") == BinaryPresence::Absent
+                            }))
                     {
                         return false;
                     }

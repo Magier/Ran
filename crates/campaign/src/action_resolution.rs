@@ -259,16 +259,36 @@ pub(crate) fn resolve_action_planned(
         })
         .collect::<Vec<_>>();
     let requirements = software_requirement_states(ttp, campaign, target_id);
-    let selected_procedure = input.procedure_id.as_deref().and_then(|procedure_id| {
-        procedures
-            .iter()
-            .find(|procedure| procedure.procedure_id == procedure_id)
-    });
+    let requested_indices = input
+        .procedure_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|procedure_id| {
+            procedures
+                .iter()
+                .enumerate()
+                .filter_map(|(index, procedure)| {
+                    (procedure.procedure_id == procedure_id).then_some(index)
+                })
+                .collect::<Vec<_>>()
+        });
+    let ambiguous_procedure = requested_indices
+        .as_ref()
+        .is_some_and(|indices| indices.len() > 1);
+    let selected_procedure_index = requested_indices
+        .as_deref()
+        .and_then(|indices| match indices {
+            [index] => Some(*index),
+            _ => None,
+        });
+    let selected_procedure = selected_procedure_index.map(|index| &procedures[index]);
     let selected_procedure_unavailable = selected_procedure
         .is_some_and(|procedure| procedure.status == ProcedureReadinessStatus::Unavailable);
-    let recommended_procedure_id = selected_procedure
-        .filter(|procedure| procedure.status != ProcedureReadinessStatus::Unavailable)
-        .map(|procedure| procedure.procedure_id.clone())
+    // Procedure IDs are public selectors, not unique internal plan keys.
+    // Preserve the selected slot through recommendation and argument grounding.
+    let recommended_procedure_index = selected_procedure_index
+        .filter(|index| procedures[*index].status != ProcedureReadinessStatus::Unavailable)
         .or_else(|| {
             [
                 ProcedureReadinessStatus::Ready,
@@ -278,26 +298,16 @@ pub(crate) fn resolve_action_planned(
             .find_map(|status| {
                 procedures
                     .iter()
-                    .find(|procedure| procedure.status == status)
-                    .map(|procedure| procedure.procedure_id.clone())
+                    .position(|procedure| procedure.status == status)
             })
         });
-    let selected_client_plan = input
-        .procedure_id
-        .as_deref()
-        .or(recommended_procedure_id.as_deref())
+    let recommended_procedure_id =
+        recommended_procedure_index.map(|index| procedures[index].procedure_id.clone());
+    let selected_client_plan = selected_procedure_index
+        .or(recommended_procedure_index)
         // Keep failed client planning distinct from host-target grounding even
         // when no procedure can be recommended yet.
-        .or_else(|| {
-            ttp.procedures
-                .first()
-                .map(|procedure| procedure.id.as_str())
-        })
-        .and_then(|id| {
-            ttp.procedures
-                .iter()
-                .position(|procedure| procedure.id == id)
-        })
+        .or_else(|| (!ttp.procedures.is_empty()).then_some(0))
         .and_then(|index| client_plans[index].as_ref());
     let client_binding_resolved = arguments
         .iter()
@@ -329,6 +339,13 @@ pub(crate) fn resolve_action_planned(
                 .filter_map(|procedure| procedure.reason.clone()),
         );
         ActionReadinessStatus::Inapplicable
+    } else if ambiguous_procedure {
+        reasons.push(format!(
+            "procedure '{}' is ambiguous for action '{}' because its ID is not unique",
+            input.procedure_id.as_deref().unwrap_or_default(),
+            ttp.id
+        ));
+        ActionReadinessStatus::Blocked
     } else if selected_procedure_unavailable {
         reasons.push(
             selected_procedure

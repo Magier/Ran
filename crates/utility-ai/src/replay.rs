@@ -297,6 +297,7 @@ mod tests {
             rec.execution_environment = persisted.then(|| ExecutionEnvironment {
                 system_id: Some("system/operator-host".into()),
                 tool: None,
+                auth_identity_id: None,
             });
             let (_, replayed) = replay_trace(campaign, &[ttp], &[rec]);
             assert_eq!(

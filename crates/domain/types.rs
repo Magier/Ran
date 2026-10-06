@@ -160,6 +160,11 @@ pub struct ExecutionEnvironment {
     /// Actual client binary executed, absent for native API operations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<String>,
+    /// Authentication identity consumed by this execution layer. This is
+    /// distinct from the action-selected identity when a transport uses an
+    /// ambient credential, such as a source Pod's mounted ServiceAccount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_identity_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

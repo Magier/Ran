@@ -1267,6 +1267,7 @@ mod listener_event_tests {
             execution_environment: Some(ran_domain::ExecutionEnvironment {
                 system_id: Some(target_id.to_string()),
                 tool: None,
+                auth_identity_id: None,
             }),
             transport_environment: None,
             auth_identity_id: None,
@@ -1301,6 +1302,7 @@ mod listener_event_tests {
             cmd.execution_environment = persisted.then(|| ran_domain::ExecutionEnvironment {
                 system_id: Some("system/operator-host".into()),
                 tool: None,
+                auth_identity_id: None,
             });
             let event = successful_execution(&cmd.id);
             let audit =

@@ -87,7 +87,7 @@ describe('quickActionsForField', () => {
 		expect(quickActionsForField('files', 'Pod', [sourceSide, executorSide])).toEqual([sourceSide]);
 	});
 
-	it('excludes local executor observations but preserves explicit target observations', () => {
+	it('excludes local executor observations but retains explicit target observations', () => {
 		for (const effect of ['executor::sys.files', 'sys.files']) {
 			const local = tokenAction('local-files');
 			local.procedures[0].isLocalCommand = true;

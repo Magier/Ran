@@ -12,6 +12,7 @@ pub struct KubeletExecPlan {
     pub(crate) source_id: String,
     pub(crate) node_id: String,
     pub(crate) pod_id: String,
+    pub(crate) auth_identity_id: Option<String>,
     endpoint: String,
     namespace: String,
     pod: String,
@@ -70,26 +71,37 @@ impl Campaign {
     /// Source-side prerequisites are checked during route search. A concrete
     /// discovered edge is authorization evidence; an unrelated selected action
     /// identity must not change this transport's ambient token source.
-    pub(super) fn kubelet_source_endpoint(
-        &self,
-        source: &EntityId,
-        node: &EntityId,
-    ) -> Option<String> {
+    pub(super) fn kubelet_source_usable(&self, source: &EntityId, node: &EntityId) -> bool {
         // This adapter uses Pod-mounted credentials. Other source environments
         // require a different explicit credential binding, not these paths.
-        let source = self.entities.find::<Pod>(source)?;
+        let Some(source) = self.entities.find::<Pod>(source) else {
+            return false;
+        };
         if source.automount_service_account_token == ran_domain::Confidence::No {
-            return None;
+            return false;
         }
         if source.system.has_binary("ranplant") == BinaryPresence::Absent {
+            return false;
+        }
+        self.entities.contains::<K8sNode>(node)
+    }
+
+    /// Address evidence belongs to the concrete Node/Pod sink pair. In
+    /// particular, status.hostIP remains usable before Node address discovery.
+    pub(super) fn kubelet_endpoint(&self, node: &EntityId, target: &EntityId) -> Option<String> {
+        let node = self.entities.find::<K8sNode>(node)?;
+        let pod = self.entities.find::<Pod>(target)?;
+        if pod
+            .node_name
+            .as_deref()
+            .is_some_and(|name| name != node.name)
+        {
             return None;
         }
-        let node = self.entities.find::<K8sNode>(node)?;
-        let host = node
-            .system
-            .ips
-            .first()
-            .map(ToString::to_string)
+        let host = pod
+            .host_ip
+            .or_else(|| node.system.ips.first().copied())
+            .map(|ip| ip.to_string())
             .unwrap_or_else(|| node.name.clone());
         let host = match host.parse::<std::net::IpAddr>() {
             Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
@@ -114,7 +126,30 @@ impl Campaign {
         node: &EntityId,
         target: &EntityId,
     ) -> Option<KubeletExecPlan> {
-        let endpoint = self.kubelet_source_endpoint(source, node)?;
+        if !self.kubelet_source_usable(source, node) {
+            return None;
+        }
+        let endpoint = self.kubelet_endpoint(node, target)?;
+        let source_pod = self.entities.find::<Pod>(source)?;
+        let declared_identity = source_pod
+            .namespace()
+            .zip(source_pod.service_account_name.as_deref())
+            .filter(|(namespace, name)| !namespace.is_empty() && !name.is_empty())
+            .map(|(namespace, name)| format!("ns/{namespace}/sa/{name}"));
+        let related_identities = self
+            .graph
+            .targets_of(source, "uses")
+            .into_iter()
+            .filter(|identity| {
+                self.entities
+                    .contains::<ran_domain::ServiceAccount>(identity)
+            })
+            .map(|identity| identity.0.clone())
+            .collect::<Vec<_>>();
+        let auth_identity_id = declared_identity.or_else(|| match related_identities.as_slice() {
+            [identity] => Some(identity.clone()),
+            _ => None,
+        });
         let pod = self.entities.find::<Pod>(target)?;
         let namespace = pod.meta.namespace.as_ref()?.clone();
         if namespace.is_empty() || pod.meta.name.is_empty() {
@@ -130,6 +165,7 @@ impl Campaign {
             source_id: source.0.clone(),
             node_id: node.0.clone(),
             pod_id: target.0.clone(),
+            auth_identity_id,
             endpoint,
             namespace,
             pod: pod.meta.name.clone(),

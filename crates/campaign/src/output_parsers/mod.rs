@@ -328,7 +328,10 @@ pub fn parse_output_effect(
                     cmd,
                     event,
                     ParseResult::KnownFailure,
-                    "physical executor provenance is missing or does not resolve to a system entity",
+                    match subject {
+                        EffectSubject::Executor => "physical executor provenance is missing or does not resolve to a system entity",
+                        EffectSubject::Target => "semantic target is missing or does not resolve to a system entity",
+                    },
                     FactsUpdate::default(),
                 ));
             };
@@ -946,6 +949,7 @@ mod tests {
             execution_environment: Some(ran_domain::ExecutionEnvironment {
                 system_id: Some("ns/default/pod/demo".into()),
                 tool: Some("env".into()),
+                auth_identity_id: None,
             }),
             transport_environment: None,
             auth_identity_id: None,
@@ -1460,6 +1464,46 @@ users:
             BinaryPresence::Unknown,
             "dst-pod (victim) must NOT be updated"
         );
+    }
+
+    #[test]
+    fn unresolved_system_effect_audit_identifies_the_declared_subject() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let namespace = ran_domain::Namespace::new("resource");
+        let target = namespace.entity_id().0;
+        campaign.entities.insert_typed(namespace);
+        let mut cmd = sample_cmd();
+        cmd.target_id = target;
+        cmd.execution_environment.as_mut().unwrap().system_id = Some("system/operator-host".into());
+        let parsed = parse_output_effect(
+            &campaign,
+            "target::sys.envvar",
+            &cmd,
+            &sample_event(vec!["PROOF=1".into()]),
+        )
+        .unwrap();
+        assert!(matches!(
+            parsed.audit.parse_result,
+            ParseResult::KnownFailure
+        ));
+        assert!(parsed.system_updates.is_empty());
+        assert!(parsed.audit.detail.contains("semantic target"));
+        assert!(!parsed.audit.detail.contains("physical executor"));
+
+        cmd.execution_environment = None;
+        let parsed = parse_output_effect(
+            &campaign,
+            "executor::sys.envvar",
+            &cmd,
+            &sample_event(vec!["PROOF=1".into()]),
+        )
+        .unwrap();
+        assert!(matches!(
+            parsed.audit.parse_result,
+            ParseResult::KnownFailure
+        ));
+        assert!(parsed.system_updates.is_empty());
+        assert!(parsed.audit.detail.contains("physical executor"));
     }
 
     #[test]

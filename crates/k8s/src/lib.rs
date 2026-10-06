@@ -347,6 +347,7 @@ fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
 #[derive(Clone)]
 pub struct Client {
     client: KubeClient,
+    config: Config,
     kubeconfig_path: Option<PathBuf>,
     /// Keeps an ephemeral kubeconfig alive for a credential reconstructed from
     /// captured authentication material. The file is private to this process
@@ -354,6 +355,64 @@ pub struct Client {
     _temporary_kubeconfig: Option<Arc<tempfile::NamedTempFile>>,
     context_name: Option<String>,
     api_server: String,
+}
+
+/// Resolve trust in the physical native client environment. Absent controls
+/// inherit kubeconfig settings; explicit controls must never disappear during
+/// request deserialization. A CA file is local to the operator, not the API
+/// resource, and overrides only trust roots without changing auth or endpoint.
+async fn request_tls_config(
+    config: &Config,
+    request: &serde_json::Value,
+) -> Result<Option<Config>> {
+    let verify = match request.get("use_ca") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::Bool(value)) => Some(*value),
+        Some(serde_json::Value::String(value)) if value.trim().eq_ignore_ascii_case("true") => {
+            Some(true)
+        }
+        Some(serde_json::Value::String(value)) if value.trim().eq_ignore_ascii_case("false") => {
+            Some(false)
+        }
+        _ => return Err(anyhow!("use_ca must be true or false")),
+    };
+    let ca_path = match request.get("ca_path") {
+        None | Some(serde_json::Value::Null) => "",
+        Some(serde_json::Value::String(value)) => value.trim(),
+        _ => return Err(anyhow!("ca_path must be an operator-local file path")),
+    };
+    if verify.is_none() && ca_path.is_empty() {
+        return Ok(None);
+    }
+    if ca_path.is_empty() && verify == Some(!config.accept_invalid_certs) {
+        // The selected client already enforces this policy. Preserve its
+        // connection pool instead of rebuilding it for every discovery.
+        return Ok(None);
+    }
+    let mut configured = config.clone();
+    configured.accept_invalid_certs = !verify.unwrap_or(true);
+    if !configured.accept_invalid_certs && !ca_path.is_empty() {
+        // Reuse kube's CA parser rather than introducing a second PEM parser.
+        // Only its trust roots are retained; the real client config continues
+        // to own server name, authentication, proxy and timeouts.
+        let trust: Kubeconfig = serde_yaml::from_value(serde_yaml::to_value(serde_json::json!({
+            "apiVersion": "v1", "kind": "Config", "current-context": "trust",
+            "clusters": [{"name": "trust", "cluster": {
+                "server": config.cluster_url.to_string(), "certificate-authority": ca_path
+            }}],
+            "contexts": [{"name": "trust", "context": {"cluster": "trust", "user": "trust"}}],
+            "users": [{"name": "trust", "user": {}}]
+        }))?)?;
+        let trust_config = Config::from_custom_kubeconfig(trust, &KubeConfigOptions::default())
+            .await
+            .context("failed to load the explicit operator-local request CA")?;
+        let roots = trust_config
+            .root_cert
+            .filter(|roots| !roots.is_empty())
+            .ok_or_else(|| anyhow!("request CA file contains no certificates"))?;
+        configured.root_cert = Some(roots);
+    }
+    Ok(Some(configured))
 }
 
 fn build_authenticated_http_request(request: &serde_json::Value) -> Result<Request<Vec<u8>>> {
@@ -423,10 +482,12 @@ impl Client {
             Config::from_custom_kubeconfig(resolved.kubeconfig.clone(), &resolved.options())
                 .await
                 .context("failed to load Kubernetes config from kubeconfig")?;
-        let client = KubeClient::try_from(config).context("failed to create Kubernetes client")?;
+        let client =
+            KubeClient::try_from(config.clone()).context("failed to create Kubernetes client")?;
 
         Ok(Self {
             client,
+            config,
             kubeconfig_path: resolved.source_path.clone(),
             _temporary_kubeconfig: None,
             context_name: Some(resolved.context_name.clone()),
@@ -591,6 +652,7 @@ impl Client {
     /// authentication and TLS configuration. Authentication fields embedded in
     /// the request description are deliberately ignored.
     pub async fn execute_request(&self, request: &serde_json::Value) -> Result<String> {
+        let client = self.request_client(request).await?;
         #[derive(Deserialize)]
         struct Spec {
             api: String,
@@ -644,7 +706,7 @@ impl Client {
             .header("Content-Type", "application/json")
             .body(body)
             .context("failed to build Kubernetes request")?;
-        self.client
+        client
             .request_text(request)
             .await
             .context("Kubernetes API request failed")
@@ -658,11 +720,19 @@ impl Client {
         &self,
         request: &serde_json::Value,
     ) -> Result<String> {
+        let client = self.request_client(request).await?;
         let request = build_authenticated_http_request(request)?;
-        self.client
+        client
             .request_text(request)
             .await
             .context("Kubernetes HTTP request failed")
+    }
+
+    async fn request_client(&self, request: &serde_json::Value) -> Result<KubeClient> {
+        match request_tls_config(&self.config, request).await? {
+            Some(config) => KubeClient::try_from(config).context("failed to configure request TLS"),
+            None => Ok(self.client.clone()),
+        }
     }
 
     /// Run a kubectl procedure on the Ran host. `${K8S_AUTH}` grounding emits
@@ -913,6 +983,137 @@ pub fn target_cluster_from_kubeconfig(path: Option<PathBuf>) -> Result<TargetClu
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[tokio::test]
+    async fn native_request_tls_enforces_explicit_controls_without_mutating_identity() {
+        let mut config = Config::new("https://api.example:6443".parse().unwrap());
+        config.accept_invalid_certs = true;
+        config.tls_server_name = Some("api.internal".into());
+        config.root_cert = Some(vec![vec![9]]);
+        config.auth_info.token = Some("test-token".to_string().into());
+        assert!(request_tls_config(&config, &serde_json::json!({}))
+            .await
+            .unwrap()
+            .is_none());
+        for control in [serde_json::json!(true), serde_json::json!("true")] {
+            let secured = request_tls_config(
+                &config,
+                &serde_json::json!({"use_ca": control, "ca_path": ""}),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(!secured.accept_invalid_certs);
+            assert_eq!(secured.cluster_url, config.cluster_url);
+            assert_eq!(secured.tls_server_name, config.tls_server_name);
+            assert_eq!(secured.root_cert, config.root_cert);
+            assert_eq!(
+                secured.auth_info.token.as_ref().unwrap().expose_secret(),
+                "test-token"
+            );
+            assert!(config.accept_invalid_certs);
+        }
+        let mut secure_config = config.clone();
+        secure_config.accept_invalid_certs = false;
+        let insecure = request_tls_config(&secure_config, &serde_json::json!({"use_ca": false}))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(insecure.accept_invalid_certs);
+        for invalid in [
+            serde_json::json!({"use_ca": "maybe"}),
+            serde_json::json!({"ca_path": 123}),
+        ] {
+            assert!(request_tls_config(&config, &invalid).await.is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn native_request_ca_is_operator_local_and_replaces_only_trust_roots() {
+        let mut config = Config::new("https://api.example:6443".parse().unwrap());
+        config.accept_invalid_certs = true;
+        config.tls_server_name = Some("api.internal".into());
+        config.root_cert = Some(vec![vec![9]]);
+        let mut ca = tempfile::NamedTempFile::new().unwrap();
+        // Exercise kube's PEM-to-DER loading, not a certificate handshake.
+        ca.write_all(b"-----BEGIN CERTIFICATE-----\nAQID\n-----END CERTIFICATE-----\n")
+            .unwrap();
+        let request = serde_json::json!({"use_ca": true, "ca_path": ca.path()});
+        let secured = request_tls_config(&config, &request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(secured.root_cert, Some(vec![vec![1, 2, 3]]));
+        assert!(!secured.accept_invalid_certs);
+        assert_eq!(secured.tls_server_name, config.tls_server_name);
+        assert_eq!(secured.cluster_url, config.cluster_url);
+        assert_eq!(config.root_cert, Some(vec![vec![9]]));
+        let missing = ca.path().with_extension("missing");
+        assert!(request_tls_config(
+            &config,
+            &serde_json::json!({"use_ca": true, "ca_path": missing})
+        )
+        .await
+        .is_err());
+        let empty = tempfile::NamedTempFile::new().unwrap();
+        assert!(request_tls_config(
+            &config,
+            &serde_json::json!({"use_ca": true, "ca_path": empty.path()})
+        )
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn both_native_request_operations_reject_unavailable_explicit_ca_before_network_io() {
+        let resolved = resolve_kubeconfig_yaml(
+            r#"
+apiVersion: v1
+kind: Config
+current-context: native
+clusters:
+- name: native
+  cluster:
+    server: https://127.0.0.1:1
+    insecure-skip-tls-verify: true
+contexts:
+- name: native
+  context: {cluster: native, user: native}
+users:
+- name: native
+  user: {token: test-token}
+"#,
+            None,
+        )
+        .unwrap();
+        let client = Client::from_resolved_kubeconfig(&resolved).await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let missing_ca = directory.path().join("missing-ca.pem");
+        let error = client
+            .execute_request(&serde_json::json!({
+                "api": "/api/v1", "resource": "nodes/worker/proxy/pods",
+                "cluster_scoped": true, "use_ca": true, "ca_path": missing_ca,
+            }))
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("explicit operator-local request CA"));
+        let error = client
+            .execute_authenticated_http_request(&serde_json::json!({
+                "authentication": "runtime-bound", "url": "https://127.0.0.1:1/api/v1/pods",
+                "use_ca": true, "ca_path": missing_ca,
+            }))
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("explicit operator-local request CA"));
+        assert!(
+            client.config.accept_invalid_certs,
+            "per-request controls must not mutate the shared client"
+        );
+    }
     use std::sync::Mutex;
 
     #[tokio::test]

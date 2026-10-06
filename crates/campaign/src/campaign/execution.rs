@@ -1286,6 +1286,9 @@ struct ExecRoute {
     /// Bare inner command on the final target, before any hop envelopes wrap
     /// it. Empty when there is no multi-hop traversal.
     inner_command: String,
+    /// Authentication identity consumed by an outer transport layer. The
+    /// action-selected identity remains on `ExecTtp.auth_identity_id`.
+    transport_auth_identity_id: Option<String>,
 }
 
 /// Result of wrapping a command across intermediate hops.
@@ -1296,6 +1299,8 @@ struct HopWrap {
     traversal: Vec<TraversalHop>,
     /// Bare inner command on the final target, before any hop envelopes.
     inner_command: String,
+    /// Authentication identity consumed while realizing the selected hops.
+    transport_auth_identity_id: Option<String>,
 }
 
 impl ExecRoute {
@@ -1313,6 +1318,7 @@ impl ExecRoute {
             output_transform,
             traversal: Vec::new(),
             inner_command: String::new(),
+            transport_auth_identity_id: None,
         }
     }
 }
@@ -1358,6 +1364,68 @@ fn current_time_millis() -> u64 {
 // ---------------------------------------------------------------------------
 
 impl Campaign {
+    /// Select an observed executor-local API trust file only for that Pod's
+    /// in-cluster API origin. Never infer kubelet trust from an API-server CA,
+    /// borrow a path from the semantic target, or override explicit CA input.
+    fn bind_request_trust(
+        &self,
+        procedure: &mut Procedure,
+        args: &HashMap<String, String>,
+        executor: Option<&str>,
+        native: bool,
+    ) {
+        if native {
+            return;
+        }
+        let Some(executor) = executor.and_then(|id| self.entities.find::<Pod>(&EntityId::new(id)))
+        else {
+            return;
+        };
+        const CA: &str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
+        if !executor.system.files.iter().any(|path| path == CA) {
+            return;
+        }
+        let Some(request) = procedure
+            .k8s_request
+            .as_mut()
+            .or(procedure.http_request.as_mut())
+        else {
+            return;
+        };
+        let mut grounded = request.clone();
+        ground_json_value(&mut grounded, args);
+        let endpoint = grounded
+            .get("api_server")
+            .or_else(|| grounded.get("url"))
+            .and_then(JsonValue::as_str)
+            .and_then(|url| url::Url::parse(url).ok());
+        let Some(endpoint) = endpoint else {
+            return;
+        };
+        let cluster_api = url::Url::parse(crate::grounding::DEFAULT_API_SERVER)
+            .expect("valid default API origin");
+        if endpoint.origin() != cluster_api.origin() {
+            return;
+        }
+        let Ok(verify) = grounded
+            .get("use_ca")
+            .cloned()
+            .map(serde_json::from_value::<BoolOrString>)
+            .transpose()
+        else {
+            return;
+        };
+        if !verify.unwrap_or_default().is_true()
+            || grounded
+                .get("ca_path")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|path| !path.is_empty())
+        {
+            return;
+        }
+        request["ca_path"] = JsonValue::String(CA.into());
+    }
+
     /// Prepare a TTP action for execution via a clean six-stage pipeline.
     ///
     /// ```text
@@ -1482,6 +1550,11 @@ impl Campaign {
         })?;
         for argument in resolution.arguments {
             match argument.status {
+                crate::action_resolution::ArgumentResolutionStatus::Omitted => {
+                    // Omitted optional inputs have an empty value at the
+                    // rendering boundary, not an unresolved ${NAME} path.
+                    args.insert(argument.name, String::new());
+                }
                 crate::action_resolution::ArgumentResolutionStatus::Resolved
                 | crate::action_resolution::ArgumentResolutionStatus::Defaulted => {
                     if let Some(value) = argument.value {
@@ -1819,6 +1892,14 @@ impl Campaign {
                 auth.kubectl_arg(procedure.is_local_command == Some(true)),
             );
         }
+        self.bind_request_trust(
+            &mut procedure,
+            &args,
+            client_plan
+                .as_ref()
+                .and_then(ClientExecutionPlan::executor_id),
+            use_kubeconfig,
+        );
         let procedure_envelope = materialize_procedure_envelope(
             &procedure,
             &args,
@@ -1923,19 +2004,24 @@ impl Campaign {
             } else {
                 executed_tool
             },
+            auth_identity_id: execution_semantics
+                .uses_k8s_auth
+                .then(|| auth_identity_id.clone())
+                .flatten(),
         });
         let transport_environment =
             (route.exec_chain.len() > 1).then(|| ran_domain::ExecutionEnvironment {
                 system_id: route.exec_chain.first().cloned(),
                 // This is a runtime-generated transport wrapper, not the
-                // user procedure. Its first token is the selected transport
+                // user procedure. Its first shell word is the selected transport
                 // binary and remains safe to persist as transport provenance.
-                tool: procedure
-                    .command
-                    .split_whitespace()
-                    .next()
+                tool: shell_words::split(&procedure.command)
+                    .ok()
+                    .and_then(|words| words.into_iter().next())
+                    .as_deref()
                     .and_then(binary_map_key)
                     .map(str::to_string),
+                auth_identity_id: route.transport_auth_identity_id.clone(),
             });
 
         let cmd_id = generate_cmd_id();
@@ -2231,6 +2317,7 @@ impl Campaign {
             output_transform: wrap.output_transform,
             traversal: wrap.traversal,
             inner_command: wrap.inner_command,
+            transport_auth_identity_id: wrap.transport_auth_identity_id,
         })
     }
 
@@ -2299,6 +2386,7 @@ impl Campaign {
                         output_transform: wrap.output_transform,
                         traversal: wrap.traversal,
                         inner_command: wrap.inner_command,
+                        transport_auth_identity_id: wrap.transport_auth_identity_id,
                     });
                 }
 
@@ -2324,6 +2412,7 @@ impl Campaign {
                     output_transform: wrap.output_transform,
                     traversal: wrap.traversal,
                     inner_command: wrap.inner_command,
+                    transport_auth_identity_id: wrap.transport_auth_identity_id,
                 });
             }
 
@@ -2375,6 +2464,7 @@ impl Campaign {
                     output_transform: wrap.output_transform,
                     traversal: wrap.traversal,
                     inner_command: wrap.inner_command,
+                    transport_auth_identity_id: wrap.transport_auth_identity_id,
                 });
             }
 
@@ -2487,6 +2577,7 @@ impl Campaign {
                 output_transform: wrap.output_transform,
                 traversal: wrap.traversal,
                 inner_command: wrap.inner_command,
+                transport_auth_identity_id: wrap.transport_auth_identity_id,
             })
         }
     }
@@ -2663,6 +2754,7 @@ impl Campaign {
         }
 
         let mut output_transform: Option<OutputTransform> = None;
+        let mut transport_auth_identity_id: Option<String> = None;
         // Hops are recorded innermost-first as the loop wraps from the inside
         // out; reversed and prefixed with the C2 entry hop before returning.
         let mut traversal: Vec<TraversalHop> = Vec::new();
@@ -2738,6 +2830,18 @@ impl Campaign {
                             "selected kubelet pair has no typed realization".into(),
                         )
                     })?;
+                if let Some(identity) = &plan.auth_identity_id {
+                    if transport_auth_identity_id
+                        .as_ref()
+                        .is_some_and(|selected| selected != identity)
+                    {
+                        return Err(ExecuteActionError::InvariantViolation(
+                            "selected route consumes multiple transport authentication identities"
+                                .into(),
+                        ));
+                    }
+                    transport_auth_identity_id = Some(identity.clone());
+                }
                 plan.render(&procedure.command)
                     .map_err(ExecuteActionError::InvalidInput)?
             } else {
@@ -2780,6 +2884,7 @@ impl Campaign {
             output_transform,
             traversal,
             inner_command,
+            transport_auth_identity_id,
         })
     }
 
@@ -3926,6 +4031,15 @@ mod rendered_envelope_payload_tests {
         assert_eq!(simple_shell_tool("TASK_VALUE=1"), None);
         assert_eq!(simple_shell_tool("curl --version; id"), None);
         assert_eq!(simple_shell_tool("value=$(id) curl --version"), None);
+        assert_eq!(simple_shell_tool("\"$RAN_REVIEW_TOOL\" --version"), None);
+        assert_eq!(simple_shell_tool("~/bin/curl --version"), None);
+        assert_eq!(simple_shell_tool("curl-* --version"), None);
+        assert_eq!(simple_shell_tool("printf ok"), None);
+        assert_eq!(simple_shell_tool("command curl --version"), None);
+        assert_eq!(
+            simple_shell_tool("/usr/bin/printf ok"),
+            Some("/usr/bin/printf".to_string())
+        );
     }
 }
 
@@ -3988,29 +4102,79 @@ pub(crate) fn simple_shell_tool(command: &str) -> Option<String> {
     }
     let words = shell_words::split(command).ok()?;
     let executable = words.iter().find(|word| !is_shell_assignment(word))?;
-    if matches!(
-        executable.as_str(),
-        "!" | "{"
-            | "}"
-            | "if"
-            | "then"
-            | "else"
-            | "fi"
-            | "for"
-            | "while"
-            | "until"
-            | "case"
-            | "esac"
-            | "do"
-            | "done"
-            | "export"
-            | "local"
-            | "readonly"
-            | "unset"
-    ) {
+    if !is_static_shell_executable(executable) {
+        return None;
+    }
+    if is_shell_builtin_or_keyword(executable) {
         return None;
     }
     Some(executable.clone())
+}
+
+fn is_shell_builtin_or_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "." | ":"
+            | "!"
+            | "["
+            | "{"
+            | "}"
+            | "alias"
+            | "bg"
+            | "break"
+            | "case"
+            | "cd"
+            | "command"
+            | "continue"
+            | "do"
+            | "done"
+            | "echo"
+            | "else"
+            | "esac"
+            | "eval"
+            | "exec"
+            | "exit"
+            | "export"
+            | "false"
+            | "fc"
+            | "fg"
+            | "fi"
+            | "for"
+            | "getopts"
+            | "hash"
+            | "if"
+            | "jobs"
+            | "kill"
+            | "local"
+            | "printf"
+            | "pwd"
+            | "read"
+            | "readonly"
+            | "return"
+            | "set"
+            | "shift"
+            | "test"
+            | "then"
+            | "times"
+            | "trap"
+            | "true"
+            | "type"
+            | "ulimit"
+            | "umask"
+            | "unalias"
+            | "unset"
+            | "until"
+            | "wait"
+            | "while"
+    )
+}
+
+fn is_static_shell_executable(word: &str) -> bool {
+    !word.is_empty()
+        && !word.starts_with('~')
+        && !word
+            .chars()
+            .any(|ch| matches!(ch, '$' | '*' | '?' | '[' | ']' | '{' | '}'))
 }
 
 fn is_shell_assignment(word: &str) -> bool {

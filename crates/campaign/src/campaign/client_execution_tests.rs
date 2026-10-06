@@ -173,8 +173,20 @@ fn bundled_node_proxy_request_has_equivalent_implicit_and_explicit_client_routes
             .procedure
             .command
             .contains("/api/v1/nodes/node-01/proxy/pods"));
+        assert!(!exec.procedure.command.contains("--cacert"));
+        assert!(!exec
+            .procedure
+            .command
+            .contains("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"));
+        assert!(!exec.procedure.command.contains("--insecure"));
         assert_eq!(exec.args.get("NODE").map(String::as_str), Some("node-01"));
         assert_eq!(exec.auth_identity_id.as_deref(), Some(auth_id.as_str()));
+        assert_eq!(
+            exec.execution_environment
+                .as_ref()
+                .and_then(|environment| environment.auth_identity_id.as_deref()),
+            Some(auth_id.as_str())
+        );
     }
 }
 
@@ -1060,6 +1072,37 @@ fn client_can_reach_downstream_executor_from_a_session_only_origin() {
 }
 
 #[test]
+fn explicit_active_runner_is_not_replaced_by_a_derived_path_to_the_same_system() {
+    let (mut campaign, target_id, entry_id, auth_id) = request_fixture("Node");
+    let mut runner = Pod::new("runner", "controlled");
+    runner.system.set_binary("curl", "/runner/curl");
+    runner.system.sessions.push(SessionInfo {
+        id: "runner-ranplant".into(),
+        kind: "ranplant".into(),
+        port: Some(4444),
+        status: SessionStatus::Active,
+    });
+    let runner_id = runner.entity_id().0;
+    campaign.entities.insert_typed(runner);
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&entry_id, &runner_id).with_envelope("remote-run ${CMD}"),
+    );
+
+    let exec = campaign
+        .prepare_action(
+            request_for(&target_id, Some(&auth_id), Some(&runner_id)),
+            &request_armory(request_action("Node", false)),
+        )
+        .expect("the selected runner has its own active execution channel");
+
+    assert_eq!(exec.exec_system_id, "session/runner-ranplant");
+    assert_eq!(exec.exec_chain, vec![runner_id]);
+    assert!(exec.procedure.command.starts_with("/runner/curl"));
+    assert!(!exec.procedure.command.contains("remote-run"));
+}
+
+#[test]
 fn alternative_source_finds_a_longer_route_that_avoids_the_semantic_target() {
     let (mut campaign, target_id, source_id, _) = request_fixture("Node");
     campaign
@@ -1303,6 +1346,13 @@ fn local_shell_fixture() -> (Campaign, Armory, String, String) {
 #[test]
 fn review_local_shell_placement_is_independent_of_request_format_or_auth() {
     let (mut campaign, armory, target, source) = local_shell_fixture();
+    campaign
+        .get_system_entity_mut("system/operator-host")
+        .unwrap()
+        .entity_mut()
+        .system_mut()
+        .binaries
+        .insert("printf".into(), BinaryPresence::Absent);
     let exec = campaign
         .prepare_action(request_for(&target, None, None), &armory)
         .unwrap();
@@ -1341,6 +1391,15 @@ fn review_local_shell_placement_is_independent_of_request_format_or_auth() {
             .system()
             .has_binary("review-proof"),
         BinaryPresence::Present("/local/review-proof".into())
+    );
+    assert_eq!(
+        campaign
+            .get_system_entity("system/operator-host")
+            .unwrap()
+            .entity()
+            .system()
+            .has_binary("printf"),
+        BinaryPresence::Absent
     );
 }
 
@@ -1432,7 +1491,7 @@ fn physical_capability_effects_cannot_borrow_a_semantic_target_or_submitted_exec
 
 #[test]
 fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
-    let (mut campaign, target, source, _) = request_fixture("Pod");
+    let (mut campaign, target, source, selected_auth) = request_fixture("Pod");
     let mut node = K8sNode::new("worker");
     node.system.ips.push("2001:db8::1".parse().unwrap());
     let node_id = node.entity_id().0;
@@ -1488,7 +1547,7 @@ fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
     let mut ttp = armory_with_command("request", "printf '%s' 'a & b'; id", None).ttps()[0].clone();
     ttp.effects.push("sys.envvar".into());
     let armory = Armory::from_ttps(vec![ttp]);
-    let mut request = request_for(&target, None, None);
+    let mut request = request_for(&target, Some(&selected_auth), None);
     request.procedure_id = None;
     let exec = campaign.prepare_action(request, &armory).unwrap();
     assert_eq!(
@@ -1503,8 +1562,22 @@ fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
             .as_deref(),
         Some(target.as_str())
     );
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(selected_auth.as_str())
+    );
+    assert_eq!(
+        exec.transport_environment
+            .as_ref()
+            .and_then(|environment| environment.auth_identity_id.as_deref()),
+        Some(account_id.as_str())
+    );
     let words = shell_words::split(&exec.procedure.command).unwrap();
     assert_eq!(&words[..2], &["/tmp/ranplant", "kubelet-exec"]);
+    assert!(words.iter().any(|word| word == "--ca-file"));
+    assert!(!words
+        .iter()
+        .any(|word| word == "--insecure-skip-tls-verify"));
     let url_index = words.iter().position(|word| word == "--url").unwrap() + 1;
     let url = url::Url::parse(&words[url_index]).unwrap();
     assert_eq!(url.host_str(), Some("[2001:db8::1]"));
@@ -1761,6 +1834,7 @@ fn unrealizable_discovered_kubelet_transports_do_not_hide_longer_valid_routes() 
         "missing-shell",
         "no-mounted-token",
         "invalid-endpoint",
+        "conflicting-host",
     ] {
         let (mut campaign, target, source, _) = request_fixture("Pod");
         campaign
@@ -1813,6 +1887,15 @@ fn unrealizable_discovered_kubelet_transports_do_not_hide_longer_valid_routes() 
                     .unwrap()
                     .automount_service_account_token = ran_domain::Confidence::No;
             }
+            "conflicting-host" => {
+                let pod = campaign
+                    .entities
+                    .get_mut::<Pod>()
+                    .get_mut(&EntityId::new(&target))
+                    .unwrap();
+                pod.node_name = Some("different-worker".into());
+                pod.host_ip = Some("192.0.2.44".parse().unwrap());
+            }
             _ => {}
         }
         push_relation(
@@ -1846,6 +1929,195 @@ fn unrealizable_discovered_kubelet_transports_do_not_hide_longer_valid_routes() 
             .unwrap();
         assert_eq!(exec.exec_chain, [source, middle_id, target], "{failure}");
         assert!(exec.output_transform.is_none());
+    }
+}
+
+#[test]
+fn kubelet_pair_retains_the_destination_host_ip_before_node_address_discovery() {
+    for address in ["192.0.2.44", "2001:db8::44"] {
+        let (mut campaign, target, source, _) = request_fixture("Pod");
+        let node = K8sNode::new("not-resolvable.invalid");
+        let node_id = node.entity_id().0;
+        campaign.entities.insert_typed(node);
+        let pod = campaign
+            .entities
+            .get_mut::<Pod>()
+            .get_mut(&EntityId::new(&target))
+            .unwrap();
+        pod.host_ip = Some(address.parse().unwrap());
+        pod.node_name = Some("not-resolvable.invalid".into());
+        push_relation(
+            &mut campaign,
+            &ran_domain::KubeletExecSource::new(&source, &node_id),
+        );
+        push_relation(
+            &mut campaign,
+            &ran_domain::KubeletExecSink::new(&node_id, &target),
+        );
+        let channel = campaign.resolve_exec_channel(&target).unwrap();
+        assert_eq!(channel.kubelet_plans.len(), 1);
+        let mut request = request_for(&target, None, None);
+        request.procedure_id = None;
+        let exec = campaign
+            .prepare_action(request, &armory_with_command("request", "printf ok", None))
+            .unwrap();
+        let words = shell_words::split(&exec.procedure.command).unwrap();
+        let url =
+            url::Url::parse(&words[words.iter().position(|word| word == "--url").unwrap() + 1])
+                .unwrap();
+        assert_eq!(url.host_str().unwrap().trim_matches(['[', ']']), address);
+        assert_eq!(url.port(), Some(10250));
+        assert!(campaign.resolve_exec_channel(&node_id).is_err());
+    }
+}
+
+#[test]
+fn discovery_tls_uses_client_trust_without_assuming_a_pod_ca_mount() {
+    let (mut campaign, target, source, auth) = request_fixture("Node");
+    campaign
+        .entities
+        .get_mut::<ServiceAccount>()
+        .get_mut(&EntityId::new(&auth))
+        .unwrap()
+        .entitlements
+        .push(RbacPermission::new("get", "nodes/proxy"));
+    campaign
+        .entities
+        .get_mut::<Pod>()
+        .get_mut(&EntityId::new(&source))
+        .unwrap()
+        .automount_service_account_token = ran_domain::Confidence::No;
+    let armory = Armory::load_from_dir(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs"),
+    )
+    .unwrap();
+    for ca in ["", "/executor/trust/api-ca.pem"] {
+        let mut request = request_for(&target, Some(&auth), Some(&source));
+        request.action_id = "get-pods-via-node-proxy".into();
+        request.args.insert("CA_PATH".into(), ca.into());
+        let exec = campaign.prepare_action(request, &armory).unwrap();
+        assert!(!exec.procedure.command.contains("--insecure"));
+        assert!(!exec
+            .procedure
+            .command
+            .contains("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"));
+        assert_eq!(exec.procedure.command.contains("--cacert"), !ca.is_empty());
+        if !ca.is_empty() {
+            assert!(exec.procedure.command.contains(ca));
+        }
+    }
+}
+
+#[test]
+fn request_trust_is_bound_to_observed_executor_files_and_endpoint_origin() {
+    const CA: &str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
+    for http in [false, true] {
+        for (executor_has_ca, endpoint, explicit_ca, expected_ca) in [
+            (true, crate::grounding::DEFAULT_API_SERVER, "", Some(CA)),
+            (false, crate::grounding::DEFAULT_API_SERVER, "", None),
+            (true, "https://node-01:10250", "", None),
+            (true, "https://api.example", "", None),
+            (
+                true,
+                crate::grounding::DEFAULT_API_SERVER,
+                "/custom/api.pem",
+                Some("/custom/api.pem"),
+            ),
+        ] {
+            let (mut campaign, target, source, auth) = request_fixture("Pod");
+            // Semantic-target files are never a source of executor-local trust.
+            campaign
+                .entities
+                .get_mut::<Pod>()
+                .get_mut(&EntityId::new(&target))
+                .unwrap()
+                .system
+                .files
+                .push(CA.into());
+            if executor_has_ca {
+                campaign
+                    .entities
+                    .get_mut::<Pod>()
+                    .get_mut(&EntityId::new(&source))
+                    .unwrap()
+                    .system
+                    .files
+                    .push(CA.into());
+            }
+            let mut ttp = request_action("Pod", http);
+            let request = if http {
+                ttp.procedures[0].http_request.as_mut().unwrap()
+            } else {
+                ttp.procedures[0].k8s_request.as_mut().unwrap()
+            };
+            request[if http { "url" } else { "api_server" }] = serde_json::json!(endpoint);
+            request["use_ca"] = serde_json::json!(true);
+            request["ca_path"] = serde_json::json!(explicit_ca);
+            let exec = campaign
+                .prepare_action(
+                    request_for(&target, (!http).then_some(auth.as_str()), Some(&source)),
+                    &request_armory(ttp),
+                )
+                .unwrap();
+            assert!(!exec.procedure.command.contains("--insecure"));
+            assert_eq!(
+                exec.procedure.command.contains("--cacert"),
+                expected_ca.is_some()
+            );
+            if let Some(ca) = expected_ca {
+                assert!(exec.procedure.command.contains(ca));
+            }
+        }
+    }
+}
+
+#[test]
+fn bundled_native_proxy_keeps_tls_controls_and_omits_automatic_remote_placement() {
+    let (mut campaign, target, _, _) = request_fixture("Node");
+    let mut credential = K8sCredential::new("https://api.example").with_name("native");
+    credential.active = true;
+    credential
+        .entitlements
+        .push(RbacPermission::new("get", "nodes/proxy"));
+    let identity = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    let armory = Armory::load_from_dir(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs"),
+    )
+    .unwrap();
+    for (verify, ca) in [
+        ("true", ""),
+        ("true", "/operator/trust/api.pem"),
+        ("false", ""),
+    ] {
+        let mut action = request_for(&target, Some(&identity), None);
+        action.action_id = "get-pods-via-node-proxy".into();
+        action.args.insert("USE_CA".into(), verify.into());
+        // Omission and an explicit empty path must both inherit client trust.
+        if !ca.is_empty() {
+            action.args.insert("CA_PATH".into(), ca.into());
+        }
+        let exec = campaign.prepare_action(action, &armory).unwrap();
+        assert!(exec.exec_chain.is_empty());
+        assert_eq!(
+            exec.execution_environment
+                .as_ref()
+                .unwrap()
+                .system_id
+                .as_deref(),
+            Some("system/operator-host")
+        );
+        let c2::ExecutionOperation::KubernetesRequest { request } = exec.operation else {
+            panic!("native identity must retain the structured request");
+        };
+        assert_eq!(
+            request.get("use_ca").and_then(serde_json::Value::as_str),
+            Some(verify)
+        );
+        assert_eq!(
+            request.get("ca_path").and_then(serde_json::Value::as_str),
+            Some(ca)
+        );
     }
 }
 
@@ -1933,11 +2205,52 @@ fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
         .insert("missing-tool".into(), BinaryPresence::Absent);
     let mut ttp = Ttp::new("duplicate-plans", "Duplicate plans", "Discovery");
     ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+    ttp.params.push(TtpParam {
+        name: "SOURCE_NAME".into(),
+        param_type: "string".into(),
+        default: "${SRC.NAME}".into(),
+        required: true,
+        description: String::new(),
+        options: vec![],
+    });
     ttp.procedures
         .push(Procedure::new("same-id", "missing-tool"));
-    let mut local = Procedure::new("same-id", "printf ok");
+    let mut local = Procedure::new("same-id", "printf '%s' '${SOURCE_NAME}'");
     local.is_local_command = Some(true);
     ttp.procedures.push(local);
+    let operator_name = campaign
+        .entities
+        .find::<ran_domain::OperatorHost>(&EntityId::new("system/operator-host"))
+        .unwrap()
+        .entity_name()
+        .to_string();
+    let resolution =
+        resolve_action(&ttp, &campaign, &target, &ActionResolutionInput::default()).unwrap();
+    assert_eq!(
+        resolution.recommended_procedure_id.as_deref(),
+        Some("same-id")
+    );
+    assert_eq!(
+        resolution.arguments[0].value.as_deref(),
+        Some(operator_name.as_str())
+    );
+    for id in ["same-id", " same-id "] {
+        let ambiguous = resolve_action(
+            &ttp,
+            &campaign,
+            &target,
+            &ActionResolutionInput {
+                procedure_id: Some(id.into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ambiguous.status, ActionReadinessStatus::Blocked);
+        assert!(ambiguous
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("not unique")));
+    }
     let armory = Armory::from_ttps(vec![ttp]);
     let mut request = request_for(&target, None, None);
     request.action_id = "duplicate-plans".into();
@@ -1948,6 +2261,7 @@ fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
         selected.operation,
         c2::ExecutionOperation::LocalShell { .. }
     ));
+    assert_eq!(selected.args["SOURCE_NAME"], operator_name);
 
     request.procedure_id = Some("same-id".into());
     let error = campaign.prepare_action(request, &armory).unwrap_err();
@@ -1955,6 +2269,42 @@ fn duplicate_procedure_ids_keep_their_indexed_client_plans() {
         error,
         ExecuteActionError::InvalidInput(message) if message.contains("not unique")
     ));
+}
+
+#[test]
+fn quoted_transport_executable_preserves_binary_provenance() {
+    let (mut campaign, target, source, _) = request_fixture("Pod");
+    let binary = "/opt/ran plant/ranplant";
+    campaign
+        .entities
+        .get_mut::<Pod>()
+        .get_mut(&EntityId::new(&source))
+        .unwrap()
+        .system
+        .set_binary("ranplant", binary);
+    let node = K8sNode::new("worker");
+    let node_id = node.entity_id().0;
+    campaign.entities.insert_typed(node);
+    campaign.upsert_relation(
+        &ran_domain::KubeletExecSource::new(&source, &node_id),
+        ran_domain::KnowledgeProvenance::Action,
+    );
+    campaign.upsert_relation(
+        &ran_domain::KubeletExecSink::new(&node_id, &target),
+        ran_domain::KnowledgeProvenance::Action,
+    );
+    let mut request = request_for(&target, None, None);
+    request.procedure_id = None;
+    let exec = campaign
+        .prepare_action(request, &armory_with_command("request", "printf ok", None))
+        .unwrap();
+    assert_eq!(
+        shell_words::split(&exec.procedure.command).unwrap()[0],
+        binary
+    );
+    let transport = exec.transport_environment.as_ref().unwrap();
+    assert_eq!(transport.system_id.as_deref(), Some(source.as_str()));
+    assert_eq!(transport.tool.as_deref(), Some("ranplant"));
 }
 
 #[test]
@@ -1981,5 +2331,28 @@ fn successful_prefixed_shell_command_never_records_assignment_as_binary() {
     assert_eq!(
         operator.entity().system().has_binary("/usr/bin/curl"),
         BinaryPresence::Present("/usr/bin/curl".into())
+    );
+}
+
+#[test]
+fn successful_dynamic_shell_command_does_not_record_expression_as_binary() {
+    let (mut campaign, target, _, _) = request_fixture("Pod");
+    let mut ttp = Ttp::new("dynamic-shell", "Dynamic shell", "Discovery");
+    ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+    let mut procedure = Procedure::new("proc-1", "\"$RAN_REVIEW_TOOL\" --version");
+    procedure.is_local_command = Some(true);
+    ttp.procedures.push(procedure);
+    let armory = Armory::from_ttps(vec![ttp]);
+    let mut request = request_for(&target, None, None);
+    request.action_id = "dynamic-shell".into();
+    let exec = campaign.prepare_action(request, &armory).unwrap();
+
+    campaign
+        .on_ttp_executed(&exec, &sample_event("curl 8"))
+        .unwrap();
+    let operator = campaign.get_system_entity("system/operator-host").unwrap();
+    assert_eq!(
+        operator.entity().system().has_binary("$RAN_REVIEW_TOOL"),
+        BinaryPresence::Unknown
     );
 }

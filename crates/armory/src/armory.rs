@@ -755,9 +755,51 @@ mod tests {
             .as_ref()
             .expect("node proxy remains a structured HTTP operation");
         assert_eq!(
-            request.get("use_ca").and_then(|value| value.as_bool()),
-            Some(false)
+            request.get("use_ca").and_then(|value| value.as_str()),
+            Some("${USE_CA}")
         );
+        assert_eq!(
+            node_proxy
+                .params
+                .iter()
+                .find(|parameter| parameter.name == "USE_CA")
+                .map(|parameter| parameter.default.as_str()),
+            Some("true")
+        );
+        assert_eq!(
+            request.get("ca_path").and_then(|value| value.as_str()),
+            Some("${CA_PATH}")
+        );
+
+        let kubelet = armory
+            .get_ttp("get-pods-via-kubelet")
+            .expect("kubelet discovery TTP");
+        let request = kubelet.procedures[0]
+            .http_request
+            .as_ref()
+            .expect("kubelet remains a structured HTTP operation");
+        assert_eq!(
+            request.get("use_ca").and_then(|value| value.as_str()),
+            Some("${USE_CA}")
+        );
+    }
+
+    #[test]
+    fn ranplant_callback_keeps_listener_host_grounding() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+        let ttp = armory
+            .get_ttp("start-ranplant-session")
+            .expect("Ranplant session action");
+        let listener = ttp
+            .params
+            .iter()
+            .find(|parameter| parameter.name == "LISTENER")
+            .expect("listener host parameter");
+
+        assert_eq!(listener.default, "${LISTENER}");
+        assert!(ttp.procedures[0].command.contains("--host \"${LISTENER}\""));
+        assert!(!ttp.procedures[0].command.contains("172.16.0.5"));
     }
 
     /// Redirector TTPs must declare typed control operations. The command text

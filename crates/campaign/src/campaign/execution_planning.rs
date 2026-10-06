@@ -173,7 +173,10 @@ impl<'a> ClientExecutionPlanner<'a> {
                 .collect::<BTreeMap<_, _>>();
             // A session-only source need not have a graph node yet.
             for (id, channel) in source_channels {
-                channels.entry(id).or_insert((0.0, channel));
+                // A direct foothold is authoritative for its own system. Do
+                // not replace it with a derived path from another seed merely
+                // because both paths terminate at the same entity.
+                channels.insert(id, (0.0, channel));
             }
             let candidates = channels
                 .into_iter()
