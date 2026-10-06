@@ -1786,10 +1786,16 @@ impl Campaign {
         } else {
             None
         };
-        let auth_identity_id = resolved_auth
-            .as_ref()
-            .map(|auth| auth.id().to_string())
-            .or_else(|| requested_auth_identity_id.filter(|identity| !identity.trim().is_empty()));
+        let auth_identity_id = if execution_semantics.uses_k8s_auth {
+            resolved_auth
+                .as_ref()
+                .map(|auth| auth.id().to_string())
+                .or_else(|| {
+                    requested_auth_identity_id.filter(|identity| !identity.trim().is_empty())
+                })
+        } else {
+            None
+        };
         let use_kubeconfig = resolved_auth
             .as_ref()
             .is_some_and(|auth| auth.uses_kubeconfig() || procedure.is_local_command == Some(true));

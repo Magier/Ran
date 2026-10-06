@@ -112,4 +112,30 @@ describe('quickActionsForField', () => {
 			expect(quickActionFields('Pod', [declarative])).toEqual(new Set());
 		}
 	});
+
+	it('excludes automatically planned clients from executor-bound shortcuts', () => {
+		const structuredHttp = tokenAction('http-client');
+		structuredHttp.effects = ['executor::sys.ip'];
+		structuredHttp.procedures[0].http_request = { url: 'https://example.test' };
+
+		const structuredK8s = tokenAction('k8s-client');
+		structuredK8s.effects = ['executor::sys.ip'];
+		structuredK8s.procedures[0].k8s_request = { path: '/api/v1/pods' };
+
+		const authenticatedShell = tokenAction('authenticated-shell');
+		authenticatedShell.effects = ['executor::sys.ip'];
+		authenticatedShell.procedures[0].command = 'curl -H "Authorization: Bearer ${K8S_AUTH}"';
+
+		expect(
+			quickActionsForField('ips', 'Node', [structuredHttp, structuredK8s, authenticatedShell])
+		).toEqual([]);
+	});
+
+	it('retains explicitly target-pinned client observations', () => {
+		const targetClient = tokenAction('target-client', true);
+		targetClient.effects = ['executor::sys.ip'];
+		targetClient.procedures[0].http_request = { url: 'https://example.test' };
+
+		expect(quickActionsForField('ips', 'Node', [targetClient])).toEqual([targetClient]);
+	});
 });

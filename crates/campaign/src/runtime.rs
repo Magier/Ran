@@ -857,11 +857,17 @@ async fn run_external_parsers(
                         continue;
                     }
                 };
-                match crate::output_parsers::resolve_executor_id(&guard, &cmd)
-                    .ok_or_else(|| {
-                        "external parser has no physical executor provenance".to_string()
+                let (subject, _) = crate::output_parsers::split_effect_subject(&audit.effect_id);
+                match crate::output_parsers::resolve_effect_subject_id(&guard, &cmd, subject)
+                    .ok_or_else(|| match subject {
+                        crate::output_parsers::EffectSubject::Executor => {
+                            "external parser has no physical executor provenance".to_string()
+                        }
+                        crate::output_parsers::EffectSubject::Target => {
+                            "external parser semantic target is not a system entity".to_string()
+                        }
                     })
-                    .and_then(|executor| guard.apply_system_update(&executor, &response.system))
+                    .and_then(|subject_id| guard.apply_system_update(&subject_id, &response.system))
                 {
                     Ok(written) => written,
                     Err(error) => {
@@ -1341,6 +1347,56 @@ mod listener_event_tests {
                 persisted
             );
         }
+    }
+
+    #[tokio::test]
+    async fn external_system_results_honor_explicit_target_subject() {
+        let mut initial = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let target = ran_domain::Pod::new("resource", "default");
+        let target_id = target.entity_id().0;
+        initial.upsert_entity(target, KnowledgeProvenance::Action);
+        let campaign = Arc::new(RwLock::new(initial));
+        let mut cmd = external_parser_command("target-proof", &target_id);
+        cmd.ttp.effects = vec!["target::test.external-parser".into()];
+        cmd.execution_environment = None;
+        let event = successful_execution(&cmd.id);
+        let audit = crate::output_parsers::build_no_parser_audit(
+            "target::test.external-parser",
+            &cmd,
+            &event,
+        );
+
+        run_external_parsers(
+            campaign.clone(),
+            CampaignEventBus::new(16),
+            Arc::new(PhysicalProofParser {
+                expected_executor: String::new(),
+            }),
+            cmd,
+            event,
+            vec![audit],
+        )
+        .await;
+
+        let guard = campaign.read().unwrap();
+        assert_eq!(
+            guard
+                .get_system_entity(&target_id)
+                .unwrap()
+                .entity()
+                .system()
+                .env_vars
+                .get("EXTERNAL_PROOF")
+                .map(String::as_str),
+            Some("1")
+        );
+        assert!(!guard
+            .get_system_entity("system/operator-host")
+            .unwrap()
+            .entity()
+            .system()
+            .env_vars
+            .contains_key("EXTERNAL_PROOF"));
     }
 
     #[tokio::test]

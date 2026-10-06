@@ -40,9 +40,12 @@ function parseEffectDeclaration(effect: string): EffectDeclaration {
 function runsOnlyOnSelectedTarget(ttp: TTP): boolean {
 	return (
 		ttp.procedures.length > 0 &&
-		ttp.procedures.every(
-			(procedure) => procedure.runOnTarget !== false && procedure.isLocalCommand !== true
-		)
+		ttp.procedures.every((procedure) => {
+			if (procedure.runOnTarget === true) return true;
+			if (procedure.runOnTarget === false || procedure.isLocalCommand === true) return false;
+			if (procedure.http_request !== undefined || procedure.k8s_request !== undefined) return false;
+			return !procedure.command.includes('${K8S_AUTH}') && !procedure.command.includes('kubectl ');
+		})
 	);
 }
 

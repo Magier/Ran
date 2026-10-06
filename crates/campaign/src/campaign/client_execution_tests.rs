@@ -1344,6 +1344,31 @@ fn local_shell_fixture() -> (Campaign, Armory, String, String) {
 }
 
 #[test]
+fn unused_authentication_selection_is_discarded_for_local_shell() {
+    let (mut campaign, target, _, auth_id) = request_fixture("Pod");
+    let mut ttp = Ttp::new("request", "Local request", "Discovery");
+    ttp.requires.insert("kind".into(), serde_json::json!("Pod"));
+    let mut procedure = Procedure::new("proc-1", "printf ok");
+    procedure.is_local_command = Some(true);
+    ttp.procedures.push(procedure);
+
+    let exec = campaign
+        .prepare_action(
+            request_for(&target, Some(&auth_id), None),
+            &Armory::from_ttps(vec![ttp]),
+        )
+        .unwrap();
+
+    assert_eq!(exec.auth_identity_id, None);
+    assert_eq!(
+        exec.execution_environment
+            .as_ref()
+            .and_then(|environment| environment.auth_identity_id.as_deref()),
+        None
+    );
+}
+
+#[test]
 fn review_local_shell_placement_is_independent_of_request_format_or_auth() {
     let (mut campaign, armory, target, source) = local_shell_fixture();
     campaign
@@ -1562,10 +1587,7 @@ fn review_kubelet_capability_discovery_reaches_pod_with_typed_realization() {
             .as_deref(),
         Some(target.as_str())
     );
-    assert_eq!(
-        exec.auth_identity_id.as_deref(),
-        Some(selected_auth.as_str())
-    );
+    assert_eq!(exec.auth_identity_id, None);
     assert_eq!(
         exec.transport_environment
             .as_ref()

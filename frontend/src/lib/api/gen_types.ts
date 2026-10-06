@@ -1075,6 +1075,14 @@ export interface components {
 			isLocalCommand?: boolean;
 			/** @description Whether the command physically executes on the selected target. When false, Ran preserves the target context but executes from a different reachable system and excludes the target from the route. */
 			runOnTarget?: boolean;
+			/** @description Structured HTTP request executed from a separately planned client unless runOnTarget explicitly pins it to the selected target. */
+			http_request?: {
+				[key: string]: unknown;
+			};
+			/** @description Structured Kubernetes request executed from a separately planned authenticated client unless runOnTarget explicitly pins it to the selected target. */
+			k8s_request?: {
+				[key: string]: unknown;
+			};
 		};
 		TTPParam: {
 			name: string;

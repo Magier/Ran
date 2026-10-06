@@ -357,7 +357,7 @@ pub fn parse_output_effect(
     Some(parsed)
 }
 
-fn resolve_effect_subject_id(
+pub(crate) fn resolve_effect_subject_id(
     campaign: &Campaign,
     cmd: &ExecTtp,
     subject: EffectSubject,
