@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CampaignState as CampaignSnapshot, Graph } from '$lib/api';
-import type { RanAPI } from '$lib/ran_api';
+import type { CampaignState as CampaignSnapshot, Graph } from '#lib/api/index.js';
+import type { RanAPI } from '#lib/ran_api.js';
 import { CampaignState, executionFailureMessage } from './CampaignState.svelte';
 
 function fakeApi(graph: Promise<Graph>, snapshot: Promise<CampaignSnapshot>): RanAPI {

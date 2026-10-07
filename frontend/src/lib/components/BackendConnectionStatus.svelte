@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import Icon from '@iconify/svelte';
-	import { getRanAPI, type BackendConnectionState } from '$lib/ran_api';
+	import { getRanAPI, type BackendConnectionState } from '#lib/ran_api.js';
 
 	type VisibleStatus = 'disconnected' | 'reconnected' | null;
 

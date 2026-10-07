@@ -1,4 +1,4 @@
-import type { TTP } from '$lib/api/index';
+import type { TTP } from '#lib/api/index.js';
 
 export enum AccessLevel {
 	UserRead = 1,

@@ -3,8 +3,8 @@
 	import IconEar from '~icons/emojione-monotone/ear';
 	import IconLeftArrow from '~icons/emojione-monotone/left-arrow';
 	import type cytoscape from 'cytoscape';
-	import type { Node } from '$lib/api/index';
-	import type { Redirector } from '$lib/redirectors';
+	import type { Node } from '#lib/api/index.js';
+	import type { Redirector } from '#lib/redirectors.js';
 	import { c2Badges, type C2BadgeGroup } from './c2_badges';
 
 	type C2BadgesProps = {

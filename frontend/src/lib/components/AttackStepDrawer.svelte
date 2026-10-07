@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AttackStep } from '$lib/api';
+	import type { AttackStep } from '#lib/api/index.js';
 	import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
 	import AttackStepDetails from './attack_step_details.svelte';
 

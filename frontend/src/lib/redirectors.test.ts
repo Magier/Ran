@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 import { allRedirectors, redirectorHop, redirectorOptions, redirectorsOf } from './redirectors';
 
 function redirector(playId: string, remotePort: number, listenerPort: number, via = 'labctl') {

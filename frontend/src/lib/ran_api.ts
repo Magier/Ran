@@ -5,7 +5,7 @@
  *
  * Usage:
  * ```typescript
- * import { ranAPI, connect, on } from '$lib/ran_api';
+ * import { ranAPI, connect, on } from '#lib/ran_api.js';
  *
  * // Connect to the SSE event stream
  * await connect();
@@ -20,7 +20,7 @@
  * ```
  */
 import createClient from 'openapi-fetch';
-import type { components, paths } from '$lib/api/gen_types';
+import type { components, paths } from '#lib/api/gen_types.js';
 import type {
 	Graph,
 	CampaignState,
@@ -38,7 +38,7 @@ import type {
 	UiConfig,
 	ActionResolution,
 	ActionResolutionRequest
-} from '$lib/api';
+} from '#lib/api/index.js';
 
 export type BackendConnectionState = 'connecting' | 'connected' | 'disconnected';
 export type SseEvent = components['schemas']['SseEvent'];

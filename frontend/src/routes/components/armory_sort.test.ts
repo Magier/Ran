@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TTP } from '$lib/api';
+import type { TTP } from '#lib/api/index.js';
 import { sortTtpsByName } from './armory_sort';
 
 function ttp(id: string, name: string): TTP {

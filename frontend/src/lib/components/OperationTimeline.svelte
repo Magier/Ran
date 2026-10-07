@@ -1,14 +1,14 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte';
-	import { actionDisplayName } from '$lib/actionDisplay';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import { actionDisplayName } from '#lib/actionDisplay.js';
+	import { getCampaignState } from '#lib/components/CampaignState.svelte.js';
 	import type {
 		TopEntry,
 		EntityEntry,
 		RelationEntry,
 		ActionGroup,
 		SessionEventEntry
-	} from '$lib/stores/timelineStore.svelte';
+	} from '#lib/stores/timelineStore.svelte.js';
 
 	interface Props {
 		entries: TopEntry[];

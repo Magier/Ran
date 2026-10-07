@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ActionResolution, TTP } from '$lib/api';
-import { getRanAPI } from '$lib/ran_api';
+import type { ActionResolution, TTP } from '#lib/api/index.js';
+import { getRanAPI } from '#lib/ran_api.js';
 import ActionParamsModal from './ActionParamsModal.svelte';
 
 const ttp = {

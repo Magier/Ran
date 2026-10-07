@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PlanSummary } from '$lib/api';
+	import type { PlanSummary } from '#lib/api/index.js';
 
 	interface PlanPickerProps {
 		plans: PlanSummary[];

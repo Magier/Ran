@@ -1,4 +1,4 @@
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 
 /**
  * A C2 listener, as carried on the C2 graph node's `listeners` payload.

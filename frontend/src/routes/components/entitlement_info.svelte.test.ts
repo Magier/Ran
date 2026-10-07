@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 
-import type { KubetierCatalog, LocalPermissionAssessment, RBACPermission } from '$lib/api';
+import type { KubetierCatalog, LocalPermissionAssessment, RBACPermission } from '#lib/api/index.js';
 import EntitlementInfo from './entitlement_info.svelte';
 
 const catalog: KubetierCatalog = {

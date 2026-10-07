@@ -1,6 +1,6 @@
 import type cytoscape from 'cytoscape';
-import type { Node } from '$lib/api/index';
-import { hasKnowledgeProvenance } from '$lib/knowledgeProvenance';
+import type { Node } from '#lib/api/index.js';
+import { hasKnowledgeProvenance } from '#lib/knowledgeProvenance.js';
 
 export type Pos = { x: number; y: number };
 export type PosMap = Record<string, Pos>;

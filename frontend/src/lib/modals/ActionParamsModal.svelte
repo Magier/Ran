@@ -2,8 +2,8 @@
 	import Icon from '@iconify/svelte';
 	import { Combobox, useListCollection } from '@skeletonlabs/skeleton-svelte';
 
-	import { parseEntityId } from '$lib/model';
-	import { actionDisplayName } from '$lib/actionDisplay';
+	import { parseEntityId } from '#lib/model.js';
+	import { actionDisplayName } from '#lib/actionDisplay.js';
 	import type {
 		TTP,
 		TTPParam,
@@ -12,13 +12,13 @@
 		ActionResolution,
 		ArgumentResolution,
 		ProcedureState
-	} from '$lib/api/index';
-	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
-	import { allListeners } from '$lib/listeners';
-	import { redirectorOptions } from '$lib/redirectors';
-	import { sessionOptions } from '$lib/sessions';
-	import { getRanAPI } from '$lib/ran_api';
-	import { selectDefaultAuthIdentity } from '$lib/auth_identity';
+	} from '#lib/api/index.js';
+	import { getCampaignState, type Entity } from '#lib/components/CampaignState.svelte.js';
+	import { allListeners } from '#lib/listeners.js';
+	import { redirectorOptions } from '#lib/redirectors.js';
+	import { sessionOptions } from '#lib/sessions.js';
+	import { getRanAPI } from '#lib/ran_api.js';
+	import { selectDefaultAuthIdentity } from '#lib/auth_identity.js';
 	import { untrack } from 'svelte';
 
 	interface ParamProps {

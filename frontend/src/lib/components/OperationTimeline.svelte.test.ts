@@ -6,7 +6,7 @@ import type {
 	EntityEntry,
 	SessionEventEntry,
 	TopEntry
-} from '$lib/stores/timelineStore.svelte';
+} from '#lib/stores/timelineStore.svelte.js';
 
 function compactTimestamp(date: Date): string {
 	return date.toLocaleTimeString([], {

@@ -7,7 +7,7 @@ import {
 	ancestorsToRevealAfterReparent
 } from './graph_nodes';
 import type { PosMap } from './graph_nodes';
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 
 function node(overrides: Partial<Node> & Pick<Node, 'id'>): Node {
 	return {

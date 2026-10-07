@@ -1,4 +1,4 @@
-import type { NamespaceUiConfig } from '$lib/api/index';
+import type { NamespaceUiConfig } from '#lib/api/index.js';
 
 export const DEFAULT_NAMESPACE_UI_CONFIG: NamespaceUiConfig = {
 	excluded: ['kube-system', 'local-path-storage'],

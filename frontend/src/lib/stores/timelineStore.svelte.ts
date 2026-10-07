@@ -1,4 +1,4 @@
-import type { BootstrapOperation } from '$lib/api';
+import type { BootstrapOperation } from '#lib/api/index.js';
 
 const RESULT_DETAIL_ACTIONS = new Set(['start-ranplant-session']);
 

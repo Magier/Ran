@@ -1,4 +1,4 @@
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 
 export const WORKLOAD_KINDS = new Set([
 	'Deployment',

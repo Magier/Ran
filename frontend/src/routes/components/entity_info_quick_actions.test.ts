@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TTP } from '$lib/api/index';
+import type { TTP } from '#lib/api/index.js';
 import { quickActionFields, quickActionsForField } from './entity_info_quick_actions';
 
 function tokenAction(id: string, runOnTarget?: boolean): TTP {

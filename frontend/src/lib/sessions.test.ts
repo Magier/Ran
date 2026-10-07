@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Edge } from '$lib/api/index';
+import type { Edge } from '#lib/api/index.js';
 import { sessionOptions } from './sessions';
 
 const session = (sessionId: string, targetId = 'node/victim', broken = false): Edge => ({

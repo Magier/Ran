@@ -1,17 +1,17 @@
 import { getContext, setContext } from 'svelte';
-import type { ArmoryType } from '$lib/model';
+import type { ArmoryType } from '#lib/model.js';
 import type {
 	AttackFlow,
 	BinaryPresence,
 	CampaignState as State,
 	Graph,
 	TTP
-} from '$lib/api/index';
-import type { KubetierCatalog, LocalPermissionAssessment, UiConfig } from '$lib/api/index';
-import { showToast, type ToastType } from '$lib/components/toaster';
-import { getRanAPI, RanAPI, type SseEventMap } from '$lib/ran_api';
-import { timeline } from '$lib/stores/timelineStore.svelte';
-import { DEFAULT_NAMESPACE_UI_CONFIG } from '$lib/namespace_filter';
+} from '#lib/api/index.js';
+import type { KubetierCatalog, LocalPermissionAssessment, UiConfig } from '#lib/api/index.js';
+import { showToast, type ToastType } from '#lib/components/toaster.js';
+import { getRanAPI, RanAPI, type SseEventMap } from '#lib/ran_api.js';
+import { timeline } from '#lib/stores/timelineStore.svelte.js';
+import { DEFAULT_NAMESPACE_UI_CONFIG } from '#lib/namespace_filter.js';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 

@@ -1,4 +1,4 @@
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 
 /**
  * A redirector, as carried on the C2 graph node's `redirectors` payload.

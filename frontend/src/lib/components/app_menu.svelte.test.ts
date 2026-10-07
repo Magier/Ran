@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { uiPreferences } from '$lib/stores/uiPreferences.svelte';
+import { uiPreferences } from '#lib/stores/uiPreferences.svelte.js';
 import AppMenu from './app_menu.svelte';
 
 describe('AppMenu settings', () => {

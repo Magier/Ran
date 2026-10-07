@@ -1,14 +1,14 @@
 <script lang="ts">
-	import type { ArmoryType } from '$lib/model';
+	import type { ArmoryType } from '#lib/model.js';
 	import Icon from '@iconify/svelte';
-	import { iconMap } from '$lib/tactic_icons';
+	import { iconMap } from '#lib/tactic_icons.js';
 
 	import ActionCard from './action_card.svelte';
 	import Recommendations from './recommendations.svelte';
 	import ScoringTuner from './scoring_tuner.svelte';
 	import { Accordion, Tabs } from '@skeletonlabs/skeleton-svelte';
-	import type { TTP, Node, ScoredCandidate } from '$lib/api/index';
-	import { getCampaignState, parseArmory } from '$lib/components/CampaignState.svelte';
+	import type { TTP, Node, ScoredCandidate } from '#lib/api/index.js';
+	import { getCampaignState, parseArmory } from '#lib/components/CampaignState.svelte.js';
 	import { WORKLOAD_KINDS } from './workload_compounds';
 	import { sortTtpsByName } from './armory_sort';
 

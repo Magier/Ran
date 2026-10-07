@@ -2,9 +2,9 @@
 	import EntitlementInfo from './entitlement_info.svelte';
 	import FilesystemTree from './filesystem_tree.svelte';
 	import Icon from '@iconify/svelte';
-	import type { RBACPermission, TTP } from '$lib/api/index';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
-	import { knowledgeProvenanceBadges } from '$lib/knowledgeProvenance';
+	import type { RBACPermission, TTP } from '#lib/api/index.js';
+	import { getCampaignState } from '#lib/components/CampaignState.svelte.js';
+	import { knowledgeProvenanceBadges } from '#lib/knowledgeProvenance.js';
 	import { WORKLOAD_KINDS } from './workload_compounds';
 	import { quickActionFields, quickActionsForField } from './entity_info_quick_actions';
 	import type { FilesystemVolumeMount } from './filesystem_tree';

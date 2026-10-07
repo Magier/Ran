@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type cytoscape from 'cytoscape';
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 import C2Badges from './c2_badges.svelte';
 
 type FakeNodeOptions = { visible?: boolean; exists?: boolean; zoom?: number };

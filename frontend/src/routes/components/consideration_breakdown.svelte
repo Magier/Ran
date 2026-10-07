@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ConsiderationScore } from '$lib/api';
+	import type { ConsiderationScore } from '#lib/api/index.js';
 	import { helpFor } from './consideration_help';
 
 	type Props = {

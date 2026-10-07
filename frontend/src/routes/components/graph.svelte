@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onMount, onDestroy, getContext, untrack } from 'svelte';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import cytoscape from 'cytoscape';
 	// @ts-expect-error - cytoscape-elk ships no type declarations
 	import elk from 'cytoscape-elk';
 	// @ts-expect-error - cytoscape-expand-collapse ships no type declarations
 	import expandCollapse from 'cytoscape-expand-collapse';
-	import { toaster } from '$lib/components/toaster';
+	import { toaster } from '#lib/components/toaster.js';
 
 	import {
 		getGraphStyle,
@@ -41,8 +41,8 @@
 	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
 	import type { LayoutParams } from './elk_layout';
 	import GraphLayoutPlayground from './GraphLayoutPlayground.svelte';
-	import type { Node, Edge } from '$lib/api/index';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import type { Node, Edge } from '#lib/api/index.js';
+	import { getCampaignState } from '#lib/components/CampaignState.svelte.js';
 	import GraphNodeSelector from './graph_node_selector.svelte';
 	import GraphFilter from './graph_filter.svelte';
 	import C2Badges from './c2_badges.svelte';
@@ -54,8 +54,8 @@
 		restoreConfiguredNamespaceFilters,
 		toggleNamespaceOverride,
 		type NamespaceFilterOverrides
-	} from '$lib/namespace_filter';
-	import { parseHiddenEdgeTypes, toggleHiddenEdgeType } from '$lib/edge_filter';
+	} from '#lib/namespace_filter.js';
+	import { parseHiddenEdgeTypes, toggleHiddenEdgeType } from '#lib/edge_filter.js';
 	// import { hierarchyLayout } from './hierachical_layout';
 	// import 	{ K8sAttackGraphLayout } from './layout_claude';
 
@@ -239,10 +239,7 @@
 		const prevPan = getPanPositionOrDefault(undefined);
 		cy = cytoscape({
 			container: graphContainer, // container to render in
-			elements: {
-				nodes: nodes,
-				edges: edges
-			},
+			elements: { nodes, edges },
 			// Our style table declares property values as plain strings, where
 			// cytoscape's StylesheetJson wants literal unions ('text-wrap' must be
 			// 'none' | 'wrap' | 'ellipsis'). Satisfying that needs `as const` across
@@ -250,7 +247,7 @@
 			// precise type, not any: a bad selector or style key still fails to build.
 			style: getGraphStyle(theme.isDark) as cytoscape.StylesheetJson,
 			layout: { name: 'preset' },
-			zoom: zoom,
+			zoom,
 			wheelSensitivity: 0.1
 		});
 		if (prevPan) {
@@ -504,6 +501,7 @@
 					cy.nodes()
 						.filter((n) => n.id() !== '' && !currentNodeIds.has(n.id()))
 						.remove();
+
 					cy.edges()
 						.filter((e) => e.id() !== '' && !newEdgeIds.has(e.id()))
 						.remove();
