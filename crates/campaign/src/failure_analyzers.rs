@@ -363,6 +363,18 @@ impl FailureAnalyzer for CommandNotFoundFailureAnalyzer {
             .filter_map(|t| t.extract.and_then(|f| f(&haystack)))
             .next();
 
+        // OCI reports argv[0] in this position. If it contains a command line,
+        // the exec request was malformed; no individual tool was proved absent.
+        if haystack.contains("exec: \"")
+            && extracted
+                .as_deref()
+                .is_some_and(|name| name.chars().any(char::is_whitespace))
+        {
+            return Some(FailureClassification::known_failure(
+                "container exec received a command line as one executable; check argv encoding",
+            ));
+        }
+
         Some(FailureClassification::binary_missing(extracted))
     }
 
@@ -840,6 +852,21 @@ mod tests {
         assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
         assert!(classified.is_binary_missing);
         assert_eq!(classified.extracted_binary.as_deref(), Some("kubectl"));
+    }
+
+    #[test]
+    fn oci_exec_with_whole_command_does_not_mark_a_binary_absent() {
+        let cmd = sample_cmd();
+        let event = failed_event_fail_reason(
+            r#"OCI runtime exec failed: exec: "cat /var/run/secrets/kubernetes.io/serviceaccount/token": no such file or directory"#,
+        );
+
+        let classified = classify_failure(&cmd, &event);
+
+        assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
+        assert!(!classified.is_binary_missing);
+        assert_eq!(classified.extracted_binary, None);
+        assert!(classified.detail.contains("argv encoding"));
     }
 
     /// Multiple result lines, one of which is `/usr/bin/sh: 1: curl: not found`

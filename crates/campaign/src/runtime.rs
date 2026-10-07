@@ -308,7 +308,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         success = processing.effective_success,
                         transport_success = event.success,
                         exit_code = event.exit_code,
-                        fail_reason = %processing.effective_fail_reason,
+                        fail_reason = %safe_log_output(&processing.effective_fail_reason),
                         results_count = event.results.len(),
                         result_preview = %result_preview,
                         "Action result"
@@ -346,7 +346,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                         effect_id = %audit.effect_id,
                                         parse_result = ?audit.parse_result,
                                         inferred_facts_written = audit.inferred_facts_written,
-                                        detail = %audit.detail,
+                                        detail = %safe_log_output(&audit.detail),
                                         "Parse audit"
                                     );
                                 }
@@ -356,7 +356,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                         effect_id = %audit.effect_id,
                                         parse_result = ?audit.parse_result,
                                         inferred_facts_written = audit.inferred_facts_written,
-                                        detail = %audit.detail,
+                                        detail = %safe_log_output(&audit.detail),
                                         "Parse audit indicates parser gap or known failure"
                                     );
                                 }
@@ -1751,8 +1751,9 @@ fn action_result_preview(results: &[String]) -> String {
         return String::new();
     };
 
-    if contains_jwt(result) {
-        return "[REDACTED: credential-bearing output]".to_string();
+    let safe_result = safe_log_output(result);
+    if safe_result != result {
+        return safe_result.to_string();
     }
 
     let mut preview: String = result.chars().take(200).collect();
@@ -1760,6 +1761,14 @@ fn action_result_preview(results: &[String]) -> String {
         preview.push_str("...");
     }
     preview
+}
+
+fn safe_log_output(value: &str) -> &str {
+    if contains_jwt(value) || value.to_ascii_lowercase().contains("bearer ") {
+        "[REDACTED: credential-bearing output]"
+    } else {
+        value
+    }
 }
 
 fn contains_jwt(value: &str) -> bool {
@@ -1782,6 +1791,9 @@ fn contains_jwt(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+    use std::sync::Mutex;
+
     use ran_domain::{K8sCluster, Pod, UnknownSystem};
 
     use super::*;
@@ -1799,6 +1811,125 @@ mod tests {
             action_result_preview(&[format!("Authorization: Bearer {token}")]),
             "[REDACTED: credential-bearing output]"
         );
+    }
+
+    #[test]
+    fn failure_log_redacts_a_token_echoed_in_an_oci_error() {
+        let token =
+            "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQifQ.signature_value";
+        let error =
+            format!("OCI runtime exec failed: exec: \"curl -H 'Authorization: Bearer {token}'\"");
+        assert_eq!(
+            safe_log_output(&error),
+            "[REDACTED: credential-bearing output]"
+        );
+    }
+
+    #[derive(Clone)]
+    struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CapturedLogs {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("log capture lock")
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn failed_execution_redacts_parse_audit_in_event_processor_logs() {
+        let logs = CapturedLogs(Arc::new(Mutex::new(Vec::new())));
+        let writer = logs.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let _subscriber_guard = tracing::subscriber::set_default(subscriber);
+
+        let mut state = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let target = Pod::new("target", "default");
+        let target_id = target.entity_id().0;
+        state.insert_entity(&target);
+        let procedure = armory::Procedure::new("noop", "true");
+        let cmd = c2::ExecTtp {
+            id: "cmd-audit-redaction".to_string(),
+            ttp: Ttp {
+                effects: vec!["test.failure-audit".to_string()],
+                procedures: vec![procedure.clone()],
+                ..Ttp::new("failure-audit-test", "Failure Audit Test", "Discovery")
+            },
+            procedure,
+            operation: c2::ExecutionOperation::Noop,
+            args: HashMap::new(),
+            target_id: target_id.clone(),
+            exec_chain: vec![target_id.clone()],
+            exec_system_id: c2::BUILTIN_C2_ID.to_string(),
+            execution_environment: Some(ran_domain::ExecutionEnvironment {
+                system_id: Some(target_id),
+                tool: None,
+                auth_identity_id: None,
+            }),
+            transport_environment: None,
+            auth_identity_id: None,
+            started_at_ms: 0,
+            execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+            output_transform: None,
+            is_cleanup: false,
+            reasoning: String::new(),
+        };
+        state.add_open_step(cmd.clone());
+
+        let campaign = Arc::new(RwLock::new(state));
+        let c2_events = C2EventBus::new(4);
+        let campaign_events = CampaignEventBus::new(8);
+        let mut event_rx = campaign_events.subscribe();
+        let processor = spawn_c2_event_processor(campaign, c2_events.clone(), campaign_events);
+        let sentinel = "audit-secret-123";
+        c2_events
+            .publish(C2Event::TtpExecuted {
+                cmd: Box::new(cmd),
+                event: c2::TtpExecuted {
+                    id: "cmd-audit-redaction".to_string(),
+                    success: false,
+                    results: Vec::new(),
+                    exit_code: 1,
+                    fail_reason: format!(
+                        "unexpected execution failure: Authorization: Bearer {sentinel}"
+                    ),
+                    session_connected: None,
+                },
+                partial: false,
+            })
+            .await
+            .expect("completion should queue");
+
+        let audits = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(CampaignEvent::ParseAudited { audits, .. }) = event_rx.recv().await {
+                    break audits;
+                }
+            }
+        })
+        .await
+        .expect("failure audit should be published");
+        assert!(audits.iter().any(|audit| audit.detail.contains(sentinel)));
+
+        let output = String::from_utf8(logs.0.lock().expect("log capture lock").clone())
+            .expect("logs should be UTF-8");
+        assert!(output.contains("Parse audit indicates parser gap or known failure"));
+        assert!(output.contains("[REDACTED: credential-bearing output]"));
+        assert!(
+            !output.contains(sentinel),
+            "logs contained the credential: {output}"
+        );
+        processor.abort();
     }
 
     #[test]

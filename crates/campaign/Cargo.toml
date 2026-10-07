@@ -29,3 +29,4 @@ semver = "1"
 # The c2 event processor is a spawned task, so testing what it publishes needs a
 # runtime and `#[tokio::test]` — neither is in the lean feature set above.
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
