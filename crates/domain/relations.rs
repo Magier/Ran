@@ -241,6 +241,10 @@ impl Relation for KubeletExecSource {
     fn is_exec_channel(&self) -> bool {
         !self.node_id.0.eq_ignore_ascii_case("all(k8s.node)")
     }
+
+    fn grants_target_execution(&self) -> bool {
+        false
+    }
 }
 
 /// Node→Pod relation indicating kubelet exec sink path to a target pod.

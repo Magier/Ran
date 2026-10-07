@@ -14,8 +14,9 @@ parameters:
     description: the URL of the API server
   CA_PATH:
     type: string
-    description: the path to the CA certificate to use for the request
-    default: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    required: false
+    description: CA file on the physical executor; empty uses native kubeconfig trust, an observed executor-local CA for the in-cluster API origin, or shell system trust
+    default: ""
   USE_CA:
     type: bool
     description: whether to use the CA certificate for the request (true) or skip

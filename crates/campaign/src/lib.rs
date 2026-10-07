@@ -17,12 +17,13 @@ pub mod traversal;
 pub mod ttp_applicability;
 pub use analyzers::default_rules;
 pub use c2::ExecTtp;
+pub use campaign::execution_planning::ClientExecutionPlanner as ExecutionPlanningContext;
 pub use campaign::{
     best_tool_readiness, procedure_readiness, procedure_required_tool, recommended_procedure,
     Campaign, CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef, EntityType,
     ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExecutedActionEvent,
-    InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, ProcedureReadiness,
-    TtpExecutionProcessing,
+    InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KubeletExecPlan,
+    ProcedureReadiness, TtpExecutionProcessing,
 };
 pub use effects::{EffectCategory, EffectKind, FactsUpdate};
 pub use execution_record::{ExecutionEntity, ExecutionRecord, ExecutionRelation};

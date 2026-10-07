@@ -1075,6 +1075,14 @@ export interface components {
 			isLocalCommand?: boolean;
 			/** @description Whether the command physically executes on the selected target. When false, Ran preserves the target context but executes from a different reachable system and excludes the target from the route. */
 			runOnTarget?: boolean;
+			/** @description Structured HTTP request executed from a separately planned client unless runOnTarget explicitly pins it to the selected target. */
+			http_request?: {
+				[key: string]: unknown;
+			};
+			/** @description Structured Kubernetes request executed from a separately planned authenticated client unless runOnTarget explicitly pins it to the selected target. */
+			k8s_request?: {
+				[key: string]: unknown;
+			};
 		};
 		TTPParam: {
 			name: string;
@@ -1287,12 +1295,24 @@ export interface components {
 			permissions: components['schemas']['KubetierPermission'][];
 			roles: components['schemas']['KubetierRole'][];
 		};
+		/** @description Physical execution provenance. Missing legacy provenance is unknown, not the semantic target. */
+		ExecutionEnvironment: {
+			/** @description Actual command host, including the operator host for local clients. */
+			system_id?: string;
+			/** @description Actual binary executed. Absent for native API requests. */
+			tool?: string;
+			/** @description Authentication identity consumed by this execution layer, distinct from the action-selected identity when a transport uses ambient credentials. */
+			auth_identity_id?: string;
+		};
 		/**
 		 * @description A completed TTP execution joined with the parse audits produced by its
 		 *     declared effects. The record fields are flattened at the top level;
 		 *     `parseAudits` is the list of per-effect audit entries.
 		 */
 		ExecutionRecordEntry: {
+			execution_environment?: components['schemas']['ExecutionEnvironment'];
+			/** @description Physical environment of an outer transport wrapper, when distinct from the payload environment. */
+			transport_environment?: components['schemas']['ExecutionEnvironment'];
 			/** @description Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events */
 			id: string;
 			ttp_id: string;

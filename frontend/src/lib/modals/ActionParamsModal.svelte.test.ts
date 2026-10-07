@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ActionResolution, TTP } from '$lib/api';
@@ -28,6 +28,124 @@ function targetInput(): HTMLInputElement {
 }
 
 describe('ActionParamsModal target-derived defaults', () => {
+	for (const initiallyNative of [true, false]) {
+		it(`does not submit an automatic remote executor for native credentials (initial=${initiallyNative})`, async () => {
+			const remote = { id: 'ns/default/pod/client', name: 'client', namespace: 'default' };
+			const identities = [
+				{ id: 'credential/native', name: 'native', kind: 'K8sCredential' },
+				{ id: 'sa/default/client', name: 'client', kind: 'ServiceAccount' }
+			];
+			const action = {
+				...ttp,
+				params: [
+					{
+						name: 'K8S_AUTH',
+						type: 'K8sAuth',
+						required: true,
+						default: identities[initiallyNative ? 0 : 1].id,
+						description: 'Identity'
+					}
+				],
+				procedures: [{ id: 'request', command: 'kubectl get pods ${K8S_AUTH}' }],
+				actionState: {
+					status: 'ready',
+					reasons: [],
+					arguments: { total: 1, resolved: 1, needsInput: 0, needsChoice: 0, blocked: 0 },
+					procedures: [{ procedureId: 'request', status: 'unknown' }],
+					requirements: [],
+					recommendedProcedureId: 'request'
+				}
+			} as TTP;
+			const campaignState = {
+				relations: new Map(),
+				graph: { nodes: [] },
+				getObjectById: () => undefined,
+				getCompromisedSystems: () => [remote],
+				getPods: () => [],
+				getServiceAccounts: () => [],
+				getServiceAccountsWithTokens: () => []
+			};
+			const identitySpy = vi
+				.spyOn(getRanAPI(), 'GetEligibleAuthIdentities')
+				.mockResolvedValue(identities);
+			const resolutionSpy = vi.spyOn(getRanAPI(), 'ResolveAction').mockResolvedValue({
+				actionId: action.id,
+				targetId: 'node/worker',
+				status: 'ready',
+				reasons: [],
+				arguments: [],
+				procedures: [{ procedureId: 'request', status: 'unknown' }],
+				requirements: [],
+				recommendedProcedureId: 'request'
+			});
+			const onExecute = vi.fn();
+			render(ActionParamsModal, {
+				props: {
+					targetId: 'node/worker',
+					ttp: action,
+					argContext: {},
+					onExecute,
+					onCancel: vi.fn()
+				},
+				context: new Map([['$_campaignState', campaignState]])
+			});
+			await screen.findByText('K8S_AUTH');
+			// Use the stable control ID because the parameter's visual cell is
+			// not currently a label attached to the native select.
+			const authControl = document.getElementById('authIdentity') as HTMLSelectElement;
+			await waitFor(() => expect(authControl).toHaveValue(identities[initiallyNative ? 0 : 1].id));
+			if (!initiallyNative) {
+				await fireEvent.change(authControl, { target: { value: identities[0].id } });
+			}
+			await waitFor(() =>
+				expect(resolutionSpy).toHaveBeenLastCalledWith(
+					action.id,
+					expect.objectContaining({ authIdentityId: identities[0].id, execSystemId: undefined })
+				)
+			);
+			await fireEvent.change(authControl, { target: { value: identities[1].id } });
+			await waitFor(() =>
+				expect(resolutionSpy).toHaveBeenLastCalledWith(
+					action.id,
+					expect.objectContaining({
+						authIdentityId: identities[1].id,
+						execSystemId: remote.id
+					})
+				)
+			);
+			await fireEvent.change(authControl, { target: { value: identities[0].id } });
+			await waitFor(() =>
+				expect(resolutionSpy).toHaveBeenLastCalledWith(
+					action.id,
+					expect.objectContaining({ authIdentityId: identities[0].id, execSystemId: undefined })
+				)
+			);
+			await fireEvent.submit(screen.getByRole('button', { name: 'Execute' }).closest('form')!);
+			expect(onExecute).toHaveBeenLastCalledWith(
+				action.id,
+				'',
+				identities[0].id,
+				'request',
+				expect.anything(),
+				expect.any(Number)
+			);
+
+			// An actual operator choice remains a constraint for the backend
+			// to reject, including across subsequent authentication changes.
+			const execution = screen.getByRole('combobox', { name: 'Execute On' });
+			await fireEvent.change(execution, { target: { value: remote.id } });
+			await fireEvent.change(authControl, { target: { value: identities[1].id } });
+			await fireEvent.change(authControl, { target: { value: identities[0].id } });
+			await waitFor(() =>
+				expect(resolutionSpy).toHaveBeenLastCalledWith(
+					action.id,
+					expect.objectContaining({ authIdentityId: identities[0].id, execSystemId: remote.id })
+				)
+			);
+			resolutionSpy.mockRestore();
+			identitySpy.mockRestore();
+		});
+	}
 	it('re-grounds the same TTP when its target changes', async () => {
 		const entities = new Map([
 			['pod/first', { id: 'pod/first', name: 'first', ips: ['10.0.0.6'] }],

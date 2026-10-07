@@ -30,7 +30,7 @@ pub(super) fn parse_sys_software(
     {
         return ParserOutput::UnknownFormat("software output is not nmap output".to_string());
     }
-    let source_id = args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+    let source_id = args.get("EXECUTOR_ID").map(String::as_str).unwrap_or("");
     super::network::parse_nmap_software(output, source_id, args.get("CIDR").map(String::as_str))
 }
 

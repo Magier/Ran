@@ -11,6 +11,6 @@ procedures:
     tool: ps
     command: ps -ef
 effects:
-  - sys.processes
+  - executor::sys.processes
 # defend: {}
 references:

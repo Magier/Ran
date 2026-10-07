@@ -28,5 +28,4 @@ procedures:
 preconditions:
   kind: System
   accessLevel: "user-exec"
-effects: ["sys.has-binary(${NAME}, ${OUTPUT})", "k8s.kubelet-exec(sys, all(k8s.Node))"]
-
+effects: ["executor::sys.has-binary(${NAME}, ${OUTPUT})", "k8s.kubelet-exec(sys, all(k8s.Node))"]

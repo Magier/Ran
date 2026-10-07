@@ -6,13 +6,13 @@ The machine-readable source is `armory/vocabulary.json`. Regenerate this page wi
 
 Live Ran instances serve the same versioned document at `GET /api/armory/vocabulary`.
 
-Vocabulary schema version: `2`. Stability: **experimental**.
+Vocabulary schema version: `3`. Stability: **experimental**.
 
 This vocabulary describes declarations shipped with Ran. Custom Armory content may use additional names, but unknown procedure fields have no built-in semantics, unknown requirements do not gate applicability, and unknown effects have no built-in semantics unless an external parser handles them.
 
 ## Interpolation
 
-Titles are rendered with execution arguments when available and may declare a human-readable fallback for Armory views. Before effects are processed, Ran substitutes execution arguments into every effect string. Effect argument lookup is ASCII case-insensitive.
+Titles are rendered with execution arguments when available and may declare a human-readable fallback for Armory views. Before effects are processed, Ran substitutes execution arguments into every effect string. Effect argument lookup is ASCII case-insensitive. Physical system effects declare executor:: or target:: subject binding independently of command placement.
 
 Syntax: `${NAME} or ${NAME || fallback}`. Applies to: title, effects. Unknown variables: preserved unchanged.
 
@@ -33,7 +33,13 @@ Procedure fields describe how each execution alternative runs. Tool readiness is
 
 | Name | Accepted value types | Required | Support | Scope | Meaning |
 | --- | --- | --- | --- | --- | --- |
-| `procedure.tool` | `string` | no | `enforced` | physical execution system | Names the binary dependency for one procedure. Procedure readiness is evaluated independently, so an action remains runnable while any alternative procedure is present or has unknown availability. A known-absent tool makes only that procedure unavailable. An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. For procedures constructed without either value, Ran falls back to a bare procedure ID and then the first command word. |
+| `procedure.http_request.use_ca` | `boolean`, `string` | no | `enforced` | request TLS verification | Applied by shell adapters and the native Kubernetes HTTP client. Verification controls cannot be silently dropped when authentication changes execution environment. true verifies the endpoint certificate; false is an explicit insecure opt-in. Shell HTTP requests default to verification. Native authenticated HTTP requests without a control inherit kubeconfig TLS settings; an explicit true overrides insecure-skip-tls-verify. |
+| `procedure.http_request.ca_path` | `string` | no | `enforced` | physical executor and request endpoint | Trust material is endpoint-specific. A Pod service-account CA path is not an environment-independent default and API-server trust is not assumed to cover a kubelet. When verification is enabled, a non-empty path selects a CA file on the physical executor. Native execution reads it on the operator host. Empty uses native kubeconfig trust, an observed executor-local service-account CA for the in-cluster API origin, or shell-system trust. Missing or invalid explicit CA material fails rather than disabling verification. |
+| `procedure.k8s_request.use_ca` | `boolean`, `string` | no | `enforced` | Kubernetes API request TLS verification | The native and shell request realizations honor explicitly authored TLS controls without changing the authentication identity. true verifies the API server certificate and overrides insecure native kubeconfig settings. false explicitly opts out. Without a control, native execution inherits kubeconfig TLS; shell adapters default to verification. |
+| `procedure.k8s_request.ca_path` | `string` | no | `enforced` | physical executor and API endpoint | No Pod-mounted CA is assumed on arbitrary executors. Explicit trust material that is unavailable or invalid fails closed. A non-empty path supplies executor-local CA material when verification is enabled. Native execution reads the file on the operator host and replaces trust roots while preserving endpoint, server-name validation, authentication, and proxy configuration. Empty uses native kubeconfig trust, an observed executor-local service-account CA for the in-cluster API origin, or shell-system trust. |
+| `procedure.isLocal` | `boolean` | no | `enforced` | physical execution placement | Local placement participates in applicability, readiness, command grounding, and persisted executor provenance. A semantic Pod or Node target never creates a remote traversal for a local shell command. For shell procedures, true pins execution to the operator host independently of request format or authentication. A conflicting explicit executor or target-placement constraint is rejected. isLocalCommand is a supported YAML alias. |
+| `procedure.runOnTarget` | `boolean` | no | `enforced` | physical execution placement | Explicit placement is enforced before request materialization. Conflicting local placement or executor selections are rejected. true requires execution on the semantic target system. false excludes the target from the execution route. When omitted, structured requests independently select a client environment and ordinary non-local host commands retain target-side placement. |
+| `procedure.tool` | `string` | no | `enforced` | physical execution system | Names the binary dependency for one procedure. Procedure readiness is evaluated independently, so an action remains runnable while any alternative procedure is present or has unknown availability. A known-absent tool makes only that procedure unavailable, and shell syntax is never recorded as a binary. An explicit tool value wins. When tool is omitted, the YAML key is normalized into the tool field. Legacy fallback infers an external executable only from one simple shell command, skips leading environment assignments, and leaves shell builtins, compound, dynamically expanded, or otherwise ambiguous shell programs unknown. |
 | `procedure.http_request.response_output_field` | `string` | no | `enforced` | structured HTTP response | Declares the JSON response field that contains stdout for an HTTP-backed execution procedure. The transform is retained on any execution channel created by the procedure. When present, Ran requires a successful HTTP response body to be a JSON object containing the named string field. That field becomes stdout before failure detection and effect parsing. Missing, non-string, or malformed response data fails the action. |
 
 ## Requirements
@@ -65,7 +71,7 @@ Enforced requirements participate in applicability or target-aware graded readin
 
 ## Effects
 
-Effect kinds are the part before the first `(`. Effect matching is ASCII case-insensitive. Every effect string is interpolated before processing.
+Effect kinds are the part after an optional `executor::` or `target::` subject binding and before the first `(`. Effect matching is ASCII case-insensitive. Every effect string is interpolated before processing. Physical system effects use `executor::` for persisted physical execution provenance or `target::` for the semantic target system.
 
 | Kind | Syntax | Support | Processing | Meaning |
 | --- | --- | --- | --- | --- |
@@ -83,11 +89,11 @@ Effect kinds are the part before the first `(`. Effect matching is ASCII case-in
 | `ServiceAccount.name` | `ServiceAccount.name` | `declarative-only` | scoring taxonomy only | Declares discovery of a ServiceAccount name. |
 | `c2.listen` | `c2.listen(${PORT}, ${PROTOCOL})` | `event` | listener-started event | Confirms that a C2 listener was registered. |
 | `c2.port-forward` | `c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})` | `event` | redirector-started event | Confirms that a redirector was registered. |
-| `c2.session` | `c2.session or c2.session(<backend>, <target>)` | `mixed` | runtime event or graph relation | The bare form reports a session established by a typed runtime operation; the parameterized form records a live execution session from a C2 backend to a target. |
+| `c2.session` | `c2.session or c2.session(<backend>, <target>)` | `mixed` | runtime event or graph relation | The bare form reports a session established by a typed runtime operation; the parameterized form records a live execution session from a C2 backend to a target. The sys target means the persisted physical executor, never the semantic API resource; missing executor provenance cannot establish this relation. |
 | `c2.stop-listener` | `c2.stop-listener(${ListenerID})` | `event` | listener-stopped event | Confirms that a C2 listener was removed. |
 | `c2.stop-port-forward` | `c2.stop-port-forward(${RedirectorID})` | `event` | redirector-stopped event | Confirms that a redirector was removed. |
 | `can-reach` | `can-reach(<target>)` | `declarative-only` | none | Legacy network-reachability declaration. |
-| `container.escape` | `container.escape(<source>)` | `structural` | graph entities and relations | Records a container-to-node escape path. |
+| `container.escape` | `container.escape(<source>)` | `structural` | graph entities and relations | Records a container-to-node escape path. A sys source resolves exclusively to the persisted physical executor; it does not fall back to the semantic target. |
 | `create k8s.CronJob` | `create k8s.CronJob` | `structural` | argument-derived custom resource | Creates a CronJob custom-resource entity from action arguments. |
 | `create k8s.Pod` | `create k8s.Pod` | `parsed` | deploy-container arguments and events | Creates the deployed Pod and its immediately known facts. |
 | `create k8s.Role` | `create k8s.Role` | `declarative-only` | scoring taxonomy only | Declares creation of a Kubernetes Role. |
@@ -97,8 +103,8 @@ Effect kinds are the part before the first `(`. Effect matching is ASCII case-in
 | `delete k8s.Pod` | `delete k8s.Pod` | `structural` | target removal | Removes the target Pod after successful execution. |
 | `delete k8s.ServiceAccount` | `delete k8s.ServiceAccount` | `structural` | target removal | Removes the target ServiceAccount after successful execution. |
 | `delete k8s.deployment` | `delete k8s.deployment` | `declarative-only` | none | Declares deletion of a Deployment. |
-| `file:content` | `file:content(${PATH})` | `parsed` | stdout content parser | Captures file contents and dispatches content-specific parsing. |
-| `file:kubeconfig` | `file:kubeconfig` | `parsed` | stdout kubeconfig parser | Creates Kubernetes credentials from kubeconfig content. |
+| `file:content` | `executor::file:content(${PATH})` | `parsed` | stdout content parser | Captures file contents from the explicitly bound physical effect subject and dispatches content-specific parsing. |
+| `file:kubeconfig` | `executor::file:kubeconfig` | `parsed` | stdout kubeconfig parser | Creates Kubernetes credentials from kubeconfig content and attributes the captured source to the explicitly bound physical effect subject. |
 | `k8s.Namespace.enforcedPSS=privileged` | `k8s.Namespace.enforcedPSS=privileged` | `declarative-only` | none | Declares a namespace Pod Security Standards change. |
 | `k8s.Role` | `k8s.Role` | `structural` | action arguments | Creates a Kubernetes Role entity from action arguments. |
 | `k8s.SelfSubjectRulesReview` | `k8s.SelfSubjectRulesReview` | `parsed` | stdout JSON | Records effective Kubernetes permissions for an identity. |
@@ -111,7 +117,7 @@ Effect kinds are the part before the first `(`. Effect matching is ASCII case-in
 | `k8s.gatewaylist` | `k8s.gatewaylist` | `parsed` | stdout Kubernetes JSON | Discovers Gateway API Gateway entities. |
 | `k8s.httproutelist` | `k8s.httproutelist` | `parsed` | stdout Kubernetes JSON | Discovers Gateway API HTTPRoute entities. |
 | `k8s.ingresslist` | `k8s.ingresslist` | `parsed` | stdout Kubernetes JSON | Discovers Ingress entities. |
-| `k8s.kubelet-exec` | `k8s.kubelet-exec(<source>, <target-or-all>)` | `structural` | graph relation | Records kubelet-mediated execution capability. |
+| `k8s.kubelet-exec` | `k8s.kubelet-exec(<source>, <target-or-all>)` | `structural` | graph relation | Records kubelet-mediated Pod execution capability. A sys source resolves exclusively to persisted physical executor provenance. Discovered envelope-less capabilities use typed Ranplant realization with source-mounted credentials and a paired Pod sink. A Node is transit only, never a Node shell or Exec access grant. |
 | `k8s.namespaceList` | `k8s.namespaceList` | `parsed` | stdout Kubernetes JSON | Discovers Namespace entities. |
 | `k8s.nodeList` | `k8s.nodeList` | `parsed` | stdout Kubernetes JSON | Discovers Node entities. |
 | `k8s.pod.IsRunning=false` | `k8s.pod.IsRunning=false` | `declarative-only` | none | Declares a non-running Pod outcome. |
@@ -122,17 +128,18 @@ Effect kinds are the part before the first `(`. Effect matching is ASCII case-in
 | `k8s.serviceAccountList` | `k8s.serviceAccountList` | `parsed` | stdout Kubernetes JSON | Discovers ServiceAccount entities. |
 | `k8s.servicelist` | `k8s.servicelist` | `parsed` | stdout Kubernetes JSON | Discovers Service entities and reachability facts. |
 | `k8s.workloadImage` | `k8s.workloadImage` | `parsed` | stdout Kubernetes JSON | Records derived software facts from Pod and Deployment image references. |
-| `linux.mounts` | `linux.mounts` | `parsed` | stdout mount parser | Records mounted filesystems on the execution system. |
-| `network.discovery` | `network.discovery` | `parsed` | stdout network discovery parser | Discovers reachable hosts and services from nmap or reverse-DNS output. |
+| `linux.mounts` | `executor::linux.mounts` | `parsed` | stdout mount parser | Records mounted filesystems on the explicitly bound physical effect subject. |
+| `network.discovery` | `network.discovery` | `parsed` | stdout network discovery parser | Discovers hosts and services from nmap or reverse-DNS output. Scan subjects are explicit resource facts; reachability originates only from the persisted physical executor, not the semantic target. |
 | `ns.contains` | `ns.contains($p2)` | `mixed` | deploy-container output parser | Only the literal ns.contains($p2) form contributes facts for Deploy Container; ns.contains($p) is declarative-only. |
 | `rawServiceaccountToken` | `rawServiceaccountToken` | `parsed` | stdout JWT parser | Validates and records captured Kubernetes service-account tokens. |
 | `rce.can-exec` | `rce.can-exec(<source>, <target>)` | `structural` | graph relation | Records remote-code-execution capability between entities. |
-| `sys.envVar` | `sys.envVar` | `parsed` | stdout environment parser | Records environment variables on the execution system. |
-| `sys.files` | `sys.files` | `parsed` | stdout file-list parser | Records files and directories on the execution system. |
-| `sys.has-binary` | `sys.has-binary(<name-or-path>[, <output-source>])` | `parsed` | arguments and optional stdout | Records an executable as present on the execution system. |
+| `sys.envVar` | `executor::sys.envVar` | `parsed` | stdout environment parser | Records environment variables on the explicitly bound physical effect subject. |
+| `sys.files` | `executor::sys.files` | `parsed` | stdout file-list parser | Records files and directories on the explicitly bound physical effect subject. |
+| `sys.has-binary` | `<executor\|target>::sys.has-binary(<name-or-path>[, <output-source>])` | `parsed` | arguments and optional stdout | Records an executable on the declared effect subject. executor uses persisted physical execution provenance; target uses the semantic target and requires it to be a system entity. Missing or invalid subject provenance produces no physical system facts. |
 | `sys.hasBinary` | `sys.hasBinary` | `declarative-only` | scoring taxonomy only | Legacy binary-presence declaration without an argument. |
 | `sys.hasFile` | `sys.hasFile` | `declarative-only` | scoring taxonomy only | Legacy file-presence declaration without a path argument. |
-| `sys.ip` | `sys.ip` | `parsed` | stdout IP parser | Records IP addresses on the execution system. |
-| `sys.processes` | `sys.processes` | `parsed` | stdout process-list parser | Records processes on the execution system. |
-| `sys.software` | `sys.software` | `parsed` | stdout nmap parser | Records package URL and version observations from nmap service detection. Authoritative qualifies the identity observation, not vulnerability status. |
-| `sys.userID` | `sys.userID` | `parsed` | stdout identity parser | Records the user ID and access level on the execution system. |
+| `sys.ip` | `executor::sys.ip` | `parsed` | stdout IP parser | Records IP addresses on the explicitly bound physical effect subject. |
+| `sys.processes` | `executor::sys.processes` | `parsed` | stdout process-list parser | Records processes on the explicitly bound physical effect subject. |
+| `sys.node-name` | `sys.node-name` | `parsed` | stdout host identity parser | Records a Kubernetes host-name observation after host execution or escape. The observed host is the persisted Node executor, or the runs-on host of a persisted Pod executor. An operator-local or unknown executor cannot rename a semantic Node target. |
+| `sys.software` | `sys.software` | `parsed` | stdout nmap parser | Records package URL and version observations on explicit nmap scan subjects. Reachability uses persisted executor provenance. Authoritative qualifies the identity observation, not vulnerability status. |
+| `sys.userID` | `executor::sys.userID` | `parsed` | stdout identity parser | Records the user ID and access level on the explicitly bound physical effect subject. |

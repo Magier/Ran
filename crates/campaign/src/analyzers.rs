@@ -915,10 +915,10 @@ impl InferenceRule for KubeletMountAnalyzer {
 // ---------------------------------------------------------------------------
 
 /// Set `system.access_level` to `Exec` on every system entity that receives
-/// an incoming exec-channel relation.
+/// an incoming terminal execution relation. Transit does not confer host access.
 ///
 /// Triggers on any relation that returns `true` for
-/// [`Relation::is_exec_channel`] - this covers `PodExec` (kubectl exec),
+/// [`Relation::grants_target_execution`] - this covers `PodExec` (kubectl exec),
 /// `KubeletExecSink` (kubelet exec), `RceCanExec` (exploit), and any future
 /// exec-channel type without needing a name-based allowlist.
 ///
@@ -941,7 +941,7 @@ impl InferenceRule for CanExecAccessAnalyzer {
         let exec_target_ids: Vec<ran_domain::EntityId> = update
             .new_relations
             .iter()
-            .filter(|r| r.is_exec_channel())
+            .filter(|r| r.grants_target_execution())
             .map(|r| r.target_id().clone())
             .collect();
 
@@ -1904,11 +1904,7 @@ impl InferenceRule for KubeletExecSourceAnalyzer {
         let mut inferred = FactsUpdate::default();
         let view = PendingView::new(campaign, update);
 
-        let nodes: Vec<EntityId> = view
-            .collect::<K8sNode>()
-            .into_iter()
-            .map(|n| n.entity_id())
-            .collect();
+        let nodes = view.collect::<K8sNode>();
 
         if nodes.is_empty() {
             return inferred;
@@ -1926,27 +1922,41 @@ impl InferenceRule for KubeletExecSourceAnalyzer {
 
         for marker in kubelet_markers {
             let pod_id = EntityId::new(&marker.source_id);
-            let authorized = relations.iter().any(|relation| {
-                relation.name == "uses"
-                    && relation.source_id == marker.source_id
-                    && service_accounts.iter().any(|account| {
-                        account.entity_id().0 == relation.target_id
-                            && account.can("get", "nodes/proxy").is_some()
+            let source_accounts = relations
+                .iter()
+                .filter(|relation| {
+                    relation.name == "uses" && relation.source_id == marker.source_id
+                })
+                .filter_map(|relation| {
+                    service_accounts
+                        .iter()
+                        .find(|account| account.entity_id().0 == relation.target_id)
+                })
+                .collect::<Vec<_>>();
+            for node in &nodes {
+                let authorized = source_accounts.iter().any(|account| {
+                    account.entitlements.iter().any(|permission| {
+                        permission.satisfies("get", "nodes/proxy")
+                            && permission
+                                .resource_name
+                                .as_deref()
+                                .is_none_or(|name| name == node.name)
                     })
-            });
-            if !authorized {
-                continue;
-            }
-            for node_id in &nodes {
+                });
+                if !authorized {
+                    continue;
+                }
+                let node_id = node.entity_id();
                 if campaign
                     .graph
                     .targets_of(&pod_id, "kubelet-exec")
-                    .contains(&node_id)
+                    .iter()
+                    .any(|target| **target == node_id)
                 {
                     continue;
                 }
 
-                let mut rel = KubeletExecSource::new(pod_id.0.clone(), node_id.0.clone())
+                let mut rel = KubeletExecSource::new(pod_id.0.clone(), node_id.0)
                     .with_opt_envelope(marker.envelope.clone());
                 if let Some(ref transform) = marker.output_transform {
                     rel = rel.with_output_transform(transform.clone());
@@ -3339,6 +3349,41 @@ mod tests {
             .all(|r| r.output_transform == Some(OutputTransformKind::JsonEnvelope)));
         assert!(concrete.iter().any(|r| r.node_id.0 == "node/worker-a"));
         assert!(concrete.iter().any(|r| r.node_id.0 == "node/worker-b"));
+    }
+
+    #[test]
+    fn kubelet_source_marker_respects_node_restricted_permission() {
+        let mut campaign = test_campaign();
+
+        let pod = Pod::new("attacker", "default");
+        let pod_id = pod.entity_id().0.clone();
+        campaign.entities.insert_typed(pod);
+
+        let mut account = ServiceAccount::new("attacker", "default");
+        let mut permission = RbacPermission::new("get", "nodes/proxy");
+        permission.resource_name = Some("worker-a".into());
+        account.entitlements.push(permission);
+        let account_id = account.entity_id();
+        campaign.entities.insert_typed(account);
+        campaign.insert_relation(&Uses::new(pod_id.clone(), account_id.0));
+
+        campaign.entities.insert_typed(K8sNode::new("worker-a"));
+        campaign.entities.insert_typed(K8sNode::new("worker-b"));
+
+        let mut update = FactsUpdate::default();
+        update
+            .new_relations
+            .push(Box::new(KubeletExecSource::new(pod_id, "all(k8s.node)")));
+
+        let inferred = KubeletExecSourceAnalyzer.infer(&campaign, &update);
+        let destinations = inferred
+            .new_relations
+            .iter()
+            .filter(|relation| relation.is::<KubeletExecSource>())
+            .map(|relation| relation.target_id().0.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(destinations, vec!["node/worker-a"]);
     }
 
     #[test]

@@ -373,12 +373,14 @@ mod tests {
         success: bool,
     ) -> campaign::ExecutionRecord {
         campaign::ExecutionRecord {
+            transport_environment: None,
             id: id.to_string(),
             ttp_id: ttp_id.to_string(),
             ttp_name: ttp_id.to_string(),
             tactic: "Execution".to_string(),
             target_id: target_id.to_string(),
             exec_system_id: target_id.to_string(),
+            execution_environment: None,
             auth_identity_id: None,
             procedure_id: procedure_id.to_string(),
             command: "echo test".to_string(),

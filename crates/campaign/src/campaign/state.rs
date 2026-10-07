@@ -521,8 +521,104 @@ impl Campaign {
         self.graph
             .exec_edges()
             .into_iter()
-            .filter(|(src, tgt, _)| !self.is_system_entity_id(src) && self.is_system_entity_id(tgt))
+            .filter(|(src, tgt, data)| {
+                !self.is_system_entity_id(src)
+                    && self.is_system_entity_id(tgt)
+                    && data.grants_target_execution()
+                    && data.is_realizable(tgt)
+                    && data.is_backend_entry()
+            })
             .map(|(_, tgt, _)| tgt.clone())
+            .collect()
+    }
+
+    pub(super) fn active_session_backend(&self, system_id: &str) -> Option<String> {
+        let canonical = self.canonical_entity_id(system_id);
+        let system_id = canonical.as_str();
+        let incoming = self.graph.incoming(&EntityId::new(system_id));
+        self.get_system_entity(system_id)?
+            .entity()
+            .system()
+            .sessions
+            .iter()
+            .filter(|session| session.status == SessionStatus::Active)
+            .map(|session| session.backend_id())
+            .filter(|backend| {
+                !incoming
+                    .iter()
+                    .any(|(_, edge)| edge.session_id.as_ref() == Some(backend) && edge.broken)
+            })
+            .min()
+    }
+
+    pub(super) fn executable_paths_from(
+        &self,
+        seeds: &[EntityId],
+        excluded: Option<&EntityId>,
+        allow_output_transform: bool,
+    ) -> std::collections::HashMap<EntityId, super::transport::PlannedExecPath> {
+        self.graph
+            .executable_paths_filtered(
+                seeds,
+                excluded,
+                allow_output_transform,
+                |source, target, data| {
+                    if data.relation_name == "kubelet-exec" && data.envelope.is_none() {
+                        return self.kubelet_source_usable(source, target);
+                    }
+                    if data.relation_name == "kubelet-pod-exec"
+                        && (self.kubelet_endpoint(source, target).is_none()
+                            || self.entities.find::<Pod>(target).is_none_or(|pod| {
+                                pod.meta.name.is_empty()
+                                    || pod.meta.namespace.as_deref().is_none_or(str::is_empty)
+                                    || pod.system.has_binary("sh") == BinaryPresence::Absent
+                            }))
+                    {
+                        return false;
+                    }
+                    let tool = data
+                        .envelope
+                        .as_deref()
+                        .and_then(super::execution::simple_shell_tool)
+                        .or_else(|| {
+                            (data.relation_name == "k8s.can-exec").then(|| "kubectl".to_string())
+                        });
+                    let tool = tool
+                        .as_deref()
+                        .and_then(|word| std::path::Path::new(word).file_name())
+                        .and_then(|word| word.to_str());
+                    tool.is_none_or(|tool| {
+                        self.get_system_entity(&source.0).is_none_or(|system| {
+                            system.entity().system().has_binary(tool)
+                                != ran_domain::BinaryPresence::Absent
+                        })
+                    })
+                },
+            )
+            .into_iter()
+            .filter_map(|(id, path)| {
+                let mut kubelet_plans = Vec::new();
+                for pair in path.edges.windows(2) {
+                    if pair[0].data.relation_name == "kubelet-exec"
+                        && pair[0].data.envelope.is_none()
+                    {
+                        kubelet_plans.push(self.plan_kubelet_pair(
+                            &pair[0].source,
+                            &pair[0].target,
+                            &pair[1].target,
+                        )?);
+                    }
+                }
+                Some((
+                    id,
+                    super::transport::PlannedExecPath {
+                        cost: path.cost,
+                        nodes: path.nodes,
+                        edges: path.edges,
+                        kubelet_plans,
+                    },
+                ))
+            })
             .collect()
     }
 
@@ -643,14 +739,7 @@ impl Campaign {
         // Prefer an Active session on the target system. Routing is independent
         // of tactic: a session's containment is a property of the session, not
         // of the action it happens to execute.
-        let active_session = self.get_system_entity(target_id).and_then(|sys| {
-            sys.entity()
-                .system()
-                .sessions
-                .iter()
-                .find(|s| s.status == SessionStatus::Active)
-                .map(|s| s.backend_id())
-        });
+        let active_session = self.active_session_backend(target_id);
 
         if let Some(ref backend_id) = active_session {
             tracing::debug!(
@@ -659,6 +748,8 @@ impl Campaign {
                 "resolve_exec_channel: using active session"
             );
             return Ok(ExecChannel {
+                kubelet_plans: vec![],
+                edges: vec![],
                 backend_id: backend_id.clone(),
                 hops: vec![],
                 exec_target_id: None,
@@ -697,13 +788,21 @@ impl Campaign {
             .find(|id| direct_footholds.contains(*id))
         {
             let source_eid = EntityId::new(source_id);
-            if let Some((_cost, path)) = self.graph.shortest_exec_path(&[source_eid], &target_eid) {
+            if let Some(path) = self
+                .executable_paths_from(&[source_eid], None, true)
+                .remove(&target_eid)
+            {
+                let kubelet_plans = path.kubelet_plans;
+                let edges = path.edges;
+                let path = path.nodes;
                 let hops = path[..path.len().saturating_sub(1)]
                     .iter()
                     .map(|id| id.0.clone())
                     .collect();
                 let backend_id = self.resolve_source_backend_id(source_id);
                 return Ok(ExecChannel {
+                    kubelet_plans,
+                    edges,
                     backend_id,
                     hops,
                     exec_target_id: None,
@@ -715,7 +814,12 @@ impl Campaign {
             .graph
             .exec_edges()
             .into_iter()
-            .find(|(src, tgt, _)| tgt.0 == target_id && !self.is_system_entity_id(src))
+            .find(|(src, tgt, data)| {
+                tgt.0 == target_id
+                    && !self.is_system_entity_id(src)
+                    && data.is_backend_entry()
+                    && data.is_realizable(tgt)
+            })
         {
             let backend_id = if src.0.starts_with("c2/") {
                 src.0.clone()
@@ -726,7 +830,13 @@ impl Campaign {
         }
 
         let seeds = self.direct_foothold_systems();
-        if let Some((_cost, path)) = self.graph.shortest_exec_path(&seeds, &target_eid) {
+        if let Some(path) = self
+            .executable_paths_from(&seeds, None, true)
+            .remove(&target_eid)
+        {
+            let kubelet_plans = path.kubelet_plans;
+            let edges = path.edges;
+            let path = path.nodes;
             let hops = path[..path.len().saturating_sub(1)]
                 .iter()
                 .map(|id| id.0.clone())
@@ -736,6 +846,8 @@ impl Campaign {
                 .map(|id| self.resolve_source_backend_id(&id.0))
                 .unwrap_or_else(|| BUILTIN_C2_ID.to_string());
             return Ok(ExecChannel {
+                kubelet_plans,
+                edges,
                 backend_id,
                 hops,
                 exec_target_id: None,
@@ -793,6 +905,8 @@ impl Campaign {
         // Degenerate case: explicit source equals target system.
         if source_id == target_id {
             return Ok(ExecChannel {
+                kubelet_plans: vec![],
+                edges: vec![],
                 backend_id: self.resolve_source_backend_id(source_id),
                 hops: vec![],
                 exec_target_id: None,
@@ -800,15 +914,20 @@ impl Campaign {
         }
 
         let target_eid = EntityId::new(target_id);
-        if let Some((_cost, path)) = self
-            .graph
-            .shortest_exec_path(std::slice::from_ref(&source_eid), &target_eid)
+        if let Some(path) = self
+            .executable_paths_from(std::slice::from_ref(&source_eid), None, true)
+            .remove(&target_eid)
         {
+            let kubelet_plans = path.kubelet_plans;
+            let edges = path.edges;
+            let path = path.nodes;
             let hops = path[..path.len().saturating_sub(1)]
                 .iter()
                 .map(|id| id.0.clone())
                 .collect();
             return Ok(ExecChannel {
+                kubelet_plans,
+                edges,
                 backend_id: self.resolve_source_backend_id(source_id),
                 hops,
                 exec_target_id: None,
@@ -825,15 +944,20 @@ impl Campaign {
             .map(|(src, _)| src.clone());
 
         if let Some(pod_id) = sa_pod_id {
-            if let Some((_cost, path)) = self
-                .graph
-                .shortest_exec_path(std::slice::from_ref(&source_eid), &pod_id)
+            if let Some(path) = self
+                .executable_paths_from(std::slice::from_ref(&source_eid), None, true)
+                .remove(&pod_id)
             {
+                let kubelet_plans = path.kubelet_plans;
+                let edges = path.edges;
+                let path = path.nodes;
                 let hops = path[..path.len().saturating_sub(1)]
                     .iter()
                     .map(|id| id.0.clone())
                     .collect();
                 return Ok(ExecChannel {
+                    kubelet_plans,
+                    edges,
                     backend_id: self.resolve_source_backend_id(source_id),
                     hops,
                     exec_target_id: Some(pod_id.0),
@@ -852,7 +976,7 @@ impl Campaign {
         let mut reachable: std::collections::HashSet<String> =
             seeds.iter().map(|id| id.0.clone()).collect();
 
-        for id in self.graph.reachable_via_exec(&seeds) {
+        for id in self.executable_paths_from(&seeds, None, true).into_keys() {
             if self.entities.contains::<Pod>(&id) {
                 reachable.insert(id.0);
             }
@@ -1142,18 +1266,39 @@ impl Campaign {
     /// as an intermediate hop (e.g. pod → node via container.escape), the
     /// nsenter-wrapped command is sent through the interactive shell rather
     /// than a separate one-shot kubectl exec.
-    fn resolve_source_backend_id(&self, system_id: &str) -> String {
+    pub(super) fn resolve_source_backend_id(&self, system_id: &str) -> String {
+        if let Some(backend) = self.active_session_backend(system_id) {
+            return backend;
+        }
         let system_eid = EntityId::new(system_id);
-        if let Some((src, _)) = self
+        if let Some(backend) = self
             .graph
             .incoming(&system_eid)
             .into_iter()
-            .find(|(src, d)| {
+            .filter(|(src, edge)| {
+                !self.is_system_entity_id(src)
+                    && edge.is_backend_entry()
+                    && edge.is_realizable(&system_eid)
+            })
+            .filter_map(|(_, edge)| edge.session_id.clone())
+            .min()
+        {
+            return backend;
+        }
+        if let Some(src) = self
+            .graph
+            .incoming(&system_eid)
+            .into_iter()
+            .filter(|(src, d)| {
                 d.is_exec_channel
                     && !d.broken
                     && !self.is_system_entity_id(src)
                     && src.0.starts_with("c2/")
+                    && d.is_backend_entry()
+                    && d.is_realizable(&system_eid)
             })
+            .map(|(src, _)| src)
+            .min_by(|a, b| a.0.cmp(&b.0))
         {
             return src.0.clone();
         }
@@ -1191,6 +1336,8 @@ mod planner_helper_tests {
             target_id: "node/test".to_string(),
             exec_chain: vec!["node/test".to_string()],
             exec_system_id: "node/test".to_string(),
+            execution_environment: None,
+            transport_environment: None,
             auth_identity_id: None,
             started_at_ms: 0,
             execution_timeout_seconds: 60,

@@ -10,7 +10,8 @@ use crate::sse::events_handler;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::{ApiError, ApiService, CampaignState, ErrorResponse, GetArmoryParams, Graph, UiConfig};
 use campaign::action_resolution::{
-    resolve_action, summarize, ActionResolution, ActionResolutionInput, ArmoryAction,
+    resolve_action, resolve_action_with_context, summarize, ActionResolution,
+    ActionResolutionInput, ArmoryAction,
 };
 
 #[cfg(debug_assertions)]
@@ -238,14 +239,16 @@ pub(crate) async fn armory_handler<S: ApiService>(
             "failed to get target entity: {target_id}"
         )));
     }
+    let planning = campaign::ExecutionPlanningContext::new(&campaign);
     Ok(axum::Json(
         ttps.into_iter()
             .map(|ttp| {
-                let action_state = resolve_action(
+                let action_state = resolve_action_with_context(
                     &ttp,
                     &campaign,
                     &target_id,
                     &ActionResolutionInput::default(),
+                    &planning,
                 )
                 .map(|resolution| summarize(&resolution));
                 ArmoryAction { ttp, action_state }

@@ -1,6 +1,8 @@
+use crate::campaign::execution_planning::{
+    ClientExecutionPlan, ClientExecutionPlanner, ProcedureExecutionSemantics,
+};
 use crate::ttp_applicability::{
-    eligible_auth_identities, resolve_target_context, software_requirement_states,
-    ttp_applicable_for_target, RequirementState,
+    eligible_auth_identities, resolve_target_context, software_requirement_states, RequirementState,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -154,58 +156,211 @@ pub fn resolve_action(
     target_id: &str,
     input: &ActionResolutionInput,
 ) -> Option<ActionResolution> {
+    resolve_action_with_context(
+        ttp,
+        campaign,
+        target_id,
+        input,
+        &ClientExecutionPlanner::new(campaign),
+    )
+}
+
+/// Share snapshot-scoped graph work across a complete action enumeration.
+pub fn resolve_action_with_context(
+    ttp: &armory::Ttp,
+    campaign: &crate::Campaign,
+    target_id: &str,
+    input: &ActionResolutionInput,
+    planner: &crate::ExecutionPlanningContext<'_>,
+) -> Option<ActionResolution> {
+    resolve_action_planned(ttp, campaign, target_id, input, planner)
+        .map(|(resolution, _)| resolution)
+}
+
+pub(crate) type ProcedurePlans =
+    Vec<Option<Result<ClientExecutionPlan, crate::ExecuteActionError>>>;
+
+pub(crate) fn resolve_action_planned(
+    ttp: &armory::Ttp,
+    campaign: &crate::Campaign,
+    target_id: &str,
+    input: &ActionResolutionInput,
+    planner: &ClientExecutionPlanner<'_>,
+) -> Option<(ActionResolution, ProcedurePlans)> {
+    if !planner.belongs_to(campaign) {
+        return None;
+    }
     let target = campaign
         .get_entities()
         .into_iter()
         .find(|entity| entity.entity_id().0 == target_id)?;
     let target_context = resolve_target_context(campaign, target_id)?;
     let applicable = !ttp.status.eq_ignore_ascii_case("disabled")
-        && ttp_applicable_for_target(ttp, campaign, &target_context);
+        && crate::ttp_applicability::ttp_applicable_with_context(
+            ttp,
+            campaign,
+            &target_context,
+            planner,
+        );
 
     let mut arguments = ttp
         .params
         .iter()
         .map(|param| resolve_argument(param, ttp, campaign, &target, target_id, input))
         .collect::<Vec<_>>();
-    finalize_argument_dependencies(&mut arguments, ttp, campaign, target_id, input);
-    let procedures = ttp
+    let auth_identity_id = input
+        .auth_identity_id
+        .as_deref()
+        .or_else(|| input.args.get("K8S_AUTH").map(String::as_str))
+        .or_else(|| {
+            input.args.get("TOKEN").map(String::as_str).filter(|id| {
+                campaign.get_entities().iter().any(|entity| {
+                    matches!(entity, crate::CampaignEntityRef::ServiceAccount(_))
+                        && entity.entity_id().0 == id.trim()
+                })
+            })
+        })
+        .or_else(|| {
+            arguments
+                .iter()
+                .find(|argument| argument.param_type.eq_ignore_ascii_case("K8sAuth"))
+                .and_then(|argument| argument.value.as_deref())
+        });
+    let client_plans = ttp
         .procedures
         .iter()
         .map(|procedure| {
+            ProcedureExecutionSemantics::from_definition(procedure)
+                .needs_client_plan()
+                .then(|| {
+                    planner.plan(
+                        ttp,
+                        procedure,
+                        target_id,
+                        auth_identity_id,
+                        input.exec_system_id.as_deref(),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    let procedures = ttp
+        .procedures
+        .iter()
+        .zip(&client_plans)
+        .map(|(procedure, plan)| {
             resolve_procedure(
                 ttp,
                 procedure,
                 campaign,
                 target_id,
                 input.exec_system_id.as_deref(),
+                plan.as_ref(),
             )
         })
         .collect::<Vec<_>>();
     let requirements = software_requirement_states(ttp, campaign, target_id);
-    let selected_procedure = input.procedure_id.as_deref().and_then(|procedure_id| {
-        procedures
-            .iter()
-            .find(|procedure| procedure.procedure_id == procedure_id)
-    });
+    let requested_indices = input
+        .procedure_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|procedure_id| {
+            procedures
+                .iter()
+                .enumerate()
+                .filter_map(|(index, procedure)| {
+                    (procedure.procedure_id == procedure_id).then_some(index)
+                })
+                .collect::<Vec<_>>()
+        });
+    let duplicate_procedure_id = crate::campaign::execution::duplicate_procedure_id(ttp);
+    let selected_procedure_index = requested_indices
+        .as_deref()
+        .and_then(|indices| match indices {
+            [index] => Some(*index),
+            _ => None,
+        });
+    let selected_procedure = selected_procedure_index.map(|index| &procedures[index]);
     let selected_procedure_unavailable = selected_procedure
         .is_some_and(|procedure| procedure.status == ProcedureReadinessStatus::Unavailable);
-    let recommended_procedure_id = selected_procedure
-        .filter(|procedure| procedure.status != ProcedureReadinessStatus::Unavailable)
-        .map(|procedure| procedure.procedure_id.clone())
+    // Procedure IDs are public selectors, not unique internal plan keys.
+    // Preserve the selected slot through recommendation and argument grounding.
+    let recommended_procedure_index = selected_procedure_index
+        .filter(|index| procedures[*index].status != ProcedureReadinessStatus::Unavailable)
         .or_else(|| {
-            crate::recommended_procedure(ttp, campaign, target_id, input.exec_system_id.as_deref())
-                .map(|procedure| procedure.id.clone())
+            [
+                ProcedureReadinessStatus::Ready,
+                ProcedureReadinessStatus::Unknown,
+            ]
+            .into_iter()
+            .find_map(|status| {
+                procedures
+                    .iter()
+                    .position(|procedure| procedure.status == status)
+            })
         });
+    let recommended_procedure_id = duplicate_procedure_id
+        .is_none()
+        .then(|| recommended_procedure_index.map(|index| procedures[index].procedure_id.clone()))
+        .flatten();
+    let selected_client_plan = selected_procedure_index
+        .or(recommended_procedure_index)
+        // Keep failed client planning distinct from host-target grounding even
+        // when no procedure can be recommended yet.
+        .or_else(|| (!ttp.procedures.is_empty()).then_some(0))
+        .and_then(|index| client_plans[index].as_ref());
+    let client_binding_resolved = arguments
+        .iter()
+        .filter(|argument| argument.param_type.eq_ignore_ascii_case("K8sAuth"))
+        .all(|argument| {
+            matches!(
+                argument.status,
+                ArgumentResolutionStatus::Resolved
+                    | ArgumentResolutionStatus::Defaulted
+                    | ArgumentResolutionStatus::Omitted
+            )
+        });
+    finalize_argument_dependencies(
+        &mut arguments,
+        ttp,
+        campaign,
+        target_id,
+        input,
+        selected_client_plan,
+        client_binding_resolved,
+    );
 
     let mut reasons = Vec::new();
     let status = if !applicable {
         reasons.push("Action prerequisites are not satisfied for this target".to_string());
+        reasons.extend(
+            procedures
+                .iter()
+                .filter_map(|procedure| procedure.reason.clone()),
+        );
         ActionReadinessStatus::Inapplicable
+    } else if let Some(duplicate_id) = duplicate_procedure_id {
+        reasons.push(format!(
+            "procedure '{}' is ambiguous for action '{}' because its ID is not unique",
+            duplicate_id, ttp.id
+        ));
+        ActionReadinessStatus::Blocked
     } else if selected_procedure_unavailable {
         reasons.push(
             selected_procedure
                 .and_then(|procedure| procedure.reason.clone())
                 .unwrap_or_else(|| "Selected procedure is unavailable".to_string()),
+        );
+        ActionReadinessStatus::Blocked
+    } else if !procedures.is_empty()
+        && procedures
+            .iter()
+            .all(|procedure| procedure.status == ProcedureReadinessStatus::Unavailable)
+    {
+        reasons.extend(
+            procedures
+                .iter()
+                .filter_map(|procedure| procedure.reason.clone()),
         );
         ActionReadinessStatus::Blocked
     } else if arguments
@@ -239,16 +394,19 @@ pub fn resolve_action(
         ActionReadinessStatus::Ready
     };
 
-    Some(ActionResolution {
-        action_id: ttp.id.clone(),
-        target_id: target_id.to_string(),
-        status,
-        reasons,
-        arguments,
-        procedures,
-        requirements,
-        recommended_procedure_id,
-    })
+    Some((
+        ActionResolution {
+            action_id: ttp.id.clone(),
+            target_id: target_id.to_string(),
+            status,
+            reasons,
+            arguments,
+            procedures,
+            requirements,
+            recommended_procedure_id,
+        },
+        client_plans,
+    ))
 }
 
 pub fn summarize(resolution: &ActionResolution) -> ActionState {
@@ -280,8 +438,45 @@ fn resolve_procedure(
     campaign: &crate::Campaign,
     target_id: &str,
     exec_system_id: Option<&str>,
+    client_plan: Option<&Result<ClientExecutionPlan, crate::ExecuteActionError>>,
 ) -> ProcedureState {
-    let required_tool = crate::procedure_required_tool(procedure).map(str::to_string);
+    let required_tool = crate::procedure_required_tool(procedure);
+    if let Some(client_plan) = client_plan {
+        match client_plan {
+            Ok(plan) => {
+                return ProcedureState {
+                    procedure_id: procedure.id.clone(),
+                    status: match plan.readiness {
+                        crate::ProcedureReadiness::Ready => ProcedureReadinessStatus::Ready,
+                        crate::ProcedureReadiness::Unknown => ProcedureReadinessStatus::Unknown,
+                        crate::ProcedureReadiness::Unavailable => {
+                            ProcedureReadinessStatus::Unavailable
+                        }
+                    },
+                    required_tool: plan.required_tool.clone(),
+                    reason: (plan.readiness == crate::ProcedureReadiness::Unknown).then(|| {
+                        format!(
+                            "required tool '{}' has not been observed on the execution system",
+                            required_tool.as_deref().unwrap_or("unknown")
+                        )
+                    }),
+                };
+            }
+            Err(error) => {
+                return ProcedureState {
+                    procedure_id: procedure.id.clone(),
+                    status: ProcedureReadinessStatus::Unavailable,
+                    required_tool,
+                    reason: Some(match error {
+                        crate::ExecuteActionError::InvalidInput(reason)
+                        | crate::ExecuteActionError::NoExecChannel(reason)
+                        | crate::ExecuteActionError::NotFound(reason)
+                        | crate::ExecuteActionError::InvariantViolation(reason) => reason.clone(),
+                    }),
+                }
+            }
+        }
+    }
     let readiness = crate::procedure_readiness(ttp, procedure, campaign, target_id, exec_system_id);
     let (status, reason) = match readiness {
         crate::ProcedureReadiness::Ready => (ProcedureReadinessStatus::Ready, None),
@@ -323,6 +518,8 @@ fn finalize_argument_dependencies(
     campaign: &crate::Campaign,
     target_id: &str,
     input: &ActionResolutionInput,
+    client_plan: Option<&Result<ClientExecutionPlan, crate::ExecuteActionError>>,
+    client_binding_resolved: bool,
 ) {
     let declared_names = ttp
         .params
@@ -338,7 +535,17 @@ fn finalize_argument_dependencies(
                 .map(|value| (argument.name.clone(), value.clone()))
         })
         .collect::<HashMap<_, _>>();
-    if ttp.tactic.eq_ignore_ascii_case("Lateral Movement") {
+    if let Some(client_plan) = client_plan {
+        if let Some(plan) = client_plan
+            .as_ref()
+            .ok()
+            .filter(|_| client_binding_resolved)
+        {
+            if let Some(source_id) = plan.executor_id() {
+                values.insert("SRC".to_string(), source_id.to_string());
+            }
+        }
+    } else if ttp.tactic.eq_ignore_ascii_case("Lateral Movement") {
         if let Some(source_id) = input.exec_system_id.as_deref().filter(|id| {
             campaign
                 .get_entities()

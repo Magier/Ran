@@ -22,7 +22,7 @@ procedures:
       api: /api/v1
       resource: nodes
       query: limit=500
-      ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      ca_path: ""
 effects:
   - k8s.nodeList
 # defend: {}

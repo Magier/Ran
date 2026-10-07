@@ -19,12 +19,22 @@ parameters:
   TOKEN:
     type: ServiceAccount
     description: the ServiceAccount token used to authenticate to the kubelet API
+  USE_CA:
+    type: bool
+    default: "true"
+    description: verify the kubelet certificate; disable only as an explicit controlled-lab opt-in
+  CA_PATH:
+    type: string
+    required: false
+    default: ""
+    description: CA file on the selected executor for this kubelet endpoint; empty uses the executor's system trust. The API server CA is not assumed to trust the kubelet.
 procedures:
   - http_request:
       url: https://${NODE}:10250/pods
       headers:
         Authorization: Bearer ${TOKEN}
-      use_ca: false
+      use_ca: ${USE_CA}
+      ca_path: ${CA_PATH}
 
 effects:
   - k8s.podList

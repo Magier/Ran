@@ -12,7 +12,7 @@ procedures:
   - key: read /proc/*/environ
     tool: cat
     command: cat /proc/self/environ
-effects: ["sys.envVar"]
+effects: ["executor::sys.envVar"]
 # effects:
 # defend: {}
 # references:

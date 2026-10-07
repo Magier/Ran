@@ -4,12 +4,15 @@ use armory::{Armory, Procedure, ProcedureOperation, Ttp, TtpParam};
 use c2::{ExecTtp, ExecutionOperation, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     AccessLevel, AuthenticatesTo, BinaryPresence, C2Server, Container, ContainerEscape, Contains,
-    Entity, EntityId, JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Namespace,
-    OperatorHost, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn,
-    ServiceAccount, ServiceAccountToken, SessionInfo, SessionStatus, Uses,
+    Entity, EntityId, JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink,
+    KubeletExecSource, Namespace, OperatorHost, OutputTransformKind, Pod, PodExec, RbacPermission,
+    RceCanExec, RunsOn, ServiceAccount, ServiceAccountToken, SessionInfo, SessionStatus, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
+
+#[path = "client_execution_tests.rs"]
+mod client_execution_tests;
 
 /// Insert a relation directly into the campaign's knowledge graph.
 fn push_relation(campaign: &mut Campaign, rel: &dyn ran_domain::Relation) {
@@ -189,6 +192,12 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         target_id: target_id.to_string(),
         exec_chain: vec![target_id.to_string()],
         exec_system_id: String::new(),
+        execution_environment: Some(ran_domain::ExecutionEnvironment {
+            system_id: Some(target_id.into()),
+            tool: Some("env".into()),
+            auth_identity_id: None,
+        }),
+        transport_environment: None,
         auth_identity_id: None,
         started_at_ms: 0,
         execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
@@ -685,17 +694,17 @@ fn resolve_exec_channel_uses_c2_source_backend_from_direct_edge() {
 }
 
 #[test]
-fn resolve_exec_channel_returns_builtin_for_kubelet_pod_exec_relation() {
+fn resolve_exec_channel_rejects_orphan_kubelet_sink_as_a_direct_entry() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("target", "default");
     let target_id = pod.entity_id().0.clone();
     campaign.entities.insert_typed(pod);
     push_kubelet_exec_edge(&mut campaign, "node/node-a", &target_id);
 
-    let ch = campaign
-        .resolve_exec_channel(&target_id)
-        .expect("should find channel");
-    assert_eq!(ch, ExecChannel::direct(BUILTIN_C2_ID));
+    assert!(
+        campaign.resolve_exec_channel(&target_id).is_err(),
+        "a kubelet sink does not establish a native C2 entry"
+    );
 }
 
 #[test]
@@ -720,7 +729,9 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
     let ch = campaign
         .resolve_exec_channel(&target_id)
         .expect("should find channel");
-    assert_eq!(ch, ExecChannel::via(BUILTIN_C2_ID, &attacker_id));
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
+    assert_eq!(ch.hops, vec![attacker_id]);
+    assert_eq!(ch.edges.len(), 1);
 }
 
 #[test]
@@ -729,6 +740,7 @@ fn resolve_exec_channel_finds_path_via_kubelet_source_and_sink() {
 
     let mut attacker = Pod::new("entry-hall-pod", "default");
     attacker.system.access_level = AccessLevel::Exec;
+    attacker.system.set_binary("ranplant", "/tmp/ranplant");
     let attacker_id = attacker.entity_id().0.clone();
     campaign.entities.insert_typed(attacker);
     push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
@@ -754,6 +766,7 @@ fn resolve_exec_channel_finds_path_via_kubelet_source_and_sink() {
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.hops, vec![attacker_id.clone(), node_id.clone()]);
     assert!(ch.exec_target_id.is_none());
+    assert_eq!(ch.kubelet_plans.len(), 1);
 }
 
 #[test]
@@ -808,7 +821,10 @@ fn resolve_exec_channel_follows_rce_can_exec_edge() {
     let redis = Pod::new("redis.10-244-1-3", "oopservability");
     let redis_id = redis.entity_id().0.clone();
     campaign.entities.insert_typed(redis);
-    push_relation(&mut campaign, &RceCanExec::new(&entry_hall_id, &redis_id));
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&entry_hall_id, &redis_id).with_envelope("redis-rce ${CMD}"),
+    );
 
     let ch = campaign
         .resolve_exec_channel(&redis_id)
@@ -840,7 +856,10 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
     campaign.entities.insert_typed(redis);
 
     // Lateral chain from entry-hall to redis exists.
-    push_relation(&mut campaign, &RceCanExec::new(&entry_id, &redis_id));
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&entry_id, &redis_id).with_envelope("redis-rce ${CMD}"),
+    );
 
     // Also inject a direct non-pod edge to redis (can appear from broad
     // inferred permissions), but follow-up should still prefer last foothold.
@@ -854,6 +873,8 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         tactic: "Discovery".to_string(),
         target_id: entry_id.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        execution_environment: None,
+        transport_environment: None,
         auth_identity_id: None,
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
@@ -985,6 +1006,8 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         tactic: "Execution".to_string(),
         target_id: id_a.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        execution_environment: None,
+        transport_environment: None,
         auth_identity_id: None,
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
@@ -1008,6 +1031,8 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         tactic: "Discovery".to_string(),
         target_id: id_b.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        execution_environment: None,
+        transport_environment: None,
         auth_identity_id: None,
         procedure_id: "shell".to_string(),
         command: "hostname".to_string(),
@@ -1091,7 +1116,7 @@ fn resolve_exec_source_errors_with_no_reachable_pod() {
 
 #[test]
 fn resolve_exec_source_uses_node_as_direct_foothold() {
-    // A K8sNode that the C2 can exec into directly (e.g. via kubelet exec)
+    // A K8sNode that the C2 can exec into through a genuine host session
     // should be returned as a valid lateral-movement source, not ignored.
     use ran_domain::K8sNode;
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
@@ -1099,12 +1124,15 @@ fn resolve_exec_source_uses_node_as_direct_foothold() {
     let node_id = node.entity_id().0.clone();
     campaign.entities.insert_typed(node);
     // Non-system source → node target exec edge.
-    push_exec_edge(&mut campaign, "sa/default/ran", &node_id);
+    push_relation(
+        &mut campaign,
+        &ran_domain::SessionChannel::new(BUILTIN_C2_ID, &node_id, "session/host"),
+    );
 
     let ch = campaign
         .resolve_exec_source()
         .expect("node should be a valid exec source");
-    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
+    assert_eq!(ch.backend_id, "session/host");
     assert_eq!(ch.exec_target_id.as_deref(), Some(node_id.as_str()));
 }
 
@@ -1124,13 +1152,16 @@ fn resolve_exec_channel_seeds_include_node_for_dijkstra() {
     campaign.entities.insert_typed(target_pod);
 
     // C2 → node (direct exec), node → victim pod (exec-channel edge).
-    push_exec_edge(&mut campaign, "sa/default/ran", &node_id);
+    push_relation(
+        &mut campaign,
+        &ran_domain::SessionChannel::new(BUILTIN_C2_ID, &node_id, "session/host"),
+    );
     push_exec_edge(&mut campaign, &node_id, &target_id);
 
     let ch = campaign
         .resolve_exec_channel(&target_id)
         .expect("should route through node seed to victim pod");
-    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
+    assert_eq!(ch.backend_id, "session/host");
     assert_eq!(
         ch.hops,
         vec![node_id],
@@ -1299,7 +1330,7 @@ fn local_kubeconfig_read_uses_local_shell_without_a_session() {
         )
         .expect("local kubeconfig read should prepare without graph routing");
 
-    assert!(exec.exec_system_id.is_empty());
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
     assert!(exec.exec_chain.is_empty());
     assert_eq!(exec.target_id, "system/operator-host");
     assert!(matches!(
@@ -1964,11 +1995,7 @@ fn envelope_less_rce_channel_fails_instead_of_falling_back_to_kubectl() {
             &minimal_armory("test-ttp"),
         )
         .expect_err("an RCE channel without an envelope must not become kubectl exec");
-    assert!(matches!(
-        error,
-        ExecuteActionError::InvariantViolation(message)
-            if message.contains("has no command envelope")
-    ));
+    assert!(matches!(error, ExecuteActionError::NoExecChannel(_)));
 }
 
 #[test]
@@ -2363,6 +2390,12 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         target_id: target_id.to_string(),
         exec_chain: vec![target_id.to_string()],
         exec_system_id: target_id.to_string(),
+        execution_environment: Some(ran_domain::ExecutionEnvironment {
+            system_id: Some(target_id.to_string()),
+            tool: Some("nmap".into()),
+            auth_identity_id: None,
+        }),
+        transport_environment: None,
         auth_identity_id: None,
         started_at_ms: 0,
         execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
@@ -2418,6 +2451,7 @@ fn command_not_found_in_output_with_exit_zero_marks_binary_absent_and_fails_step
 
     let mut cmd = nmap_exec_ttp(&target_id);
     cmd.procedure.tool = Some("curl".to_string());
+    cmd.execution_environment.as_mut().unwrap().tool = Some("curl".into());
     cmd.procedure.command = "curl -XPOST http://k8s-api/...".to_string();
 
     let event = TtpExecuted {
@@ -2647,6 +2681,7 @@ fn command_not_found_marks_binary_absent_when_target_is_non_system_entity() {
     let sa_id = "ns/default/sa/my-sa".to_string();
     let mut cmd = nmap_exec_ttp(&sa_id);
     cmd.exec_chain = vec![pod_id.clone()];
+    cmd.execution_environment.as_mut().unwrap().system_id = Some(pod_id.clone());
 
     let event = command_not_found_event();
     campaign.on_ttp_executed(&cmd, &event).unwrap();
@@ -3409,10 +3444,14 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
 }
 
 #[test]
-fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
+fn prepare_action_rejects_discovered_kubelet_path_when_ranplant_is_absent() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
-    let attacker = Pod::new("entry-hall-pod", "default");
+    let mut attacker = Pod::new("entry-hall-pod", "default");
+    attacker
+        .system
+        .binaries
+        .insert("ranplant".into(), BinaryPresence::Absent);
     let attacker_id = attacker.entity_id().0.clone();
     campaign.entities.insert_typed(attacker);
     push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
@@ -3445,7 +3484,7 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
         "cat /var/run/secrets/kubernetes.io/serviceaccount/token",
         None,
     );
-    let exec = campaign
+    let error = campaign
         .prepare_action(
             ExecuteActionRequest {
                 action_id: "test-kubelet-fallback".to_string(),
@@ -3459,46 +3498,8 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
             },
             &armory,
         )
-        .expect("should build kubelet sink fallback command");
-
-    assert!(
-        exec.procedure
-            .command
-            .contains("ranplant kubelet-exec --url"),
-        "expected Ranplant direct kubelet command, got: {}",
-        exec.procedure.command
-    );
-    assert!(
-        exec.procedure
-            .command
-            .contains("--token-file /var/run/secrets/kubernetes.io/serviceaccount/token"),
-        "expected Ranplant to read the mounted pod service-account token, got: {}",
-        exec.procedure.command
-    );
-    assert!(
-        exec.procedure.command.contains(
-            "/exec/argocd/argocd-application-controller-0/main?output=1&error=1&command="
-        ),
-        "expected kubelet exec endpoint for target pod, got: {}",
-        exec.procedure.command
-    );
-    assert!(
-        exec.procedure
-            .command
-            .contains("cat%20%2Fvar%2Frun%2Fsecrets%2Fkubernetes.io%2Fserviceaccount%2Ftoken"),
-        "expected URL-encoded inner command, got: {}",
-        exec.procedure.command
-    );
-    assert!(
-        !exec.procedure.command.contains("kubectl exec -n argocd"),
-        "fallback should avoid kubectl sink wrapping, got: {}",
-        exec.procedure.command
-    );
-    assert_eq!(
-        exec.output_transform,
-        Some(c2::OutputTransform::JsonEnvelope),
-        "kubelet fallback should set JSON envelope output transform"
-    );
+        .expect_err("known absent transport tool must fail closed");
+    assert!(matches!(error, ExecuteActionError::NoExecChannel(_)));
 }
 
 #[test]
@@ -3842,10 +3843,10 @@ fn source_side_procedure_keeps_redis_as_target_but_runs_on_foothold() {
 }
 
 #[test]
-fn source_side_procedure_ignores_explicit_target_execution_hint() {
-    let (mut campaign, entry_id, redis_id) = campaign_with_redis_rce();
+fn source_side_procedure_rejects_conflicting_explicit_target_execution_hint() {
+    let (mut campaign, _entry_id, redis_id) = campaign_with_redis_rce();
 
-    let exec = campaign
+    let error = campaign
         .prepare_action(
             ExecuteActionRequest {
                 action_id: "source-side-redis-read".to_string(),
@@ -3859,11 +3860,10 @@ fn source_side_procedure_ignores_explicit_target_execution_hint() {
             },
             &source_side_redis_armory(),
         )
-        .expect("target hint should not override source-side execution");
-
-    assert_eq!(exec.target_id, redis_id);
-    assert_eq!(exec.exec_chain, vec![entry_id]);
-    assert!(!exec.procedure.command.contains("redis-rce"));
+        .expect_err("conflicting caller constraints must not be discarded");
+    assert!(
+        matches!(error, ExecuteActionError::InvalidInput(message) if message.contains("runOnTarget: false"))
+    );
 }
 
 #[test]
@@ -3880,7 +3880,7 @@ fn source_side_procedure_fails_when_only_target_is_reachable() {
             ExecuteActionRequest {
                 action_id: "source-side-redis-read".to_string(),
                 target_id: redis_id.clone(),
-                exec_system_id: Some(redis_id),
+                exec_system_id: None,
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
@@ -3941,10 +3941,8 @@ fn source_side_procedure_rejects_a_source_route_through_target() {
 }
 
 #[test]
-fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target() {
-    // Regression: when a procedure is marked local-command, prepare_action used
-    // to fall back to direct Ran -> target pod execution. For pod targets, we
-    // should execute from the current in-cluster foothold instead.
+fn prepare_action_local_command_never_selects_a_remote_source_for_pod_target() {
+    // A semantic Pod target cannot change operator-local placement.
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
     // C2 can exec into entry-hall directly.
@@ -3958,7 +3956,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
     let redis_id = redis.entity_id().0.clone();
     campaign.entities.insert_typed(redis);
 
-    // Local command procedure; without the fix this would run directly on redis.
+    // Local command procedure with a remote semantic resource.
     let armory = Armory::from_ttps(vec![Ttp {
         procedures: vec![Procedure {
             is_local_command: Some(true),
@@ -3981,13 +3979,13 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
             },
             &armory,
         )
-        .expect("should route through in-cluster source");
+        .expect("should plan operator-local execution");
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert!(exec.exec_chain.is_empty());
     assert_eq!(
-        exec.exec_entity(),
-        entry_id,
-        "fallback should exec into entry-hall, not redis directly"
+        exec.execution_environment.unwrap().system_id.as_deref(),
+        Some("system/operator-host")
     );
 }
 
@@ -4372,8 +4370,8 @@ fn container_escape_routes_node_through_pod_session_when_active() {
         .expect("should route to node via container escape edge");
 
     assert_eq!(
-        ch.backend_id, BUILTIN_C2_ID,
-        "campaign routing should stay on c2/ran; session upgrade happens in C2 manager"
+        ch.backend_id, "session/ns-default-pod-attacker",
+        "campaign routing must preserve the live source session selected by planning"
     );
     assert_eq!(
         ch.hops,
@@ -4521,6 +4519,80 @@ fn container_escape_envelope_wraps_command_correctly() {
     // wrap_command should substitute ${CMD}.
     let wrapped = escape_edge.wrap_command("id");
     assert_eq!(wrapped, "nsenter -t 1 -m -u -i -n -p -- id");
+}
+
+#[test]
+fn parallel_transit_edge_cannot_replace_selected_container_escape_transport() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0;
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &pod_id);
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0;
+    campaign.entities.insert_typed(node);
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &node_id).with_envelope("nsenter -- ${CMD}"),
+    );
+    // Insert the transit-only parallel edge after the realizable terminal edge.
+    // Routing must retain the exact edge selected by Dijkstra.
+    push_relation(&mut campaign, &KubeletExecSource::new(&pod_id, &node_id));
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure {
+            run_on_target: Some(true),
+            ..Procedure::new("shell", "id")
+        }],
+        ..Ttp::new("test-ttp", "Run on node", "Execution")
+    }]);
+    let exec = campaign
+        .prepare_action(action_request(&node_id, None), &armory)
+        .expect("container escape remains a realizable terminal route");
+
+    assert_eq!(exec.exec_chain, vec![pod_id, node_id.clone()]);
+    assert_eq!(exec.procedure.command, "nsenter -- id");
+    assert_eq!(
+        exec.execution_environment
+            .as_ref()
+            .and_then(|environment| environment.system_id.as_deref()),
+        Some(node_id.as_str())
+    );
+}
+
+#[test]
+fn transport_provenance_skips_shell_assignment_prefixes() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0;
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &pod_id);
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0;
+    campaign.entities.insert_typed(node);
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &node_id).with_envelope("TASK_VALUE=1 /opt/runner ${CMD}"),
+    );
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure {
+            run_on_target: Some(true),
+            ..Procedure::new("shell", "id")
+        }],
+        ..Ttp::new("test-ttp", "Run on node", "Execution")
+    }]);
+
+    let exec = campaign
+        .prepare_action(action_request(&node_id, None), &armory)
+        .expect("assignment-prefixed transport remains executable");
+
+    assert_eq!(exec.procedure.command, "TASK_VALUE=1 /opt/runner id");
+    assert_eq!(
+        exec.transport_environment
+            .as_ref()
+            .and_then(|environment| environment.tool.as_deref()),
+        Some("runner")
+    );
 }
 
 #[test]
@@ -4866,6 +4938,8 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         auth_identity_id: None,
         procedure_id: "ubuntu".to_string(),
         command: "apt-get install -y curl".to_string(),
+        execution_environment: None,
+        transport_environment: None,
         args: std::collections::HashMap::from([("PKG".to_string(), "curl".to_string())]),
         success: true,
         partial: false,
@@ -4883,6 +4957,8 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         id: "cmd-2".to_string(),
         ttp_id: "no-cleanup".to_string(),
         ttp_name: "No Cleanup TTP".to_string(),
+        execution_environment: None,
+        transport_environment: None,
         tactic: "Discovery".to_string(),
         target_id: pod_id.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
@@ -4938,6 +5014,8 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
         auth_identity_id: None,
         procedure_id: "ubuntu".to_string(),
         command: "apt-get install -y wget".to_string(),
+        execution_environment: None,
+        transport_environment: None,
         args: std::collections::HashMap::from([("PKG".to_string(), "wget".to_string())]),
         success: true,
         partial: false,
@@ -4997,6 +5075,8 @@ fn build_cleanup_actions_preserves_kubernetes_auth_identity() {
         tactic: "Persistence".to_string(),
         target_id,
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        execution_environment: None,
+        transport_environment: None,
         auth_identity_id: Some(credential_id.clone()),
         procedure_id: "kubectl".to_string(),
         command: "kubectl --kubeconfig \"$KUBECONFIG\" create namespace demo".to_string(),

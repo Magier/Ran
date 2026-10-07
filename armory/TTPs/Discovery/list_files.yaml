@@ -18,6 +18,6 @@ procedures:
     # not dereferenced, so a broken child does not make the listing fail.
     command: ls -laF -- {{ DIR | shell_quote }}/
 effects:
-  - sys.files
+  - executor::sys.files
 # defend: {}
 references:

@@ -21,6 +21,12 @@ pub trait Relation: std::any::Any + std::fmt::Debug + Send + Sync {
     fn is_exec_channel(&self) -> bool {
         false
     }
+
+    /// Whether this channel grants command execution on its destination,
+    /// rather than merely transit to another execution endpoint.
+    fn grants_target_execution(&self) -> bool {
+        self.is_exec_channel()
+    }
 }
 
 /// Marker subtrait for relations that represent an execution channel.

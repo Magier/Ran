@@ -23,7 +23,7 @@ procedures:
 preconditions:
   kind: System
   accessLevel: "user-exec"
-effects: [ "sys.has-binary(${DST_BIN})" ]
+effects: [ "executor::sys.has-binary(${DST_BIN})" ]
 
 # cmd: {}
 # defend: {}

@@ -11,4 +11,4 @@ procedures:
     command: id
   - key: whoami
     command: whoami
-effects: ["sys.userID"]
+effects: ["executor::sys.userID"]

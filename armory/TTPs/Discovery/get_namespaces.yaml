@@ -22,7 +22,7 @@ procedures:
       resource: namespaces
       cluster_scoped: true
       query: limit=500
-      ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      ca_path: ""
 effects:
   - k8s.namespaceList
 references: []

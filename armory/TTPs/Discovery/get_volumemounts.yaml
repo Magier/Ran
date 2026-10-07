@@ -20,6 +20,6 @@ procedures:
     tool: mount
     command: mount
 effects:
-  - linux.mounts
+  - executor::linux.mounts
 # defend: {}
 references:
