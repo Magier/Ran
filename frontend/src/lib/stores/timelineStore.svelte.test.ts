@@ -6,7 +6,7 @@ import {
 	type EntityEntry,
 	type RelationEntry,
 	type ActionGroup
-} from '$lib/stores/timelineStore.svelte';
+} from '#lib/stores/timelineStore.svelte.js';
 
 function makeTtpEntry(
 	overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}

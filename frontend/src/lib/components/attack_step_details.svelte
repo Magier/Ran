@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { AttackStep } from '$lib/api';
-	import { actionDisplayName, displayArgumentValue } from '$lib/actionDisplay';
+	import type { AttackStep } from '#lib/api/index.js';
+	import { actionDisplayName, displayArgumentValue } from '#lib/actionDisplay.js';
 	import { getCampaignState } from './CampaignState.svelte';
 	import Icon from '@iconify/svelte';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';

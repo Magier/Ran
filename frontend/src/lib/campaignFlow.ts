@@ -1,4 +1,4 @@
-import type { AttackFlow } from '$lib/api';
+import type { AttackFlow } from '#lib/api/index.js';
 
 export function buildCampaignFlowDownload(flow: AttackFlow, now = new Date()) {
 	const timestamp = now.toISOString().replace(/[:.]/g, '-');

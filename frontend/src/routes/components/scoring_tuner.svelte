@@ -1,13 +1,13 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import { getCampaignState } from '#lib/components/CampaignState.svelte.js';
 	import type {
 		ScoringProfile,
 		NamedConsideration,
 		ResponseCurve,
 		CombinationMode,
 		CalibrationResult
-	} from '$lib/api';
+	} from '#lib/api/index.js';
 	import { helpFor } from './consideration_help';
 
 	const campaign = getCampaignState();

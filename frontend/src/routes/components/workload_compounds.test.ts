@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 import { workloadCompoundIds } from './workload_compounds';
 
 function node(id: string, kind: string, parent?: string): Node {

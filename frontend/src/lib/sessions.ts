@@ -1,4 +1,4 @@
-import type { Edge } from '$lib/api/index';
+import type { Edge } from '#lib/api/index.js';
 
 /** A live reverse-shell session carried by a `c2.session` graph edge. */
 export type SessionOption = {

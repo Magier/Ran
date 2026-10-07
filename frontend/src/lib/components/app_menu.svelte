@@ -1,19 +1,19 @@
 <script lang="ts">
-	import { buildCampaignFlowDownload } from '$lib/campaignFlow';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
-	import { showToast } from '$lib/components/toaster';
-	import { saveFile } from '$lib/io';
-	import PlanPickerModal from '$lib/modals/PlanPickerModal.svelte';
+	import { buildCampaignFlowDownload } from '#lib/campaignFlow.js';
+	import { getCampaignState } from '#lib/components/CampaignState.svelte.js';
+	import { showToast } from '#lib/components/toaster.js';
+	import { saveFile } from '#lib/io.js';
+	import PlanPickerModal from '#lib/modals/PlanPickerModal.svelte';
 	import {
 		buildPlanDownload,
 		defaultPlanDescription,
 		defaultPlanName,
 		planFilename
-	} from '$lib/planDownload';
-	import { getRanAPI } from '$lib/ran_api';
-	import { timeline } from '$lib/stores/timelineStore.svelte';
-	import { uiPreferences } from '$lib/stores/uiPreferences.svelte';
-	import type { PlanSummary } from '$lib/api';
+	} from '#lib/planDownload.js';
+	import { getRanAPI } from '#lib/ran_api.js';
+	import { timeline } from '#lib/stores/timelineStore.svelte.js';
+	import { uiPreferences } from '#lib/stores/uiPreferences.svelte.js';
+	import type { PlanSummary } from '#lib/api/index.js';
 	import Icon from '@iconify/svelte';
 	import { Dialog, Menu, Portal } from '@skeletonlabs/skeleton-svelte';
 	import { tick } from 'svelte';

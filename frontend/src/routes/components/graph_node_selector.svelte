@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import type cytoscape from 'cytoscape';
 
 	type CyNode = {
@@ -169,6 +169,7 @@
 			aria-modal="true"
 		>
 			<h2 class="text-surface-contract-400 mb-2 text-xl font-semibold">Search Nodes</h2>
+
 			<p class="text-surface-contract-300 mb-4 text-sm">
 				Search for nodes by name or ID. Use arrow keys to navigate, Enter to select.
 			</p>

@@ -11,7 +11,7 @@ import {
 	COLLAPSED_EDGE_CLASS,
 	EDGE_FILTERED_CLASS
 } from './graph_edges';
-import type { Edge } from '$lib/api/index';
+import type { Edge } from '#lib/api/index.js';
 
 const COLLAPSED_NODE_CLASS = 'cy-expand-collapse-collapsed-node';
 

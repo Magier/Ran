@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { AttackStep } from '$lib/api';
+import type { AttackStep } from '#lib/api/index.js';
 import AttackStepDrawer from './AttackStepDrawer.svelte';
 
 const step: AttackStep = {

@@ -8,14 +8,14 @@
 	import IconSteps from '~icons/game-icons/footsteps';
 	import IconSun from '~icons/material-symbols/light-mode';
 	import IconMoon from '~icons/material-symbols/dark-mode';
-	import { browser } from '$app/environment';
-	import { toaster } from '$lib/components/toaster';
+	import { browser } from '$app/env';
+	import { toaster } from '#lib/components/toaster.js';
 	import Icon from '@iconify/svelte';
 	import '../app.css';
-	import { setCampaignState } from '$lib/components/CampaignState.svelte';
-	import AppMenu from '$lib/components/app_menu.svelte';
-	import BackendConnectionStatus from '$lib/components/BackendConnectionStatus.svelte';
-	import { timeline } from '$lib/stores/timelineStore.svelte';
+	import { setCampaignState } from '#lib/components/CampaignState.svelte.js';
+	import AppMenu from '#lib/components/app_menu.svelte';
+	import BackendConnectionStatus from '#lib/components/BackendConnectionStatus.svelte';
+	import { timeline } from '#lib/stores/timelineStore.svelte.js';
 	let { children } = $props();
 
 	const campaignState = setCampaignState();
@@ -81,10 +81,8 @@
 
 <AppBar class="border-surface-200-800 top-0 flex h-[calc(var(--header-height))] border-b p-0 ">
 	<AppBar.Toolbar class="grid-cols-[auto_auto]">
-		<AppBar.Lead>
-			<!-- <ArrowLeft size={24} /> -->
-			<AppMenu></AppMenu>
-		</AppBar.Lead>
+		<AppBar.Lead><!-- <ArrowLeft size={24} /> --><AppMenu /></AppBar.Lead>
+
 		<AppBar.Trail>
 			<nav class="btn-group preset-outlined-surface-200-800 shrink-0 flex-row p-0">
 				<a
@@ -98,11 +96,8 @@
 				<a
 					class="btn hover:preset-tonal whitespace-nowrap"
 					class:selected={page.url.pathname === '/flow'}
-					href={resolve('/flow')}
+					href={resolve('flow')}><IconSteps class="inline-block text-xl" />Flow</a
 				>
-					<IconSteps class="inline-block text-xl" />
-					Flow
-				</a>
 			</nav>
 			<button
 				class="btn btn-sm relative p-1"

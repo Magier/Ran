@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { type FlowEdge, type AttackFlow, type AttackStep } from '$lib/api/index';
-	import AttackStepDrawer from '$lib/components/AttackStepDrawer.svelte';
-	import ActionNode from '$lib/components/flow/attack_node.svelte';
+	import { type FlowEdge, type AttackFlow, type AttackStep } from '#lib/api/index.js';
+	import AttackStepDrawer from '#lib/components/AttackStepDrawer.svelte';
+	import ActionNode from '#lib/components/flow/attack_node.svelte';
 	import {
 		SvelteFlow,
 		Position,
@@ -14,7 +14,7 @@
 	} from '@xyflow/svelte';
 	import dagre from '@dagrejs/dagre';
 	import '@xyflow/svelte/dist/style.css';
-	import { ranAPI } from '$lib/ran_api';
+	import { ranAPI } from '#lib/ran_api.js';
 	import { getContext } from 'svelte';
 
 	const theme = getContext<{ isDark: boolean }>('theme');

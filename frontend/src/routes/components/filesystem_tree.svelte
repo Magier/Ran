@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Icon from '@iconify/svelte';
-	import { showToast } from '$lib/components/toaster';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
-	import type { SseEventMap } from '$lib/ran_api';
+	import { showToast } from '#lib/components/toaster.js';
+	import { getCampaignState } from '#lib/components/CampaignState.svelte.js';
+	import type { SseEventMap } from '#lib/ran_api.js';
 	import {
 		filesystemChildren,
 		filesystemVolumeMountsAt,

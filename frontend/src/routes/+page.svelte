@@ -1,21 +1,21 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
-	import type { AttackStep, Edge, Node, TTP, ScoredCandidate } from '$lib/api/index';
+	import type { AttackStep, Edge, Node, TTP, ScoredCandidate } from '#lib/api/index.js';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
-	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
-	import FileViewerModal from '$lib/modals/FileViewerModal.svelte';
+	import ActionParamsModal from '#lib/modals/ActionParamsModal.svelte';
+	import FileViewerModal from '#lib/modals/FileViewerModal.svelte';
 	import { onMount, onDestroy } from 'svelte';
-	import { toaster } from '$lib/components/toaster';
-	import { timeline, timelineResultDetail } from '$lib/stores/timelineStore.svelte';
-	import { uiPreferences } from '$lib/stores/uiPreferences.svelte';
-	import OperationTimeline from '$lib/components/OperationTimeline.svelte';
-	import AttackStepDrawer from '$lib/components/AttackStepDrawer.svelte';
+	import { toaster } from '#lib/components/toaster.js';
+	import { timeline, timelineResultDetail } from '#lib/stores/timelineStore.svelte.js';
+	import { uiPreferences } from '#lib/stores/uiPreferences.svelte.js';
+	import OperationTimeline from '#lib/components/OperationTimeline.svelte';
+	import AttackStepDrawer from '#lib/components/AttackStepDrawer.svelte';
 	import EntityInfo from './components/entityInfo.svelte';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
-	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
-	import { browser } from '$app/environment';
+	import { getCampaignState } from '#lib/components/CampaignState.svelte.js';
+	import { ExecuteAction, getRanAPI } from '#lib/ran_api.js';
+	import { browser } from '$app/env';
 	import { WORKLOAD_KINDS } from './components/workload_compounds';
 
 	const campaignState = getCampaignState();
@@ -336,6 +336,7 @@
 					applicableTtps: await campaignState.api.GetApplicableTTPs(pod.id)
 				}))
 			);
+
 			const eligible = applicability
 				.filter(({ applicableTtps }) => applicableTtps.some((candidate) => candidate.id === ttp.id))
 				.map(({ pod }) => pod);
@@ -961,10 +962,9 @@
 						<div class="flex justify-end gap-2">
 							<button
 								class="btn preset-outlined-surface-200-800"
-								onclick={() => (sessionKillConfirmationOpen = false)}
+								onclick={() => (sessionKillConfirmationOpen = false)}>Cancel</button
 							>
-								Cancel
-							</button>
+
 							<button class="btn preset-filled-error-500" onclick={confirmSessionKill}
 								>{sessionKillEdge?.broken ? 'Remove session' : 'Kill session'}</button
 							>

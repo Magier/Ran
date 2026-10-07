@@ -1,8 +1,10 @@
+import adapter from '@sveltejs/adapter-static';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import Icons from 'unplugin-icons/vite';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 const viteHost = process.env.RAN_VITE_HOST ?? 'localhost';
 const requestedPort = Number.parseInt(process.env.RAN_VITE_PORT ?? '5173', 10);
@@ -14,11 +16,13 @@ const vitePort =
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
-		sveltekit(),
-		Icons({
-			compiler: 'svelte',
-			autoInstall: true
-		})
+		sveltekit({
+			// Consult https://svelte.dev/docs/kit/integrations
+			// for more information about preprocessors
+			preprocess: vitePreprocess(),
+			adapter: adapter({})
+		}),
+		Icons({ compiler: 'svelte', autoInstall: true })
 	],
 
 	server: {
@@ -36,29 +40,14 @@ export default defineConfig({
 	},
 
 	build: {
-		minify: 'esbuild', // much lighter than terser
+		minify: 'oxc',
 		cssCodeSplit: true, // ensure CSS isn’t bundled into a giant JS chunk
-		assetsInlineLimit: 0, // avoid inlining large assets into JS (helps peak memory)
-		// Smaller, more numerous chunks are usually easier on memory than one mega vendor chunk
-		rollupOptions: {
-			output: {
-				manualChunks(id) {
-					if (id.includes('node_modules')) {
-						// group by top-level package name: node_modules/<pkg>/...
-						const match = id.toString().split('node_modules/')[1];
-						if (!match) return;
-						const pkg = match.split('/')[0].startsWith('@')
-							? match.split('/').slice(0, 2).join('/')
-							: match.split('/')[0];
-						return `vendor-${pkg}`;
-					}
-				}
-			}
-		}
+		assetsInlineLimit: 0 // avoid inlining large assets into JS (helps peak memory)
+		// SvelteKit configures Rolldown code splitting for the client build.
 	},
 
 	test: {
-		workspace: [
+		projects: [
 			{
 				extends: './vite.config.ts',
 				plugins: [svelteTesting()],

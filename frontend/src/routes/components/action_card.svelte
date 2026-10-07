@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte';
 	import { Tooltip } from '@skeletonlabs/skeleton-svelte';
-	import type { TTP, ConsiderationScore } from '$lib/api';
-	import { actionDisplayName } from '$lib/actionDisplay';
+	import type { TTP, ConsiderationScore } from '#lib/api/index.js';
+	import { actionDisplayName } from '#lib/actionDisplay.js';
 	import ConsiderationBreakdown from './consideration_breakdown.svelte';
 
 	interface ActionCardProps {

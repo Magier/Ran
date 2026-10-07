@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 import { c2Badges } from './c2_badges';
 
 function listener(protocol: string, port: number) {

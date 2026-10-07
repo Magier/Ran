@@ -1,4 +1,4 @@
-import type { TTP } from '$lib/api/index';
+import type { TTP } from '#lib/api/index.js';
 
 const FIELD_KIND_EXCLUDE: Record<string, string[]> = {
 	service_account_name: ['ServiceAccount']

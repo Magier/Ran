@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '@iconify/svelte';
-	import { iconMap } from '$lib/tactic_icons';
-	import type { ScoredCandidate, ConsiderationScore } from '$lib/api';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import { iconMap } from '#lib/tactic_icons.js';
+	import type { ScoredCandidate, ConsiderationScore } from '#lib/api/index.js';
+	import { getCampaignState } from '#lib/components/CampaignState.svelte.js';
 	import ConsiderationBreakdown from './consideration_breakdown.svelte';
 
 	type RecommendationsProps = {

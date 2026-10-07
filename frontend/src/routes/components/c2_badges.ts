@@ -1,6 +1,6 @@
-import type { Node } from '$lib/api/index';
-import { listenersOf, type Listener } from '$lib/listeners';
-import { redirectorsOf, type Redirector } from '$lib/redirectors';
+import type { Node } from '#lib/api/index.js';
+import { listenersOf, type Listener } from '#lib/listeners.js';
+import { redirectorsOf, type Redirector } from '#lib/redirectors.js';
 
 /** Number of chips of one kind rendered before the rest collapse into a `+k` chip. */
 export const MAX_VISIBLE_BADGES = 3;

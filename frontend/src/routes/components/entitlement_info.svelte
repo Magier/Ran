@@ -14,7 +14,7 @@
 		KubetierTier,
 		LocalPermissionAssessment,
 		RBACPermission
-	} from '$lib/api';
+	} from '#lib/api/index.js';
 
 	type Props = {
 		entitlements: RBACPermission[];

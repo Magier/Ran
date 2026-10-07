@@ -1,4 +1,4 @@
-import type { TTP } from '$lib/api';
+import type { TTP } from '#lib/api/index.js';
 
 export function sortTtpsByName(ttps: TTP[]): TTP[] {
 	return [...ttps].sort((a, b) => {

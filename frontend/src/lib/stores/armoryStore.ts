@@ -1,5 +1,5 @@
 import { get, writable } from 'svelte/store';
-import type { TTP } from '$lib/api';
+import type { TTP } from '#lib/api/index.js';
 
 type ArmorySearchState = {
 	data: TTP[];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Node } from '$lib/api/index';
+import type { Node } from '#lib/api/index.js';
 import { allListeners, listenersOf } from './listeners';
 
 function listener(protocol: string, port: number) {

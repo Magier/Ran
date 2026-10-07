@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { iconMap } from '$lib/tactic_icons';
+	import { iconMap } from '#lib/tactic_icons.js';
 	import Icon from '@iconify/svelte';
-	import type { AttackStep } from '$lib/api';
-	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
+	import type { AttackStep } from '#lib/api/index.js';
+	import { getCampaignState, type Entity } from '#lib/components/CampaignState.svelte.js';
 
 	const campaignState = getCampaignState();
 
