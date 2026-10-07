@@ -33,9 +33,9 @@ procedures:
     tool: ranplant
     description: "Uses ${NODE} (IP-first, name-fallback). Explicit placeholders available: ${NODE.IP}, ${NODE.NAME}."
     command: >
-      ranplant kubelet-exec --url "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}" --token-file /var/run/secrets/kubernetes.io/serviceaccount/token --ca-file /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      ranplant kubelet-exec --url "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=sh&command=-c&command=${COMMAND|url_encode}" --token-file /var/run/secrets/kubernetes.io/serviceaccount/token --ca-file /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
   - key: python-ws
     tool: python3
     description: "Uses ${NODE} (IP-first, name-fallback). Explicit placeholders available: ${NODE.IP}, ${NODE.NAME}."
     command: >
-      TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" python3 ws.py "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}"
+      TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" python3 ws.py "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=sh&command=-c&command=${COMMAND|url_encode}"

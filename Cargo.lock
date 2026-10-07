@@ -358,6 +358,7 @@ dependencies = [
  "tera",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "url",
  "urlencoding",
  "yash-syntax",

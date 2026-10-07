@@ -688,7 +688,6 @@ pub fn resolve_template(template: &str, args: &HashMap<String, String>) -> Strin
             Ok(JsonValue::String(shell_words::quote(value).into_owned()))
         },
     );
-
     if let Err(e) = tera.add_raw_template("__ttp__", template) {
         tracing::warn!(error = %e, "Tera template parse failed; returning raw template");
         return template.to_string();
@@ -1253,6 +1252,66 @@ mod tests {
         let args = HashMap::from([("Path".to_string(), "/tmp/a folder/it's-here".to_string())]);
         let result = resolve_template("cat -- {{ Path | shell_quote }}", &args);
         assert_eq!(result, "cat -- '/tmp/a folder/it'\\''s-here'");
+    }
+
+    #[test]
+    fn dollar_placeholder_url_encodes_original_command_string() {
+        for program in [
+            "yes",
+            "no",
+            "true",
+            "false",
+            "0",
+            "1",
+            "printf '%s' 'a&b'; id",
+        ] {
+            let args = HashMap::from([("COMMAND".to_string(), program.to_string())]);
+            let result = crate::effects::ground_template(
+                "?command=sh&command=-c&command=${COMMAND|url_encode}",
+                &args,
+            );
+            let url = url::Url::parse(&format!("wss://node:10250/exec/ns/pod/container{result}"))
+                .expect("valid kubelet exec URL");
+            let command: Vec<_> = url
+                .query_pairs()
+                .filter(|(key, _)| key == "command")
+                .map(|(_, value)| value.into_owned())
+                .collect();
+            assert_eq!(command, ["sh", "-c", program], "program: {program:?}");
+        }
+    }
+
+    #[test]
+    fn node_proxy_procedure_grounds_a_safe_kubelet_exec_url() {
+        let action: serde_yaml::Value = serde_yaml::from_str(include_str!(
+            "../../../armory/TTPs/Execution/execute_node-proxy-exec.yaml"
+        ))
+        .expect("valid node/proxy action");
+        for procedure in action["procedures"].as_sequence().expect("procedures") {
+            let template = procedure["command"].as_str().expect("command template");
+            for program in ["yes", "no", "printf '%s' 'a&b'; id"] {
+                let args = HashMap::from([
+                    ("NODE".to_string(), "172.16.0.3".to_string()),
+                    ("NAMESPACE".to_string(), "oopservability".to_string()),
+                    ("POD_NAME".to_string(), "target".to_string()),
+                    ("CONTAINER".to_string(), "main".to_string()),
+                    ("COMMAND".to_string(), program.to_string()),
+                ]);
+                let command = crate::effects::ground_template(template, &args);
+                let words = shell_words::split(&command).expect("valid command invocation");
+                let url_word = words
+                    .iter()
+                    .find(|word| word.starts_with("wss://"))
+                    .expect("kubelet exec URL");
+                let url = url::Url::parse(url_word).expect("valid kubelet exec URL");
+                let argv: Vec<_> = url
+                    .query_pairs()
+                    .filter(|(key, _)| key == "command")
+                    .map(|(_, value)| value.into_owned())
+                    .collect();
+                assert_eq!(argv, ["sh", "-c", program], "procedure: {template}");
+            }
+        }
     }
 
     #[test]

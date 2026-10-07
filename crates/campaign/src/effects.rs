@@ -190,7 +190,8 @@ pub fn ground_template(template: &str, args: &HashMap<String, String>) -> String
     let mut grounded = resolve_template(template, args);
 
     // Pass 2: replace ${KEY} placeholders with case-insensitive matching on
-    // the placeholder name itself (e.g. ${SRC}, ${src}, ${Src}).
+    // the placeholder name itself (e.g. ${SRC}, ${src}, ${Src}). This pass
+    // retains the original string values, including Tera's boolean-like inputs.
     grounded = substitute_dollar_placeholders_case_insensitive(&grounded, args);
 
     grounded
@@ -214,13 +215,22 @@ fn substitute_dollar_placeholders_case_insensitive(
             return out;
         };
         let end = name_start + rel_end;
-        let placeholder_name = &template[name_start..end];
+        let placeholder = &template[name_start..end];
+        let (placeholder_name, transform) = placeholder
+            .split_once('|')
+            .map_or((placeholder, None), |(name, transform)| {
+                (name, Some(transform))
+            });
 
         if let Some((_, value)) = args
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(placeholder_name))
         {
-            out.push_str(value);
+            match transform {
+                None => out.push_str(value),
+                Some("url_encode") => out.push_str(&urlencoding::encode(value)),
+                Some(_) => out.push_str(&template[start..=end]),
+            }
         } else {
             out.push_str(&template[start..=end]);
         }
