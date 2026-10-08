@@ -2011,7 +2011,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
 
     let addr = SocketAddr::new(cfg.host, cfg.port);
     let app: Router =
-        api::router_with_sse_and_mcp(state, mcp_config).fallback(api::frontend_handler);
+        api::router_with_sse_and_mcp(state, mcp_config).fallback_service(api::frontend_router());
 
     info!("starting emulate API server");
     info!(kubeconfig = %kubeconfig_path.display(), "using kubeconfig");
