@@ -1242,17 +1242,31 @@ pub async fn frontend_handler(uri: Uri) -> impl axum::response::IntoResponse {
     match StaticAssets::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
+            let cache_control = if path.starts_with("_app/immutable/") {
+                "public, max-age=31536000, immutable"
+            } else {
+                "no-cache"
+            };
             (
-                [(header::CONTENT_TYPE, mime.as_ref())],
+                [
+                    (header::CONTENT_TYPE, mime.as_ref()),
+                    (header::CACHE_CONTROL, cache_control),
+                ],
                 content.data.into_owned(),
             )
                 .into_response()
         }
+        // Never serve the SPA HTML for a missing build asset. In particular,
+        // an old hashed URL must not become an immutable cached HTML response.
+        None if path.starts_with("_app/") => StatusCode::NOT_FOUND.into_response(),
         None => {
             if let Some(index) = StaticAssets::get("index.html") {
                 (
                     StatusCode::OK,
-                    [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    [
+                        (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                        (header::CACHE_CONTROL, "no-cache"),
+                    ],
                     index.data.into_owned(),
                 )
                     .into_response()

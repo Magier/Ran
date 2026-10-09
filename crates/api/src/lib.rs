@@ -11,6 +11,15 @@ pub use api_handlers::frontend_handler;
 pub use mcp::McpConfig;
 pub use sse::{publish_sse_event, serialize_sse_event, SsePayload};
 
+/// Keep frontend compression separate from API responses and long-lived SSE.
+/// Debug builds still proxy Vite unchanged, including its HMR headers.
+pub fn frontend_router() -> axum::Router {
+    let router = axum::Router::new().fallback(frontend_handler);
+    #[cfg(not(debug_assertions))]
+    let router = router.layer(tower_http::compression::CompressionLayer::new());
+    router
+}
+
 pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
     axum::Router::new()
         .route(

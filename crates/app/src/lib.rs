@@ -1892,6 +1892,12 @@ impl AppState {
 
 /// Start the Ran emulation API server. This is the primary entry point for
 /// the app layer; the CLI calls this after argument parsing.
+/// API, SSE and MCP routes, with the frontend as fallback. Only the frontend
+/// fallback is compressed, so API responses and the SSE stream never are.
+pub fn router(state: AppState, mcp_config: api::McpConfig) -> Router {
+    api::router_with_sse_and_mcp(state, mcp_config).fallback_service(api::frontend_router())
+}
+
 pub async fn start(cfg: ServerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
     let active_kubeconfig = resolve_kubeconfig(kubeconfig_path.clone(), None)?;
@@ -2010,8 +2016,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     let orchestrator_state = state.clone();
 
     let addr = SocketAddr::new(cfg.host, cfg.port);
-    let app: Router =
-        api::router_with_sse_and_mcp(state, mcp_config).fallback(api::frontend_handler);
+    let app = router(state, mcp_config);
 
     info!("starting emulate API server");
     info!(kubeconfig = %kubeconfig_path.display(), "using kubeconfig");
