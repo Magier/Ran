@@ -44,8 +44,10 @@ worker, or a smaller layout engine.
 ```sh
 pnpm --prefix frontend build
 cargo test -p api --release --test frontend_assets --locked
+cargo test -p app --release --test router --locked
 # Asset-only server for DevTools probes on 127.0.0.1:4178 (RAN_ASSET_PROBE_PORT)
 cargo test -p api --release --test frontend_assets serve_static_assets -- --ignored --nocapture
 ```
 
-These tests only run in release builds; debug builds proxy Vite.
+These tests only run in release builds (debug builds proxy Vite). CI runs them
+in the `test-release-assets` job.
