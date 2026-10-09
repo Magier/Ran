@@ -57,8 +57,13 @@ async fn only_frontend_assets_are_compressed() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-    // No decompression features: the raw Content-Encoding stays visible.
-    let client = reqwest::Client::new();
+    // Keep Content-Encoding visible even when workspace feature unification
+    // turns on reqwest's gzip/brotli decoding.
+    let client = reqwest::Client::builder()
+        .no_gzip()
+        .no_brotli()
+        .build()
+        .unwrap();
     let get = |path: &str| {
         client
             .get(format!("{origin}{path}"))
