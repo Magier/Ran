@@ -3,7 +3,7 @@ import type { Edge } from '#lib/api/index.js';
 import { sessionOptions } from './sessions';
 
 const session = (sessionId: string, targetId = 'node/victim', broken = false): Edge => ({
-	id: `c2/ran-[c2.session]->${targetId}`,
+	id: `c2/ran-[c2.session]->${targetId}#${sessionId}`,
 	sourceId: 'c2/ran',
 	targetId,
 	name: 'c2.session',
@@ -12,6 +12,17 @@ const session = (sessionId: string, targetId = 'node/victim', broken = false): E
 });
 
 describe('sessionOptions', () => {
+	it('keeps both same-host callbacks selectable and retains the survivor after loss', () => {
+		const first = session('session/listener/1');
+		const second = session('session/listener/2');
+		expect(sessionOptions([first, second], 'c2/ran').map((option) => option.value)).toEqual([
+			first.sessionId,
+			second.sessionId
+		]);
+		expect(sessionOptions([first, { ...second, broken: true }], 'c2/ran')).toEqual([
+			{ label: `node/victim (${first.sessionId})`, value: first.sessionId }
+		]);
+	});
 	it('lists only live sessions belonging to the selected C2', () => {
 		expect(
 			sessionOptions(

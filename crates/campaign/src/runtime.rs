@@ -656,27 +656,16 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         ConnectedSessionTransport::new(&kind, port),
                     );
 
-                    // If the target already has an exec-channel edge, mark it as
-                    // active so the session state lives on the existing relation.
-                    // Only create a SessionChannel when no exec path exists yet
-                    // (e.g. a reverse shell from a completely unknown host).
-                    let has_existing_channel =
-                        guard.activate_session_on_exec_channel(&channel_entity_id, &backend_id);
-
-                    let new_relation_summary = if !has_existing_channel {
-                        let c2_id = EntityId::new(c2::BUILTIN_C2_ID);
-                        let channel = SessionChannel::new(
-                            c2_id.0.clone(),
-                            channel_entity_id.clone(),
-                            &backend_id,
-                        );
-                        guard.insert_relation(&channel);
-                        info!(%backend_id, %channel_entity_id, "no prior exec channel; SessionChannel created");
-                        Some(ran_domain::RelationSummary::from_relation(&channel))
-                    } else {
-                        info!(%backend_id, %channel_entity_id, "session activated on existing exec-channel edge");
-                        None
-                    };
+                    // Each accepted callback owns a channel. Sharing an edge
+                    // would let a later callback's loss hide surviving sessions.
+                    let channel = SessionChannel::new(
+                        c2::BUILTIN_C2_ID,
+                        channel_entity_id.clone(),
+                        &backend_id,
+                    );
+                    guard.insert_relation(&channel);
+                    let new_relation_summary =
+                        Some(ran_domain::RelationSummary::from_relation(&channel));
 
                     let entity_summary =
                         guard
@@ -945,7 +934,7 @@ fn record_session_path(campaign: &mut Campaign, establishing_cmd_id: &str, backe
 #[derive(Debug)]
 struct AttachedSession {
     entity_id: String,
-    /// True when a session with this backend id was already recorded as `Lost`.
+    /// True when access returns after a lost session on the same transport.
     revived: bool,
 }
 
@@ -999,9 +988,14 @@ fn attach_connected_session(
             system.username = Some(user.to_string());
         }
         system.access_level = AccessLevel::Exec;
-        // A reconnect comes back on the listener's own backend id: revive that
-        // session instead of pushing a duplicate next to the dead one.
-        let mut revived = false;
+        // Fresh TCP callbacks receive fresh IDs. Keep lost entries as history,
+        // but report restored access when this transport had no live session.
+        let mut revived =
+            !system.sessions.iter().any(|s| {
+                s.kind == session_kind && s.port == port && s.status == SessionStatus::Active
+            }) && system.sessions.iter().any(|s| {
+                s.kind == session_kind && s.port == port && s.status == SessionStatus::Lost
+            });
         match system
             .sessions
             .iter_mut()
@@ -1039,6 +1033,7 @@ fn attach_connected_session(
         .collect::<Vec<_>>();
     if matching_pods.len() == 1 {
         let pod_id = matching_pods.remove(0);
+        campaign.record_entity_alias(&EntityId::new(target_entity_id), &EntityId::new(&pod_id));
         return attach_connected_session(
             campaign, backend_id, &pod_id, hostname, user, os, transport,
         );
@@ -1542,6 +1537,181 @@ mod listener_event_tests {
             .expect("second edge");
         assert!(first.broken);
         assert!(!second.broken);
+    }
+
+    fn selectable_sessions(campaign: &Campaign) -> Vec<String> {
+        let mut ttp = Ttp::new("kill-session", "Kill Session", "Resource Development");
+        ttp.params.push(armory::TtpParam {
+            name: "SessionID".into(),
+            param_type: "Session".into(),
+            description: String::new(),
+            required: true,
+            default: String::new(),
+            options: vec![],
+        });
+        let resolution = crate::action_resolution::resolve_action(
+            &ttp,
+            campaign,
+            c2::BUILTIN_C2_ID,
+            &crate::action_resolution::ActionResolutionInput::default(),
+        )
+        .expect("resolve session picker");
+        resolution.arguments[0]
+            .candidates
+            .iter()
+            .map(|c| c.value.clone())
+            .collect()
+    }
+
+    async fn same_host_callbacks_survive_session_removal(kill: bool) {
+        let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+            "Ran",
+            ran_domain::K8sCluster::new("dev"),
+        )));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+        let ids = ["session/c2-ran-1337/1", "session/c2-ran-1337/2"];
+        for id in ids {
+            c2_events
+                .publish(C2Event::SessionConnected {
+                    backend_id: id.into(),
+                    target_entity_id: "node/agent-worker".into(),
+                    hostname: "agent-worker".into(),
+                    user: "root".into(),
+                    os: "Linux".into(),
+                    kind: "tcp".into(),
+                    port: Some(1337),
+                })
+                .await
+                .expect("callback");
+            next_facts_changed(&mut rx).await;
+        }
+        let downstream = ran_domain::Pod::new("downstream", "default");
+        let downstream_id = downstream.entity_id().0;
+        {
+            let mut guard = campaign.write().expect("campaign lock");
+            guard.upsert_entity(downstream, KnowledgeProvenance::Scenario);
+            guard.upsert_relation(
+                &ran_domain::RceCanExec::new("system/agent-worker", &downstream_id)
+                    .with_envelope("remote ${CMD}"),
+                KnowledgeProvenance::Scenario,
+            );
+            assert_eq!(selectable_sessions(&guard), ids);
+            assert_eq!(
+                guard
+                    .resolve_exec_channel(&downstream_id)
+                    .expect("initial downstream route")
+                    .backend_id,
+                ids[0]
+            );
+        }
+        let removed = if kill { ids[0] } else { ids[1] };
+        let survivor = if kill { ids[1] } else { ids[0] };
+        if kill {
+            c2_events
+                .publish(C2Event::SessionKilled {
+                    backend_id: removed.into(),
+                })
+                .await
+                .expect("kill");
+            next_facts_changed(&mut rx).await;
+        } else {
+            c2_events
+                .publish(C2Event::SessionLost {
+                    backend_id: removed.into(),
+                    target_entity_id: "node/agent-worker".into(),
+                })
+                .await
+                .expect("loss");
+            next_session_state(&mut rx).await;
+        }
+        let guard = campaign.read().expect("campaign lock");
+        assert_eq!(
+            guard
+                .resolve_exec_channel("system/agent-worker")
+                .expect("host route")
+                .backend_id,
+            survivor
+        );
+        assert_eq!(
+            guard
+                .resolve_exec_channel(&downstream_id)
+                .expect("downstream route")
+                .backend_id,
+            survivor
+        );
+        assert_eq!(selectable_sessions(&guard), vec![survivor]);
+        assert!(guard
+            .get_relations()
+            .iter()
+            .any(|r| r.session_id.as_deref() == Some(survivor) && !r.broken));
+    }
+
+    #[tokio::test]
+    async fn same_host_callback_loss_preserves_downstream_route_and_picker() {
+        same_host_callbacks_survive_session_removal(false).await;
+    }
+
+    #[tokio::test]
+    async fn same_host_callback_termination_preserves_downstream_route_and_picker() {
+        same_host_callbacks_survive_session_removal(true).await;
+    }
+
+    #[tokio::test]
+    async fn fresh_callback_id_reports_reestablished_access_after_loss() {
+        let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+            "Ran",
+            ran_domain::K8sCluster::new("dev"),
+        )));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+        let connected = |id: &str| C2Event::SessionConnected {
+            backend_id: id.into(),
+            target_entity_id: "node/worker".into(),
+            hostname: "worker".into(),
+            user: "root".into(),
+            os: "Linux".into(),
+            kind: "tcp".into(),
+            port: Some(1337),
+        };
+        c2_events
+            .publish(connected("session/c2-ran-1337/1"))
+            .await
+            .expect("first connect");
+        next_facts_changed(&mut rx).await;
+        c2_events
+            .publish(C2Event::SessionLost {
+                backend_id: "session/c2-ran-1337/1".into(),
+                target_entity_id: "node/worker".into(),
+            })
+            .await
+            .expect("loss");
+        next_session_state(&mut rx).await;
+        c2_events
+            .publish(connected("session/c2-ran-1337/2"))
+            .await
+            .expect("fresh connect");
+        let (_, _, state) = next_session_state(&mut rx).await;
+        assert_eq!(state, SessionLifecycle::Reestablished);
+        let guard = campaign.read().expect("campaign lock");
+        assert_eq!(
+            guard
+                .resolve_exec_channel("system/worker")
+                .expect("fresh route")
+                .backend_id,
+            "session/c2-ran-1337/2"
+        );
+        assert_eq!(selectable_sessions(&guard), vec!["session/c2-ran-1337/2"]);
+        let system = guard.get_system_entity("system/worker").expect("worker");
+        assert_eq!(system.entity().system().sessions.len(), 2);
+        assert_eq!(
+            system.entity().system().sessions[0].status,
+            SessionStatus::Lost
+        );
     }
 
     /// A session breaking and coming back has to reach the operation timeline in
@@ -2124,6 +2294,19 @@ mod tests {
         );
 
         assert_eq!(attached.entity_id, pod_id);
+        update_session_status(
+            &mut campaign,
+            "node/debug-bridge",
+            "session/debug-bridge",
+            SessionStatus::Lost,
+        );
+        assert_eq!(
+            campaign.entities.get::<Pod>()[&EntityId::new(&pod_id)]
+                .system
+                .sessions[0]
+                .status,
+            SessionStatus::Lost
+        );
         assert!(campaign.entities.get::<UnknownSystem>().is_empty());
         assert_eq!(
             campaign.entities.get::<Pod>()[&EntityId::new(&pod_id)]

@@ -6,6 +6,19 @@ use serde_json::Value;
 
 use crate::{BootstrapEffect, BootstrapOperation, CampaignState, Graph, GraphEdge, GraphNode};
 
+fn graph_relation_id(relation: &ran_domain::RelationSummary) -> String {
+    let id = format!(
+        "{}-[{}]->{}",
+        relation.source_id, relation.name, relation.target_id
+    );
+    if relation.name == "c2.session" {
+        if let Some(session) = &relation.session_id {
+            return format!("{id}#{session}");
+        }
+    }
+    id
+}
+
 pub(crate) fn campaign_to_campaign_state(
     campaign: &Campaign,
     kubetier: &kubetier::Catalog,
@@ -55,10 +68,7 @@ pub(crate) fn campaign_to_campaign_state(
             .iter()
             .map(|r| {
                 let mut m = HashMap::new();
-                m.insert(
-                    "id".to_string(),
-                    Value::String(format!("{}-[{}]->{}", r.source_id, r.name, r.target_id)),
-                );
+                m.insert("id".to_string(), Value::String(graph_relation_id(r)));
                 m.insert("name".to_string(), Value::String(r.name.clone()));
                 m.insert("sourceId".to_string(), Value::String(r.source_id.clone()));
                 m.insert("targetId".to_string(), Value::String(r.target_id.clone()));
@@ -220,7 +230,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
                     continue;
                 }
                 edges.push(GraphEdge {
-                    id: format!("{}-[{}]->{}", r.source_id, r.name, r.target_id),
+                    id: graph_relation_id(&r),
                     source_id: r.source_id.clone(),
                     target_id: r.target_id.clone(),
                     name: r.name.clone(),
@@ -863,6 +873,39 @@ mod tests {
         Redirector, ServiceAccount, Transport,
     };
     use std::collections::BTreeSet;
+
+    #[test]
+    fn same_host_session_edges_have_distinct_ids_in_both_api_views() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        campaign.upsert_entity(
+            ran_domain::Pod::new("worker", "default"),
+            KnowledgeProvenance::Scenario,
+        );
+        for id in ["session/listener/1", "session/listener/2"] {
+            campaign.upsert_relation(
+                &ran_domain::SessionChannel::new("c2/ran", "ns/default/pod/worker", id),
+                KnowledgeProvenance::Scenario,
+            );
+        }
+        let catalog = kubetier::Catalog::embedded();
+        let state = campaign_to_campaign_state(&campaign, &catalog);
+        let relations = state
+            .relations
+            .iter()
+            .filter(|r| r.get("name") == Some(&Value::String("c2.session".into())))
+            .collect::<Vec<_>>();
+        assert_eq!(relations.len(), 2);
+        assert_ne!(relations[0]["id"], relations[1]["id"]);
+        let graph = campaign_to_graph(&campaign, &catalog);
+        let edges = graph
+            .edges
+            .iter()
+            .filter(|r| r.name == "c2.session")
+            .collect::<Vec<_>>();
+        assert_eq!(edges.len(), 2);
+        assert_ne!(edges[0].id, edges[1].id);
+        assert_eq!(edges[0].id, relations[0]["id"].as_str().unwrap());
+    }
 
     #[test]
     fn fresh_campaign_state_exposes_empty_entity_aliases() {
