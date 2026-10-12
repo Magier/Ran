@@ -123,6 +123,35 @@ jobs:
           path: frontend/build/
           retention-days: 1
 
+  # Release-only tests for the embedded frontend: compression, cache headers,
+  # and that API/SSE routes stay uncompressed.
+  test-release-assets:
+    needs: [test-and-build-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build/
+
+      - name: Run release asset tests
+        run: |
+          cargo test -p api --release --locked --test frontend_assets
+          cargo test -p app --release --locked --test router
+
   # ============================================
   # Stage 2: Build binaries (matrix, on release or on demand)
   #
@@ -131,7 +160,7 @@ jobs:
   # run builds and uploads artifacts without publishing a release.
   # ============================================
   build:
-    needs: [test-rust, test-and-build-frontend]
+    needs: [test-rust, test-and-build-frontend, test-release-assets]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
