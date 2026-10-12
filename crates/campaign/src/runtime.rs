@@ -1467,6 +1467,83 @@ mod listener_event_tests {
         release.add_permits(2);
     }
 
+    #[tokio::test]
+    async fn callback_loss_only_breaks_its_own_pod_session() {
+        let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+            "Ran",
+            ran_domain::K8sCluster::new("dev"),
+        )));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+
+        for (hostname, backend_id) in [
+            ("agent-worker", "session/c2-ran-1337/1"),
+            ("kraken", "session/c2-ran-1337/2"),
+        ] {
+            c2_events
+                .publish(C2Event::SessionConnected {
+                    backend_id: backend_id.into(),
+                    target_entity_id: format!("node/{hostname}"),
+                    hostname: hostname.into(),
+                    user: "root".into(),
+                    os: "Linux".into(),
+                    kind: "tcp".into(),
+                    port: Some(1337),
+                })
+                .await
+                .expect("connect");
+            next_facts_changed(&mut rx).await;
+        }
+        {
+            let guard = campaign.read().expect("campaign lock");
+            assert_eq!(
+                guard
+                    .resolve_exec_channel("system/agent-worker")
+                    .expect("first route")
+                    .backend_id,
+                "session/c2-ran-1337/1"
+            );
+            assert_eq!(
+                guard
+                    .resolve_exec_channel("system/kraken")
+                    .expect("second route")
+                    .backend_id,
+                "session/c2-ran-1337/2"
+            );
+        }
+        c2_events
+            .publish(C2Event::SessionLost {
+                backend_id: "session/c2-ran-1337/1".into(),
+                target_entity_id: "node/agent-worker".into(),
+            })
+            .await
+            .expect("loss");
+        let (entity_id, _, state) = next_session_state(&mut rx).await;
+        assert_eq!(entity_id, "system/agent-worker");
+        assert_eq!(state, SessionLifecycle::Lost);
+        let guard = campaign.read().expect("campaign lock");
+        assert_eq!(
+            guard
+                .resolve_exec_channel("system/kraken")
+                .expect("surviving route")
+                .backend_id,
+            "session/c2-ran-1337/2"
+        );
+        let relations = guard.get_relations();
+        let first = relations
+            .iter()
+            .find(|r| r.session_id.as_deref() == Some("session/c2-ran-1337/1"))
+            .expect("first edge");
+        let second = relations
+            .iter()
+            .find(|r| r.session_id.as_deref() == Some("session/c2-ran-1337/2"))
+            .expect("second edge");
+        assert!(first.broken);
+        assert!(!second.broken);
+    }
+
     /// A session breaking and coming back has to reach the operation timeline in
     /// its own right. The reconnect rides on an entity the timeline has already
     /// shown, so an entity fact alone gets deduplicated away and the operator is

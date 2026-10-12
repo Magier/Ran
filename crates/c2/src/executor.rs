@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -16,6 +17,10 @@ use crate::types::BUILTIN_C2_ID;
 
 type Backends = Arc<RwLock<HashMap<String, Arc<dyn C2Backend>>>>;
 type K8sClients = Arc<RwLock<HashMap<String, Client>>>;
+/// Sequence used to distinguish shells accepted by any listener in this Ran
+/// process. A listener can be stopped and recreated on the same port, so this
+/// deliberately is not scoped to one listener instance.
+static NEXT_INCOMING_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 /// Abort handles for the accept loops of currently bound listeners, keyed by
 /// port. This is what makes a listener stoppable: the `TcpListener` lives
 /// inside its task, so releasing the port means dropping that task.
@@ -716,17 +721,10 @@ impl C2Executor {
             },
             ExecutionOperation::StartListener { port, protocol } => {
                 let backend_id = session_backend_id_from_cmd(cmd);
-                let target_entity_id = cmd
-                    .args
-                    .get("TARGET_ID")
-                    .map(String::as_str)
-                    .unwrap_or(&cmd.target_id)
-                    .to_string();
                 if let Err(error) = self
                     .spawn_session_listener(ListenerSpec {
                         cmd_id: cmd.id.clone(),
                         backend_id,
-                        target_entity_id,
                         port: *port,
                         protocol: protocol.clone(),
                     })
@@ -2002,13 +2000,22 @@ fn session_backend_id_from_cmd(cmd: &ExecTtp) -> String {
     format!("session/{}-{}", slug, port)
 }
 
+/// Return a backend ID for one shell accepted by `listener_backend_id`.
+///
+/// The listener remains identifiable in logs and the session id is unique for
+/// the lifetime of the process, including after a listener on the same port is
+/// stopped and recreated.
+fn incoming_session_backend_id(listener_backend_id: &str) -> String {
+    let sequence = NEXT_INCOMING_SESSION_ID.fetch_add(1, Ordering::Relaxed);
+    format!("{listener_backend_id}/{sequence}")
+}
+
 /// Everything the accept loop needs to identify the listener it is running.
 struct ListenerSpec {
     /// The execution that asked for this listener, carried so the campaign can
     /// attribute the resulting listener entity to it.
     cmd_id: String,
     backend_id: String,
-    target_entity_id: String,
     port: u16,
     protocol: String,
 }
@@ -2023,8 +2030,8 @@ async fn accept_session_loop(
     use crate::{RunnerSession, ShellSession};
 
     let ListenerSpec {
+        cmd_id,
         backend_id: listener_backend_id,
-        target_entity_id,
         port,
         ..
     } = spec;
@@ -2032,7 +2039,10 @@ async fn accept_session_loop(
         match listener.accept().await {
             Ok((stream, peer)) => {
                 let is_ranplant = stream_starts_with_ranplant(&stream).await;
-                let backend_id = listener_connection_backend_id(&listener_backend_id, is_ranplant);
+                let backend_id = incoming_session_backend_id(&listener_connection_backend_id(
+                    &listener_backend_id,
+                    is_ranplant,
+                ));
                 let (backend, health, hostname, user, os, session_kind): (
                     Arc<dyn C2Backend>,
                     tokio::sync::watch::Receiver<crate::shell_session::SessionHealth>,
@@ -2125,7 +2135,7 @@ async fn accept_session_loop(
                     event_bus.clone(),
                     backend,
                     health,
-                    backend_id.clone(),
+                    backend_id,
                     target_entity_id,
                 ));
             }
@@ -2133,10 +2143,7 @@ async fn accept_session_loop(
                 tracing::error!(port, error = %e, "accept error on session listener");
                 listeners.write().await.remove(&port);
                 let _ = event_bus
-                    .publish(C2Event::SessionLost {
-                        backend_id: listener_backend_id.clone(),
-                        target_entity_id: target_entity_id.clone(),
-                    })
+                    .publish(C2Event::ListenerStopped { cmd_id, port })
                     .await;
                 return;
             }
@@ -2185,11 +2192,18 @@ async fn monitor_session_health(
             tracing::debug!(%backend_id, ?state, "shell session health changed");
         }
         if state == crate::shell_session::SessionHealth::Lost {
-            let is_current = backends
-                .read()
-                .await
-                .get(&backend_id)
-                .is_some_and(|current| Arc::ptr_eq(current, &backend));
+            // Remove only the backend this monitor owns. A deterministic
+            // kubectl-exec ID may already have been reused by a new session.
+            let is_current = {
+                let mut registered = backends.write().await;
+                let is_current = registered
+                    .get(&backend_id)
+                    .is_some_and(|current| Arc::ptr_eq(current, &backend));
+                if is_current {
+                    registered.remove(&backend_id);
+                }
+                is_current
+            };
             if is_current {
                 let _ = event_bus
                     .publish(C2Event::SessionLost {
@@ -2341,7 +2355,7 @@ mod tests {
             watch::channel(crate::shell_session::SessionHealth::Responsive);
 
         tokio::spawn(monitor_session_health(
-            backends,
+            backends.clone(),
             event_bus,
             backend,
             health_rx,
@@ -2366,6 +2380,7 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+        assert!(!backends.read().await.contains_key(&backend_id));
     }
 
     #[tokio::test]
@@ -2379,7 +2394,7 @@ mod tests {
         let backend_id = "session/node-victim-4444".to_string();
         let backends: Backends = Arc::new(RwLock::new(HashMap::from([(
             backend_id.clone(),
-            new_backend,
+            new_backend.clone(),
         )])));
         let event_bus = C2EventBus::new(4);
         let mut events = event_bus.subscribe();
@@ -2387,11 +2402,11 @@ mod tests {
             watch::channel(crate::shell_session::SessionHealth::Responsive);
 
         tokio::spawn(monitor_session_health(
-            backends,
+            backends.clone(),
             event_bus,
             old_backend,
             health_rx,
-            backend_id,
+            backend_id.clone(),
             "node/victim".to_string(),
         ));
         health_tx
@@ -2403,6 +2418,14 @@ mod tests {
             Ok(Ok(event)) => panic!("superseded session unexpectedly published: {event:?}"),
             Ok(Err(error)) => panic!("event bus unexpectedly lagged: {error}"),
         }
+        assert!(Arc::ptr_eq(
+            backends
+                .read()
+                .await
+                .get(&backend_id)
+                .expect("replacement survives"),
+            &new_backend,
+        ));
     }
 
     #[async_trait::async_trait]
@@ -3034,6 +3057,223 @@ mod tests {
         manager_task
             .await
             .expect("manager should shut down cleanly");
+    }
+
+    /// A peer speaks the actual callback transport but returns its hostname as
+    /// command output, making accidental dispatch to another peer observable.
+    async fn callback_peer(address: std::net::SocketAddr, hostname: &'static str, ranplant: bool) {
+        use ranplant_protocol::{Message, OutputStream, MAGIC, PROTOCOL_VERSION};
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let mut stream = tokio::net::TcpStream::connect(address)
+            .await
+            .expect("connect");
+        if ranplant {
+            stream.write_all(&MAGIC).await.expect("preface");
+            write_peer_message(
+                &mut stream,
+                &Message::Hello {
+                    min_version: PROTOCOL_VERSION,
+                    max_version: PROTOCOL_VERSION,
+                    runner_version: "test".into(),
+                    hostname: hostname.into(),
+                    user: "root".into(),
+                    os: "Linux".into(),
+                    os_release: Default::default(),
+                    arch: "test".into(),
+                    capabilities: vec![],
+                },
+            )
+            .await;
+            loop {
+                let Ok(length) = stream.read_u32().await else {
+                    return;
+                };
+                let mut payload = vec![0; length as usize];
+                if stream.read_exact(&mut payload).await.is_err() {
+                    return;
+                }
+                match ranplant_protocol::decode(&payload).expect("decode") {
+                    Message::HelloAck { .. } => {}
+                    Message::Run { id, .. } => {
+                        write_peer_message(
+                            &mut stream,
+                            &Message::Started {
+                                id: id.clone(),
+                                pid: 1,
+                            },
+                        )
+                        .await;
+                        write_peer_message(
+                            &mut stream,
+                            &Message::Output {
+                                id: id.clone(),
+                                sequence: 1,
+                                stream: OutputStream::Stdout,
+                                bytes: format!("{hostname}\n").into_bytes(),
+                            },
+                        )
+                        .await;
+                        write_peer_message(
+                            &mut stream,
+                            &Message::Exited {
+                                id,
+                                code: Some(0),
+                                signal: None,
+                                timed_out: false,
+                                cancelled: false,
+                                output_truncated: false,
+                            },
+                        )
+                        .await;
+                    }
+                    Message::Ping { nonce } => {
+                        write_peer_message(&mut stream, &Message::Pong { nonce }).await
+                    }
+                    Message::Shutdown => return,
+                    message => panic!("unexpected request: {message:?}"),
+                }
+            }
+        } else {
+            // Supply a banner so transport detection immediately sees a shell.
+            stream.write_all(b"shell\n").await.expect("banner");
+            let (reader, mut writer) = stream.into_split();
+            let mut reader = BufReader::new(reader);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    return;
+                }
+                let Some(rest) = line.trim_end().strip_prefix("printf '") else {
+                    continue;
+                };
+                let marker = rest.split('%').next().unwrap_or("").trim_end_matches(':');
+                if !marker.starts_with("__RAN_") {
+                    continue;
+                }
+                let reply = if marker.contains("INIT0") {
+                    format!("{marker}\n")
+                } else {
+                    format!("{hostname}\n{marker}:0\n")
+                };
+                if writer.write_all(reply.as_bytes()).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+
+    async fn write_peer_message(
+        stream: &mut tokio::net::TcpStream,
+        message: &ranplant_protocol::Message,
+    ) {
+        use tokio::io::AsyncWriteExt;
+        let payload = ranplant_protocol::encode(message).expect("encode");
+        stream
+            .write_u32(payload.len() as u32)
+            .await
+            .expect("length");
+        stream.write_all(&payload).await.expect("payload");
+    }
+
+    async fn callbacks_remain_independently_routable(ranplant: bool) {
+        let (handle, events, manager) = C2Manager::new_with_backends(16, HashMap::new());
+        let backends = handle.backends.clone();
+        let mut events = events.subscribe();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let spec = super::ListenerSpec {
+            cmd_id: "cmd-listen".into(),
+            backend_id: "session/c2-ran-1337".into(),
+            port: address.port(),
+            protocol: "tcp".into(),
+        };
+        let accept_task = tokio::spawn(super::accept_session_loop(
+            backends.clone(),
+            manager.executor.event_bus.clone(),
+            manager.executor.listeners.clone(),
+            listener,
+            spec,
+        ));
+        let manager_task = tokio::spawn(manager.run());
+        let mut peers = Vec::new();
+        let mut ids = Vec::new();
+        for hostname in ["agent-worker", "kraken"] {
+            peers.push(tokio::spawn(callback_peer(address, hostname, ranplant)));
+            match tokio::time::timeout(Duration::from_secs(5), events.recv())
+                .await
+                .expect("connected")
+                .expect("event")
+            {
+                C2Event::SessionConnected {
+                    backend_id,
+                    hostname: actual,
+                    kind,
+                    ..
+                } => {
+                    assert_eq!(actual, hostname);
+                    assert_eq!(kind, if ranplant { "ranplant" } else { "tcp" });
+                    ids.push(backend_id);
+                }
+                event => panic!("unexpected event: {event:?}"),
+            }
+        }
+        assert_ne!(ids[0], ids[1]);
+        assert_eq!(backends.read().await.len(), 2);
+        // Route through the real manager after both peers have registered.
+        for (id, hostname) in ids.iter().zip(["agent-worker", "kraken"]) {
+            handle.send(exec_cmd(id)).await.expect("dispatch");
+            let result = wait_for_execution(&mut events).await;
+            assert!(result.success, "{}", result.fail_reason);
+            assert_eq!(result.results, vec![hostname.to_string()]);
+        }
+        let disconnected = backends
+            .read()
+            .await
+            .get(&ids[0])
+            .expect("first backend")
+            .clone();
+        let first_peer = peers.remove(0);
+        first_peer.abort();
+        let _ = first_peer.await;
+        // Ranplant checks idle health on its heartbeat interval. An attempted
+        // command detects the closed transport immediately for this test.
+        assert!(!disconnected.execute(&exec_cmd(&ids[0])).await.success);
+        match tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .expect("loss")
+            .expect("event")
+        {
+            C2Event::SessionLost { backend_id, .. } => assert_eq!(backend_id, ids[0]),
+            event => panic!("unexpected event: {event:?}"),
+        }
+        assert!(!backends.read().await.contains_key(&ids[0]));
+        assert!(backends.read().await.contains_key(&ids[1]));
+        handle
+            .send(exec_cmd(&ids[1]))
+            .await
+            .expect("dispatch surviving session");
+        assert_eq!(
+            wait_for_execution(&mut events).await.results,
+            vec!["kraken"]
+        );
+        accept_task.abort();
+        peers[0].abort();
+        drop(handle);
+        manager_task.await.expect("manager exits");
+    }
+
+    #[tokio::test]
+    async fn shell_callbacks_remain_independently_routable() {
+        callbacks_remain_independently_routable(false).await;
+    }
+
+    #[tokio::test]
+    async fn ranplant_callbacks_remain_independently_routable() {
+        callbacks_remain_independently_routable(true).await;
     }
 
     /// Run one typed control operation through the manager and return its result.
