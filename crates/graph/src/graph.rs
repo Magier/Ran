@@ -82,8 +82,8 @@ impl PartialOrd for ExecSearchEntry {
 ///   incoming one replaces the old one (K8s rescheduling is valid).
 /// - **SingleContainer** - an entity may have at most one incoming `contains`
 ///   edge; a more specific parent replaces its previous parent.
-/// - **SingleSession** - at most one `c2.session` edge per `src → tgt` pair; a
-///   reconnected session replaces the previous (possibly broken) one.
+/// - **SessionIdentity** - one `c2.session` edge per backend for a `src → tgt`
+///   pair; different simultaneous sessions retain independent edges.
 #[derive(Debug, Clone)]
 pub struct KnowledgeGraph {
     pub(crate) graph: StableGraph<EntityId, EdgeData>,
@@ -131,8 +131,9 @@ impl KnowledgeGraph {
     }
 
     /// Merge `discard` into `keep`: retarget every edge that touched `discard`
-    /// so it now touches `keep` instead.  Duplicate edges (same relation name)
-    /// are dropped.  Entity *data* merging is the caller's responsibility.
+    /// so it now touches `keep` instead. Duplicate relations are dropped;
+    /// session channels are distinct by backend ID. Entity data merging is
+    /// the caller's responsibility.
     pub fn merge_entities(&mut self, keep: &EntityId, discard: &EntityId) {
         let (Some(&keep_idx), Some(&discard_idx)) = (self.index.get(keep), self.index.get(discard))
         else {
@@ -168,7 +169,7 @@ impl KnowledgeGraph {
             if self.graph.node_weight(tgt).is_none() {
                 continue;
             }
-            if !self.has_edge_between(keep_idx, tgt, &data.relation_name) {
+            if !self.has_equivalent_edge(keep_idx, tgt, &data) {
                 self.add_edge(keep_idx, tgt, data);
             }
         }
@@ -177,7 +178,7 @@ impl KnowledgeGraph {
             if self.graph.node_weight(src).is_none() {
                 continue;
             }
-            if !self.has_edge_between(src, keep_idx, &data.relation_name) {
+            if !self.has_equivalent_edge(src, keep_idx, &data) {
                 self.add_edge(src, keep_idx, data);
             }
         }
@@ -195,11 +196,10 @@ impl KnowledgeGraph {
     ///   before the new one is added (K8s rescheduling is valid).
     /// - **SingleContainer**: a new `contains` edge replaces any existing
     ///   containment parent of `tgt`.
-    /// - **SingleSession**: a new `c2.session` edge replaces any existing
-    ///   `c2.session` edge for the same `src → tgt` pair (a reconnected shell
-    ///   supersedes the dead one instead of leaving it as an artifact).
+    /// - **SessionIdentity**: a `c2.session` edge replaces only the same backend
+    ///   on the same pair. Independent sessions can coexist on one host.
     ///
-    /// Parallel edges (same `src`/`tgt`, different `relation_name`) are allowed.
+    /// Parallel relations and distinct session backends on one pair are allowed.
     pub fn insert_edge(
         &mut self,
         src: &EntityId,
@@ -238,16 +238,16 @@ impl KnowledgeGraph {
             }
         }
 
-        // SingleSession: a fresh `c2.session` edge supersedes any prior session
-        // edge for the same source→target pair. A reconnected shell replaces the
-        // dead one outright - a broken session edge carries no epistemic value
-        // once a live session to the same target exists, so it is not kept as a
-        // graph artifact.
+        // Re-publication of one backend updates its edge without replacing
+        // other sessions to the same host.
         if data.relation_name == "c2.session" {
             let stale: Vec<EdgeIndex> = self
                 .graph
                 .edges_connecting(src_idx, tgt_idx)
-                .filter(|e| e.weight().relation_name == "c2.session")
+                .filter(|e| {
+                    e.weight().relation_name == "c2.session"
+                        && e.weight().session_id == data.session_id
+                })
                 .map(|e| e.id())
                 .collect();
             for idx in stale {
@@ -264,6 +264,30 @@ impl KnowledgeGraph {
         self.edge_generations
             .insert(index, self.next_edge_generation);
         index
+    }
+
+    fn has_equivalent_edge(&self, src: NodeIndex, tgt: NodeIndex, data: &EdgeData) -> bool {
+        self.graph.edges_connecting(src, tgt).any(|edge| {
+            edge.weight().relation_name == data.relation_name
+                && (data.relation_name != "c2.session"
+                    || edge.weight().session_id == data.session_id)
+        })
+    }
+
+    /// Remove only the explicit channels owned by this backend.
+    pub fn remove_session_edges(&mut self, backend_id: &str) -> usize {
+        let edges = self
+            .graph
+            .edge_indices()
+            .filter(|&idx| {
+                let data = &self.graph[idx];
+                data.relation_name == "c2.session" && data.session_id.as_deref() == Some(backend_id)
+            })
+            .collect::<Vec<_>>();
+        for &idx in &edges {
+            self.graph.remove_edge(idx);
+        }
+        edges.len()
     }
 
     pub fn validate_selected_edge(&self, selected: &SelectedExecEdge) -> bool {
@@ -706,6 +730,10 @@ impl KnowledgeGraph {
             .graph
             .edges_directed(ti, petgraph::Direction::Incoming)
             .filter(|e| e.weight().grants_target_execution())
+            .filter(|e| {
+                e.weight().relation_name != "c2.session"
+                    || e.weight().session_id.as_deref() == Some(session_id.as_str())
+            })
             .map(|e| e.id())
             .collect();
         let found = !idxs.is_empty();
@@ -795,16 +823,6 @@ impl KnowledgeGraph {
                 })
             })
             .collect()
-    }
-
-    // -----------------------------------------------------------------------
-    // Private helpers
-    // -----------------------------------------------------------------------
-
-    fn has_edge_between(&self, src: NodeIndex, tgt: NodeIndex, relation_name: &str) -> bool {
-        self.graph
-            .edges_connecting(src, tgt)
-            .any(|e| e.weight().relation_name == relation_name)
     }
 }
 
@@ -1158,10 +1176,30 @@ mod tests {
         assert!(!recovered.broken);
     }
 
-    /// A reconnected session's edge replaces the prior broken one for the same
-    /// pair, rather than accumulating as a stale artifact.
     #[test]
-    fn new_c2_session_edge_replaces_the_prior_broken_one() {
+    fn merging_hosts_preserves_independent_session_edges() {
+        let mut graph = KnowledgeGraph::new();
+        let c2 = EntityId::new("c2/ran");
+        let host = EntityId::new("system/worker");
+        let pod = EntityId::new("ns/default/pod/worker");
+        for (target, id) in [(&host, "session/1"), (&pod, "session/2")] {
+            let mut data = edge_data_for("c2.session", None, None);
+            data.session_id = Some(id.into());
+            graph.insert_edge(&c2, target, data);
+        }
+        graph.merge_entities(&pod, &host);
+        let edges = graph.to_relation_summaries();
+        assert_eq!(edges.len(), 2);
+        assert!(edges.iter().all(|e| e.target_id == pod.0));
+        assert_eq!(graph.remove_session_edges("session/1"), 1);
+        let edges = graph.to_relation_summaries();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].session_id.as_deref(), Some("session/2"));
+    }
+
+    /// A new backend retains its own channel and the old loss history.
+    #[test]
+    fn new_c2_session_edge_preserves_other_backend_history() {
         let mut graph = KnowledgeGraph::new();
         let c2 = EntityId::new("c2/ran");
         let victim = EntityId::new("node/victim");
@@ -1177,18 +1215,26 @@ mod tests {
         second.session_id = Some("session/victim-2".to_string());
         graph.insert_edge(&c2, &victim, second);
 
-        // Exactly one c2.session edge remains, and it is the live (unbroken) one.
+        // Distinct backend IDs have independent graph channels.
         let sessions: Vec<_> = graph
             .to_relation_summaries()
             .into_iter()
             .filter(|r| r.name == "c2.session")
             .collect();
-        assert_eq!(
-            sessions.len(),
-            1,
-            "the broken session edge must be replaced"
+        assert_eq!(sessions.len(), 2);
+        assert!(
+            sessions
+                .iter()
+                .find(|r| r.session_id.as_deref() == Some("session/victim-1"))
+                .unwrap()
+                .broken
         );
-        assert!(!sessions[0].broken);
-        assert_eq!(sessions[0].session_id.as_deref(), Some("session/victim-2"));
+        assert!(
+            !sessions
+                .iter()
+                .find(|r| r.session_id.as_deref() == Some("session/victim-2"))
+                .unwrap()
+                .broken
+        );
     }
 }

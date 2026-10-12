@@ -1131,18 +1131,23 @@ impl Campaign {
                 relation.name == "c2.session" && relation.session_id.as_deref() == Some(backend_id)
             })
             .collect::<Vec<_>>();
-        let count = sessions.len();
+        let count = self.graph.remove_session_edges(backend_id);
         for relation in sessions {
             let source_id = EntityId::new(relation.source_id.clone());
             let target_id = EntityId::new(relation.target_id.clone());
-            self.graph
-                .remove_edges(&source_id, &target_id, "c2.session");
-            self.knowledge_provenance
-                .remove_relation(&RelationProvenanceKey::new(
-                    "c2.session",
-                    relation.source_id,
-                    relation.target_id,
-                ));
+            if !self
+                .graph
+                .outgoing(&source_id)
+                .iter()
+                .any(|(target, edge)| **target == target_id && edge.relation_name == "c2.session")
+            {
+                self.knowledge_provenance
+                    .remove_relation(&RelationProvenanceKey::new(
+                        "c2.session",
+                        relation.source_id,
+                        relation.target_id,
+                    ));
+            }
         }
 
         for pod in self.entities.get_mut::<Pod>().values_mut() {
