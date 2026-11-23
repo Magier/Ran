@@ -6,7 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use k8s::{Client, ExecOutputObserver, ExecOutputStream, PodExecOutput};
 use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, oneshot, OwnedRwLockReadGuard, RwLock};
 use tracing::{debug, warn};
 
 use crate::builtin::BuiltinC2;
@@ -21,10 +21,10 @@ type K8sClients = Arc<RwLock<HashMap<String, Client>>>;
 /// process. A listener can be stopped and recreated on the same port, so this
 /// deliberately is not scoped to one listener instance.
 static NEXT_INCOMING_SESSION_ID: AtomicU64 = AtomicU64::new(1);
-/// Abort handles for the accept loops of currently bound listeners, keyed by
+/// Join handles for the accept loops of currently bound listeners, keyed by
 /// port. This is what makes a listener stoppable: the `TcpListener` lives
 /// inside its task, so releasing the port means dropping that task.
-type Listeners = Arc<RwLock<HashMap<u16, tokio::task::AbortHandle>>>;
+type Listeners = Arc<RwLock<HashMap<u16, tokio::task::JoinHandle<()>>>>;
 /// The `labctl port-forward` processes started by `c2.port-forward`, keyed by
 /// the canonical `<play id>/<remote port>` entry - the same identity the
 /// `Redirector` entity carries. Keying on the remote port alone would be wrong:
@@ -187,9 +187,44 @@ struct RedirectorProcess {
     listener_port: u16,
 }
 
+enum RuntimeControl {
+    Reset(oneshot::Sender<Result<(), String>>),
+    Quiesce(oneshot::Sender<Result<QuiesceReport, String>>),
+}
+
+#[derive(Default)]
+pub struct QuiesceReport {
+    pub unstarted: Vec<String>,
+    pub interrupted: Vec<String>,
+}
+
+/// Reserved capacity retains the generation at reservation time, so requests
+/// waiting through reset cannot be prepared against the replacement campaign.
+pub struct C2CommandPermit {
+    permit: mpsc::OwnedPermit<(u64, ExecTtp)>,
+    generation: u64,
+    current_generation: Arc<AtomicU64>,
+}
+
+impl C2CommandPermit {
+    pub fn is_current(&self) -> bool {
+        self.generation == self.current_generation.load(Ordering::SeqCst)
+    }
+
+    pub fn send(self, cmd: ExecTtp) -> Result<(), String> {
+        if !self.is_current() {
+            return Err("campaign changed while waiting to dispatch action".to_string());
+        }
+        self.permit.send((self.generation, cmd));
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct C2Handle {
-    cmd_tx: mpsc::Sender<ExecTtp>,
+    cmd_tx: mpsc::Sender<(u64, ExecTtp)>,
+    reset_tx: mpsc::Sender<RuntimeControl>,
+    event_bus: C2EventBus,
     backends: Backends,
     k8s_clients: K8sClients,
 }
@@ -208,19 +243,33 @@ impl C2Handle {
     }
 }
 
+/// The epoch belongs to the producer, so delayed events keep their original
+/// campaign ownership even when they are published after a reset.
+type ScopedC2Event = (u64, C2Event);
+
+enum LifecycleMessage {
+    Event(Box<ScopedC2Event>),
+    Barrier(oneshot::Sender<()>),
+}
+
 #[derive(Clone)]
 pub struct C2EventBus {
-    lifecycle_tx: mpsc::Sender<C2Event>,
-    lifecycle_rx: Arc<StdMutex<Option<mpsc::Receiver<C2Event>>>>,
-    progress_tx: broadcast::Sender<C2Event>,
+    lifecycle_tx: mpsc::Sender<LifecycleMessage>,
+    lifecycle_rx: Arc<StdMutex<Option<mpsc::Receiver<LifecycleMessage>>>>,
+    progress_tx: broadcast::Sender<ScopedC2Event>,
     observer_tx: broadcast::Sender<C2Event>,
+    generation: Arc<AtomicU64>,
+    publisher_generation: u64,
+    campaign_gate: Arc<RwLock<()>>,
 }
 
 pub struct C2EventReceiver {
-    lifecycle_rx: mpsc::Receiver<C2Event>,
-    progress_rx: broadcast::Receiver<C2Event>,
+    lifecycle_rx: mpsc::Receiver<LifecycleMessage>,
+    progress_rx: broadcast::Receiver<ScopedC2Event>,
     lifecycle_closed: bool,
     progress_closed: bool,
+    generation: Arc<AtomicU64>,
+    campaign_gate: Arc<RwLock<()>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -231,6 +280,24 @@ pub enum C2EventRecvError {
 
 impl C2EventReceiver {
     pub async fn recv(&mut self) -> Result<C2Event, C2EventRecvError> {
+        self.recv_for_campaign().await.map(|(_, event)| event)
+    }
+
+    /// Hold the reset boundary until this event's campaign mutations and
+    /// notifications have finished. Queued events retain their producer's epoch.
+    pub async fn recv_for_campaign(
+        &mut self,
+    ) -> Result<(OwnedRwLockReadGuard<()>, C2Event), C2EventRecvError> {
+        loop {
+            let (generation, event) = self.recv_scoped().await?;
+            let guard = self.campaign_gate.clone().read_owned().await;
+            if generation == self.generation.load(Ordering::SeqCst) {
+                return Ok((guard, event));
+            }
+        }
+    }
+
+    async fn recv_scoped(&mut self) -> Result<ScopedC2Event, C2EventRecvError> {
         loop {
             if self.lifecycle_closed && self.progress_closed {
                 return Err(C2EventRecvError::Closed);
@@ -240,7 +307,8 @@ impl C2EventReceiver {
                 biased;
                 event = self.lifecycle_rx.recv(), if !self.lifecycle_closed => {
                     match event {
-                        Some(event) => return Ok(event),
+                        Some(LifecycleMessage::Event(event)) => return Ok(*event),
+                        Some(LifecycleMessage::Barrier(reply)) => { let _ = reply.send(()); }
                         None => self.lifecycle_closed = true,
                     }
                 }
@@ -270,6 +338,9 @@ impl C2EventBus {
             lifecycle_rx: Arc::new(StdMutex::new(Some(lifecycle_rx))),
             progress_tx,
             observer_tx,
+            generation: Arc::new(AtomicU64::new(0)),
+            publisher_generation: 0,
+            campaign_gate: Arc::new(RwLock::new(())),
         }
     }
 
@@ -293,12 +364,41 @@ impl C2EventBus {
             progress_rx: self.progress_tx.subscribe(),
             lifecycle_closed: false,
             progress_closed: false,
+            generation: self.generation.clone(),
+            campaign_gate: self.campaign_gate.clone(),
         }
+    }
+
+    async fn flush_campaign(&self) -> Result<(), String> {
+        if self
+            .lifecycle_rx
+            .lock()
+            .expect("c2 lifecycle receiver lock poisoned")
+            .is_some()
+        {
+            return Err("no campaign event processor subscribed".to_string());
+        }
+        let (tx, rx) = oneshot::channel();
+        self.lifecycle_tx
+            .send(LifecycleMessage::Barrier(tx))
+            .await
+            .map_err(|_| "c2 lifecycle receiver closed".to_string())?;
+        rx.await
+            .map_err(|_| "campaign event barrier interrupted".to_string())
+    }
+
+    fn current_publisher(&self) -> Self {
+        let mut publisher = self.clone();
+        publisher.publisher_generation = self.generation.load(Ordering::SeqCst);
+        publisher
     }
 
     pub async fn publish(&self, event: C2Event) -> Result<usize, String> {
         if matches!(event, C2Event::TtpOutput { .. }) {
-            let progress_receivers = self.progress_tx.send(event.clone()).unwrap_or(0);
+            let progress_receivers = self
+                .progress_tx
+                .send((self.publisher_generation, event.clone()))
+                .unwrap_or(0);
             let observer_receivers = self.observer_tx.send(event).unwrap_or(0);
             if progress_receivers + observer_receivers == 0 {
                 Err("no c2 event subscribers currently registered".to_string())
@@ -307,7 +407,10 @@ impl C2EventBus {
             }
         } else {
             self.lifecycle_tx
-                .send(event.clone())
+                .send(LifecycleMessage::Event(Box::new((
+                    self.publisher_generation,
+                    event.clone(),
+                ))))
                 .await
                 .map_err(|_| "c2 lifecycle receiver closed".to_string())?;
             let observer_receivers = self.observer_tx.send(event).unwrap_or(0);
@@ -317,16 +420,55 @@ impl C2EventBus {
 }
 
 impl C2Handle {
-    pub async fn send(&self, cmd: ExecTtp) -> Result<(), String> {
-        self.cmd_tx
-            .send(cmd)
+    /// Exclude campaign event processing while replacing campaign state.
+    pub fn campaign_event_gate(&self) -> Arc<RwLock<()>> {
+        self.event_bus.campaign_gate.clone()
+    }
+
+    /// Cancel old executions, release listeners, and close persistent sessions.
+    /// The caller holds the campaign event gate through the state replacement.
+    pub async fn reset(&self) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.reset_tx
+            .send(RuntimeControl::Reset(tx))
             .await
-            .map_err(|_| "failed to send ExecTtp command to c2 runtime".to_string())
+            .map_err(|_| "c2 runtime closed".to_string())?;
+        rx.await.map_err(|_| "c2 reset interrupted".to_string())?
+    }
+
+    /// Stop queued work and settle running work before taking a cleanup snapshot.
+    pub async fn quiesce(&self) -> Result<QuiesceReport, String> {
+        let (tx, rx) = oneshot::channel();
+        self.reset_tx
+            .send(RuntimeControl::Quiesce(tx))
+            .await
+            .map_err(|_| "c2 runtime closed".to_string())?;
+        rx.await.map_err(|_| "c2 quiesce interrupted".to_string())?
+    }
+
+    pub async fn reserve(&self) -> Result<C2CommandPermit, String> {
+        let generation = self.event_bus.generation.load(Ordering::SeqCst);
+        let permit = self
+            .cmd_tx
+            .clone()
+            .reserve_owned()
+            .await
+            .map_err(|_| "c2 command queue closed".to_string())?;
+        Ok(C2CommandPermit {
+            permit,
+            generation,
+            current_generation: self.event_bus.generation.clone(),
+        })
+    }
+
+    pub async fn send(&self, cmd: ExecTtp) -> Result<(), String> {
+        self.reserve().await?.send(cmd)
     }
 }
 
 pub struct C2Manager {
-    cmd_rx: mpsc::Receiver<ExecTtp>,
+    cmd_rx: mpsc::Receiver<(u64, ExecTtp)>,
+    reset_rx: mpsc::Receiver<RuntimeControl>,
     executor: C2Executor,
     max_concurrent_executions: usize,
 }
@@ -428,6 +570,7 @@ impl C2Manager {
     ) -> (C2Handle, C2EventBus, Self) {
         limits.validate();
         let (cmd_tx, cmd_rx) = mpsc::channel(limits.command_queue_capacity);
+        let (reset_tx, reset_rx) = mpsc::channel(1);
         let event_bus = C2EventBus::new(limits.event_buffer_capacity);
         let k8s_clients = Arc::new(RwLock::new(k8s_clients));
 
@@ -449,12 +592,15 @@ impl C2Manager {
         (
             C2Handle {
                 cmd_tx,
+                reset_tx,
+                event_bus: event_bus.clone(),
                 backends: backends.clone(),
                 k8s_clients: k8s_clients.clone(),
             },
             event_bus.clone(),
             Self {
                 cmd_rx,
+                reset_rx,
                 max_concurrent_executions: limits.max_concurrent_executions,
                 executor: C2Executor {
                     event_bus,
@@ -485,6 +631,7 @@ impl C2Manager {
     ) -> (C2Handle, C2EventBus, Self) {
         assert!(max_concurrent_executions > 0);
         let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
+        let (reset_tx, reset_rx) = mpsc::channel(1);
         let event_bus = C2EventBus::new(buffer_size);
         let backends: Backends = Arc::new(RwLock::new(backends));
         let k8s_clients = Arc::new(RwLock::new(HashMap::new()));
@@ -492,12 +639,15 @@ impl C2Manager {
         (
             C2Handle {
                 cmd_tx,
+                reset_tx,
+                event_bus: event_bus.clone(),
                 backends: backends.clone(),
                 k8s_clients: k8s_clients.clone(),
             },
             event_bus.clone(),
             Self {
                 cmd_rx,
+                reset_rx,
                 max_concurrent_executions,
                 executor: C2Executor {
                     event_bus,
@@ -512,27 +662,120 @@ impl C2Manager {
         )
     }
 
+    async fn quiesce(
+        &mut self,
+        executions: &mut tokio::task::JoinSet<()>,
+        active: &mut HashMap<tokio::task::Id, ExecTtp>,
+    ) -> Result<QuiesceReport, String> {
+        let publisher = self.executor.event_bus.current_publisher();
+        let mut report = QuiesceReport::default();
+        let mut cancelled = Vec::new();
+        while let Ok((generation, cmd)) = self.cmd_rx.try_recv() {
+            if generation == publisher.publisher_generation {
+                report.unstarted.push(cmd.id.clone());
+                let event =
+                    failed_result(&cmd, "action cancelled before starting by campaign reset");
+                publisher
+                    .publish(C2Event::TtpExecuted {
+                        cmd: Box::new(cmd),
+                        event,
+                        partial: false,
+                    })
+                    .await?;
+            }
+        }
+        // Give already-running resource creation a chance to finish and report
+        // its outcome. Never start queued work once reset has begun.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while !executions.is_empty() {
+            match tokio::time::timeout_at(deadline, executions.join_next_with_id()).await {
+                Ok(Some(Ok((id, ())))) => {
+                    active.remove(&id);
+                }
+                Ok(Some(Err(error))) => {
+                    if let Some(cmd) = active.remove(&error.id()) {
+                        report.interrupted.push(cmd.id.clone());
+                        cancelled.push(cmd);
+                    }
+                }
+                Ok(None) => break,
+                Err(_) => {
+                    executions.abort_all();
+                    while let Some(result) = executions.join_next_with_id().await {
+                        if let Ok((id, ())) = result {
+                            active.remove(&id);
+                        }
+                    }
+                    for (_, cmd) in active.drain() {
+                        report.interrupted.push(cmd.id.clone());
+                        cancelled.push(cmd);
+                    }
+                    break;
+                }
+            }
+        }
+        for cmd in cancelled {
+            let event = failed_result(&cmd, "action cancelled by campaign reset");
+            publisher
+                .publish(C2Event::TtpExecuted {
+                    cmd: Box::new(cmd),
+                    event,
+                    partial: false,
+                })
+                .await?;
+        }
+        // FIFO acknowledgement means the cleanup snapshot includes every
+        // completion above, even if the campaign processor was behind C2.
+        publisher.flush_campaign().await?;
+        self.executor
+            .event_bus
+            .generation
+            .fetch_add(1, Ordering::SeqCst);
+        Ok(report)
+    }
+
     pub async fn run(mut self) {
         let mut executions = tokio::task::JoinSet::new();
+        let mut active = HashMap::new();
         loop {
-            if executions.len() >= self.max_concurrent_executions {
-                if let Some(Err(error)) = executions.join_next().await {
-                    warn!(%error, "c2 command task failed");
-                }
-                continue;
-            }
             tokio::select! {
-                cmd = self.cmd_rx.recv() => match cmd {
-                    Some(cmd) => {
-                        let executor = self.executor.clone();
-                        executions.spawn(async move { executor.execute_and_publish(cmd).await });
+                biased;
+                Some(control) = self.reset_rx.recv() => match control {
+                    RuntimeControl::Reset(reply) => {
+                        self.executor.event_bus.generation.fetch_add(1, Ordering::SeqCst);
+                        executions.abort_all();
+                        while executions.join_next().await.is_some() {}
+                        active.clear();
+                        let result = self.executor.teardown().await;
+                        let _ = reply.send(result);
+                    }
+                    RuntimeControl::Quiesce(reply) => {
+                        let report = self.quiesce(&mut executions, &mut active).await;
+                        let _ = reply.send(report);
+                    }
+                },
+                cmd = self.cmd_rx.recv(), if executions.len() < self.max_concurrent_executions => match cmd {
+                    Some((generation, cmd)) => {
+                        if generation != self.executor.event_bus.generation.load(Ordering::SeqCst) {
+                            continue;
+                        }
+                        let mut executor = self.executor.clone();
+                        executor.event_bus = executor.event_bus.current_publisher();
+                        let command = cmd.clone();
+                        let task = executions.spawn(async move { executor.execute_and_publish(cmd).await });
+                        active.insert(task.id(), command);
                     }
                     None => break,
                 },
-                Some(result) = executions.join_next(), if !executions.is_empty() => {
-                    if let Err(error) = result {
-                        warn!(%error, "c2 command task failed");
-                    }
+                Some(result) = executions.join_next_with_id(), if !executions.is_empty() => {
+                    let id = match result {
+                        Ok((id, ())) => id,
+                        Err(error) => {
+                            warn!(%error, "c2 command task failed");
+                            error.id()
+                        }
+                    };
+                    active.remove(&id);
                 }
             }
         }
@@ -549,6 +792,56 @@ impl C2Manager {
 }
 
 impl C2Executor {
+    async fn teardown(&self) -> Result<(), String> {
+        // Await listener cancellation before draining backends: a handshake
+        // must never register a backend after the drain, or retain its port.
+        let listeners = std::mem::take(&mut *self.listeners.write().await);
+        for task in listeners.values() {
+            task.abort();
+        }
+        for (_, task) in listeners {
+            let _ = task.await;
+        }
+        let sessions = {
+            let mut backends = self.backends.write().await;
+            let ids: Vec<_> = backends
+                .keys()
+                .filter(|id| id.starts_with("session/"))
+                .cloned()
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| backends.remove(&id).map(|backend| (id, backend)))
+                .collect::<Vec<_>>()
+        };
+        let mut failures = Vec::new();
+        for (id, backend) in sessions {
+            match tokio::time::timeout(Duration::from_secs(5), backend.close()).await {
+                Ok(Ok(())) => {}
+                result => {
+                    let reason = match result {
+                        Ok(Err(error)) => error,
+                        _ => "close timed out".to_string(),
+                    };
+                    failures.push(format!("{id}: {reason}"));
+                    self.backends.write().await.insert(id, backend);
+                }
+            }
+        }
+        let redirectors = std::mem::take(&mut *self.redirectors.write().await);
+        for (id, mut redirector) in redirectors {
+            if let Err(error) = redirector.child.kill().await {
+                failures.push(format!("{id}: {error}"));
+                self.redirectors.write().await.insert(id, redirector);
+            }
+        }
+        self.partial_executions.write().await.clear();
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        }
+    }
+
     async fn execute_and_publish(&self, cmd: ExecTtp) {
         let (output, mut output_rx) = OutputSink::channel();
         let mut execution = Box::pin(self.execute_command(&cmd, output.clone()));
@@ -913,13 +1206,11 @@ impl C2Executor {
         let backends = self.backends.clone();
         let event_bus = self.event_bus.clone();
         let listeners = self.listeners.clone();
+        let mut registered = self.listeners.write().await;
         let handle = tokio::spawn(async move {
             accept_session_loop(backends, event_bus, listeners, listener, spec).await;
         });
-        self.listeners
-            .write()
-            .await
-            .insert(port, handle.abort_handle());
+        registered.insert(port, handle);
         Ok(())
     }
 
@@ -937,10 +1228,10 @@ impl C2Executor {
             );
         };
 
-        let Some(handle) = self.listeners.write().await.remove(&port) else {
-            return failed_result(cmd, &format!("no listener is bound on port {port}"));
-        };
-        handle.abort();
+        if let Some(handle) = self.listeners.write().await.remove(&port) {
+            handle.abort();
+            let _ = handle.await;
+        }
         tracing::info!(port, "listener stopped; port released");
 
         let _ = self
@@ -960,28 +1251,26 @@ impl C2Executor {
         }
     }
 
-    /// Remove and close a persistent shell backend. Removing it before closing
-    /// ensures no new commands can be routed through a session the operator
-    /// has just asked to terminate. The health monitor then observes a
-    /// superseded backend and does not turn this deliberate removal into a
-    /// SessionLost event. If the backend has already disappeared, publishing
+    /// Close before removing a persistent backend, keeping it discoverable if
+    /// this command is cancelled. Holding the registry lock prevents routing
+    /// and suppresses health-monitor loss during deliberate closure. If the
+    /// backend has already disappeared, publishing
     /// the lifecycle event still removes its broken graph edge as an explicit
     /// operator cleanup.
     async fn kill_session(&self, cmd: &ExecTtp, session_id: &str) -> TtpExecuted {
-        let backend = self.backends.write().await.remove(session_id);
+        let mut registered = self.backends.write().await;
+        let backend = registered.get(session_id).cloned();
         let was_live = backend.is_some();
         if let Some(backend) = backend {
             if let Err(error) = backend.close().await {
-                self.backends
-                    .write()
-                    .await
-                    .insert(session_id.to_string(), backend);
                 return failed_result(
                     cmd,
                     &format!("failed to close session '{session_id}': {error}"),
                 );
             }
+            registered.remove(session_id);
         }
+        drop(registered);
 
         let _ = self
             .event_bus
@@ -1094,45 +1383,26 @@ impl C2Executor {
         };
 
         let retire_source = source_backend_id.starts_with("session/") && cmd.exec_chain.len() == 1;
-        let removed_source = if retire_source {
-            let mut backends = self.backends.write().await;
-            match backends.get(&source_backend_id) {
-                Some(current) if Arc::ptr_eq(current, &source_backend) => {
-                    backends.remove(&source_backend_id)
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
-
         let retirement = if !retire_source {
-            format!(
-                "source execution channel {source_backend_id} was retained because it is not a direct target session"
-            )
-        } else if let Some(source) = removed_source {
-            match source.close().await {
-                Ok(()) => {
-                    let _ = self
-                        .event_bus
-                        .publish(C2Event::SessionKilled {
-                            backend_id: source_backend_id.clone(),
-                        })
-                        .await;
-                    format!("superseded and closed source session {source_backend_id}")
-                }
-                Err(error) => {
-                    self.backends
-                        .write()
-                        .await
-                        .insert(source_backend_id.clone(), source);
-                    format!(
-                        "Ranplant connected, but source session {source_backend_id} could not be closed: {error}"
-                    )
-                }
-            }
+            format!("source execution channel {source_backend_id} was retained because it is not a direct target session")
         } else {
-            format!("source session {source_backend_id} was already unavailable")
+            let mut registered = self.backends.write().await;
+            if registered
+                .get(&source_backend_id)
+                .is_some_and(|current| Arc::ptr_eq(current, &source_backend))
+            {
+                match source_backend.close().await {
+                    Ok(()) => {
+                        registered.remove(&source_backend_id);
+                        drop(registered);
+                        let _ = self.event_bus.publish(C2Event::SessionKilled { backend_id: source_backend_id.clone() }).await;
+                        format!("superseded and closed source session {source_backend_id}")
+                    }
+                    Err(error) => format!("Ranplant connected, but source session {source_backend_id} could not be closed: {error}"),
+                }
+            } else {
+                format!("source session {source_backend_id} was already unavailable")
+            }
         };
 
         result.results.push(format!(
@@ -1396,14 +1666,13 @@ impl C2Executor {
         };
         let entry = ran_domain::format_redirector(&play_id, remote_port);
 
-        let Some(mut existing) = self.redirectors.write().await.remove(&entry) else {
-            return failed_result(cmd, &format!("no redirector is forwarding {entry}"));
-        };
-        if let Err(error) = existing.child.kill().await {
-            // In practice this only fires when labctl already died on its own, in
-            // which case the tunnel is gone anyway. The `Child` is dropped here
-            // with `kill_on_drop` set, so the process is reaped either way.
-            warn!(%entry, %error, "killing labctl reported an error");
+        if let Some(mut existing) = self.redirectors.write().await.remove(&entry) {
+            if let Err(error) = existing.child.kill().await {
+                // In practice this only fires when labctl already died on its own, in
+                // which case the tunnel is gone anyway. The `Child` is dropped here
+                // with `kill_on_drop` set, so the process is reaped either way.
+                warn!(%entry, %error, "killing labctl reported an error");
+            }
         }
         tracing::info!(%entry, "redirector stopped; tunnel closed");
 
@@ -3500,18 +3769,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stopping_an_unbound_port_fails_with_a_clear_reason() {
-        let (event, _events) = run_control_operation(ExecutionOperation::StopListener {
-            listener: "tcp/9".to_string(),
+    async fn stopping_an_unbound_port_is_idempotent() {
+        let (event, _) = run_control_operation(ExecutionOperation::StopListener {
+            listener: "tcp/9".into(),
         })
         .await;
-
-        assert!(!event.success);
-        assert!(
-            event.fail_reason.contains("no listener is bound on port 9"),
-            "unexpected reason: {}",
-            event.fail_reason
-        );
+        assert!(event.success);
     }
 
     #[tokio::test]
@@ -3942,20 +4205,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stopping_an_unforwarded_remote_port_fails_with_a_clear_reason() {
-        let (event, _events) = run_control_operation(ExecutionOperation::StopRedirector {
-            redirector: "play1/9999".to_string(),
+    async fn stopping_an_unforwarded_remote_port_is_idempotent() {
+        let (event, _) = run_control_operation(ExecutionOperation::StopRedirector {
+            redirector: "play1/9999".into(),
         })
         .await;
-
-        assert!(!event.success);
-        assert!(
-            event
-                .fail_reason
-                .contains("no redirector is forwarding play1/9999"),
-            "unexpected reason: {}",
-            event.fail_reason
-        );
+        assert!(event.success);
     }
 
     /// A tunnel is identified by playground *and* port, so stopping the same port
@@ -3996,14 +4251,7 @@ mod tests {
         handle.send(stop).await.expect("stop should queue");
 
         let event = wait_for_execution(&mut rx).await;
-        assert!(!event.success);
-        assert!(
-            event
-                .fail_reason
-                .contains("no redirector is forwarding play2/1337"),
-            "unexpected reason: {}",
-            event.fail_reason
-        );
+        assert!(event.success);
         assert!(
             redirectors.read().await.contains_key("play1/1337"),
             "the other playground's tunnel on the same port must survive"
@@ -4042,6 +4290,172 @@ mod tests {
             "unexpected reason: {}",
             event.fail_reason
         );
+    }
+
+    #[tokio::test]
+    async fn reset_discards_queued_and_delayed_events_from_retired_publishers() {
+        let (handle, old, manager) = C2Manager::new_with_backends(16, HashMap::new());
+        let mut receiver = old.subscribe_campaign();
+        let task = tokio::spawn(manager.run());
+        old.publish(C2Event::SessionKilled {
+            backend_id: "queued-old".into(),
+        })
+        .await
+        .unwrap();
+        {
+            let _boundary = handle.campaign_event_gate().write_owned().await;
+            handle.reset().await.unwrap();
+        }
+        old.publish(C2Event::SessionLost {
+            backend_id: "session/reused".into(),
+            target_entity_id: "node/pod".into(),
+        })
+        .await
+        .unwrap();
+        old.publish(C2Event::TtpOutput {
+            cmd_id: "old-output".into(),
+            sequence: 1,
+            stdout: "old".into(),
+            stderr: String::new(),
+            stdout_bytes: 3,
+            stderr_bytes: 0,
+        })
+        .await
+        .unwrap();
+        let current = old.current_publisher();
+        current
+            .publish(C2Event::SessionKilled {
+                backend_id: "current".into(),
+            })
+            .await
+            .unwrap();
+        assert!(
+            matches!(receiver.recv().await.unwrap(), C2Event::SessionKilled { backend_id } if backend_id == "current")
+        );
+        current
+            .publish(C2Event::TtpOutput {
+                cmd_id: "current-output".into(),
+                sequence: 1,
+                stdout: "current".into(),
+                stderr: String::new(),
+                stdout_bytes: 7,
+                stderr_bytes: 0,
+            })
+            .await
+            .unwrap();
+        assert!(
+            matches!(receiver.recv().await.unwrap(), C2Event::TtpOutput { cmd_id, .. } if cmd_id == "current-output")
+        );
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn reset_cancels_saturated_execution_and_discards_queued_commands() {
+        let (started, mut started_rx) = mpsc::unbounded_channel();
+        let release = Arc::new(Semaphore::new(0));
+        let backend: Arc<dyn C2Backend> = Arc::new(BlockingBackend {
+            started,
+            release: release.clone(),
+        });
+        let (handle, _events, manager) =
+            C2Manager::new_with_backends_and_limit(8, 1, HashMap::from([("ran".into(), backend)]));
+        let task = tokio::spawn(manager.run());
+        handle.send(exec_cmd("ran")).await.unwrap();
+        started_rx.recv().await.unwrap();
+        handle.send(exec_cmd("ran")).await.unwrap();
+        let boundary = handle.campaign_event_gate().write_owned().await;
+        tokio::time::timeout(Duration::from_secs(1), handle.reset())
+            .await
+            .expect("reset must bypass saturation")
+            .unwrap();
+        drop(boundary);
+        let mut current = exec_cmd("ran");
+        current.id = "current".into();
+        handle.send(current).await.unwrap();
+        assert_eq!(started_rx.recv().await.unwrap(), "current");
+        release.add_permits(1);
+        drop(handle);
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reset_reports_close_failure_and_still_closes_other_sessions() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let good: Arc<dyn C2Backend> = Arc::new(CloseableBackend {
+            closed: closed.clone(),
+        });
+        let bad: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "unclosable".into(),
+        });
+        let (handle, _events, manager) = C2Manager::new_with_backends(
+            8,
+            HashMap::from([("session/good".into(), good), ("session/bad".into(), bad)]),
+        );
+        let task = tokio::spawn(manager.run());
+        let boundary = handle.campaign_event_gate().write_owned().await;
+        let error = handle.reset().await.unwrap_err();
+        assert!(error.contains("session/bad"));
+        assert!(closed.load(Ordering::SeqCst));
+        assert!(!handle.backends.read().await.contains_key("session/good"));
+        assert!(handle.backends.read().await.contains_key("session/bad"));
+        drop(boundary);
+        drop(handle);
+        task.await.unwrap();
+    }
+
+    struct InterruptedCloseBackend {
+        started: mpsc::UnboundedSender<()>,
+        attempts: std::sync::atomic::AtomicUsize,
+        closed: AtomicBool,
+    }
+
+    #[async_trait::async_trait]
+    impl C2Backend for InterruptedCloseBackend {
+        async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
+            super::failed_result(cmd, "test backend")
+        }
+
+        async fn close(&self) -> Result<(), String> {
+            if self.attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                self.started.send(()).unwrap();
+                std::future::pending::<()>().await;
+            }
+            self.closed.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn reset_finds_session_when_kill_is_cancelled_during_close() {
+        let (started, mut started_rx) = mpsc::unbounded_channel();
+        // Retain an Arc just as the health monitor does, preventing Drop from
+        // masking a backend that was prematurely removed from the registry.
+        let backend = Arc::new(InterruptedCloseBackend {
+            started,
+            attempts: Default::default(),
+            closed: AtomicBool::new(false),
+        });
+        let (handle, _, manager) = C2Manager::new_with_backends(8, HashMap::new());
+        handle
+            .register_backend("session/closing", backend.clone())
+            .await;
+        let task = tokio::spawn(manager.run());
+        let mut cmd = exec_cmd("ran");
+        cmd.operation = ExecutionOperation::KillSession {
+            session: "session/closing".into(),
+        };
+        handle.send(cmd).await.unwrap();
+        started_rx.recv().await.unwrap();
+        let _boundary = handle.campaign_event_gate().write_owned().await;
+        tokio::time::timeout(Duration::from_secs(1), handle.reset())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(backend.closed.load(Ordering::SeqCst));
+        assert_eq!(backend.attempts.load(Ordering::SeqCst), 2);
+        assert!(!handle.backends.read().await.contains_key("session/closing"));
+        drop(handle);
+        task.await.unwrap();
     }
 
     fn exec_cmd(exec_system_id: &str) -> ExecTtp {

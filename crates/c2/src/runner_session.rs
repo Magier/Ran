@@ -53,6 +53,7 @@ pub struct RunnerSession {
     health: watch::Receiver<SessionHealth>,
     close_health: watch::Sender<SessionHealth>,
     actor: tokio::task::AbortHandle,
+    actor_task: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub entity_id: String,
 }
 
@@ -139,6 +140,7 @@ impl RunnerSession {
                 health: health_rx,
                 close_health,
                 actor: actor.abort_handle(),
+                actor_task: tokio::sync::Mutex::new(Some(actor)),
                 entity_id,
             },
             identity,
@@ -151,19 +153,30 @@ impl RunnerSession {
 
     pub(crate) async fn close(&self) -> Result<(), String> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        let result = match self
-            .requests
-            .send(RunnerRequest::Close { reply: reply_tx })
-            .await
-        {
-            Ok(()) => reply_rx
+        let result = tokio::time::timeout(Duration::from_secs(2), async {
+            self.requests
+                .send(RunnerRequest::Close { reply: reply_tx })
                 .await
-                .unwrap_or_else(|_| Err("Ranplant session closed unexpectedly".to_string())),
-            Err(_) => Err("Ranplant session closed unexpectedly".to_string()),
-        };
+                .map_err(|_| "Ranplant session closed unexpectedly".to_string())?;
+            reply_rx
+                .await
+                .unwrap_or_else(|_| Err("Ranplant session closed unexpectedly".to_string()))
+        })
+        .await
+        .unwrap_or_else(|_| Err("Ranplant session close timed out".to_string()));
         self.close_health.send_replace(SessionHealth::Lost);
         self.actor.abort();
+        if let Some(task) = self.actor_task.lock().await.take() {
+            let _ = task.await;
+        }
         result
+    }
+}
+
+// Cancellation during session setup must also close the transport actor.
+impl Drop for RunnerSession {
+    fn drop(&mut self) {
+        self.actor.abort();
     }
 }
 

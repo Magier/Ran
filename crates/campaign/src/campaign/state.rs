@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::net::IpAddr;
 
 use cortex::KnowledgeGraph;
@@ -67,6 +67,12 @@ pub struct Campaign {
     pub(crate) graph: KnowledgeGraph,
     pub(crate) parse_audits: Vec<ParseAudit>,
     pub(crate) execution_records: Vec<ExecutionRecord>,
+    /// Cleanup command ID to the original execution that owes the cleanup.
+    #[serde(default)]
+    pub(crate) cleanup_sources: HashMap<String, String>,
+    /// Executions already cleaned, or cancelled before they ever ran.
+    #[serde(default)]
+    pub(crate) cleanup_satisfied: HashSet<String>,
     /// Steps that have been dispatched to C2 but not yet completed.
     pub(crate) open_steps: Vec<ExecTtp>,
     /// Bounded output snapshots for currently running commands. SSE carries
@@ -263,6 +269,8 @@ impl Campaign {
             graph,
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
+            cleanup_sources: HashMap::new(),
+            cleanup_satisfied: HashSet::new(),
             open_steps: Vec::new(),
             in_flight_outputs: HashMap::new(),
             file_contents: HashMap::new(),
@@ -451,7 +459,17 @@ impl Campaign {
 
     /// Append one entry to the campaign's execution audit trail.
     pub fn append_execution_record(&mut self, record: ExecutionRecord) {
+        if record.is_cleanup && record.success && !record.partial {
+            if let Some(source) = self.cleanup_sources.get(&record.id) {
+                self.cleanup_satisfied.insert(source.clone());
+            }
+        }
         self.execution_records.push(record);
+    }
+
+    /// No cleanup is owed by a command cancelled before it started.
+    pub fn skip_cleanup_for_unstarted(&mut self, id: &str) {
+        self.cleanup_satisfied.insert(id.to_string());
     }
 
     pub fn get_open_steps(&self) -> &[ExecTtp] {
@@ -1358,6 +1376,8 @@ mod planner_helper_tests {
             graph: KnowledgeGraph::new(),
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
+            cleanup_sources: HashMap::new(),
+            cleanup_satisfied: HashSet::new(),
             open_steps: Vec::new(),
             in_flight_outputs: std::collections::HashMap::new(),
             file_contents: std::collections::HashMap::new(),
