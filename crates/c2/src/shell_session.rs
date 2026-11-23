@@ -36,6 +36,7 @@ pub struct ShellSession {
     health: watch::Receiver<SessionHealth>,
     close_health: watch::Sender<SessionHealth>,
     actor: tokio::task::AbortHandle,
+    actor_task: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Entity ID this session currently exits into (for logging/debugging).
     pub entity_id: String,
 }
@@ -190,6 +191,7 @@ impl ShellSession {
             health: health_rx,
             close_health,
             actor: actor.abort_handle(),
+            actor_task: tokio::sync::Mutex::new(Some(actor)),
             entity_id,
         }
     }
@@ -270,7 +272,17 @@ impl ShellSession {
         // and unblocks callers waiting on a queued shell request.
         self.close_health.send_replace(SessionHealth::Lost);
         self.actor.abort();
+        if let Some(task) = self.actor_task.lock().await.take() {
+            let _ = task.await;
+        }
         Ok(())
+    }
+}
+
+// Cancellation during session setup must also close the transport actor.
+impl Drop for ShellSession {
+    fn drop(&mut self) {
+        self.actor.abort();
     }
 }
 

@@ -2066,12 +2066,20 @@ impl Campaign {
     }
 
     pub fn build_cleanup_actions(&mut self, armory: &Armory) -> Vec<ExecTtp> {
+        self.build_cleanup_actions_with_failures(armory).0
+    }
+
+    pub fn build_cleanup_actions_with_failures(
+        &mut self,
+        armory: &Armory,
+    ) -> (Vec<ExecTtp>, Vec<String>) {
         let records: Vec<crate::execution_record::ExecutionRecord> = self.execution_records.clone();
 
         let mut actions = Vec::new();
+        let mut failures = Vec::new();
 
         for record in records.iter().rev() {
-            if record.is_cleanup {
+            if record.is_cleanup || self.cleanup_satisfied.contains(&record.id) {
                 continue;
             }
 
@@ -2108,9 +2116,15 @@ impl Campaign {
             ) {
                 Ok(mut exec) => {
                     exec.is_cleanup = true;
+                    self.cleanup_sources
+                        .insert(exec.id.clone(), record.id.clone());
                     actions.push(exec);
                 }
                 Err(e) => {
+                    failures.push(format!(
+                        "{} cleanup preparation failed: {e:?}",
+                        record.ttp_id
+                    ));
                     tracing::warn!(
                         ttp_id = %record.ttp_id,
                         target_id = %record.target_id,
@@ -2121,7 +2135,7 @@ impl Campaign {
             }
         }
 
-        actions
+        (actions, failures)
     }
 
     fn assert_target_exists(&self, target_id: &str) -> Result<(), ExecuteActionError> {

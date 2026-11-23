@@ -6,8 +6,8 @@ mod shell_session;
 mod types;
 
 pub use executor::{
-    C2Backend, C2EventBus, C2EventReceiver, C2EventRecvError, C2Handle, C2Manager, C2RuntimeLimits,
-    DEFAULT_MAX_CONCURRENT_EXECUTIONS,
+    C2Backend, C2CommandPermit, C2EventBus, C2EventReceiver, C2EventRecvError, C2Handle, C2Manager,
+    C2RuntimeLimits, QuiesceReport, DEFAULT_MAX_CONCURRENT_EXECUTIONS,
 };
 pub use output::{OutputSink, OutputStream};
 pub use runner_session::RunnerSession;

@@ -210,7 +210,11 @@ pub fn spawn_c2_event_processor_with_external_parser(
 
     tokio::spawn(async move {
         loop {
-            match c2_rx.recv().await {
+            let (generation_guard, event) = match c2_rx.recv_for_campaign().await {
+                Ok((guard, event)) => (Some(guard), Ok(event)),
+                Err(error) => (None, Err(error)),
+            };
+            match event {
                 Ok(C2Event::TtpOutput {
                     cmd_id,
                     sequence,
@@ -436,6 +440,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                 let campaign_events = campaign_events.clone();
                                 tokio::spawn(async move {
                                     let _permit = permit;
+                                    let _generation_guard = generation_guard;
                                     run_external_parsers(
                                         campaign,
                                         campaign_events,

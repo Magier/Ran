@@ -83,6 +83,8 @@ pub struct AppState {
     plans_dir: PathBuf,
     /// Offline KubeTier metadata/full catalog.
     kubetier_catalog: Arc<kubetier::Catalog>,
+    /// Serialize reset with action preparation and dispatch.
+    campaign_operations: Arc<tokio::sync::RwLock<()>>,
 }
 
 impl AppState {
@@ -114,6 +116,7 @@ impl AppState {
             .map(|p| load_decision_log(p))
             .unwrap_or_default();
         Self {
+            campaign_operations: Arc::new(tokio::sync::RwLock::new(())),
             k8s,
             campaign,
             c2,
@@ -203,16 +206,16 @@ impl AppState {
     /// Shared by `reset_campaign` and the launch-time plan runner. Waits up to
     /// 30s for the cleanup results to be recorded, then returns.
     pub(crate) async fn run_cleanup(&self) -> Result<(), ApiError> {
-        let cleanup_actions: Vec<c2::ExecTtp> = {
+        let (cleanup_actions, mut failures) = {
             let mut campaign = self
                 .campaign
                 .write()
                 .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
-            campaign.build_cleanup_actions(&self.armory)
+            campaign.build_cleanup_actions_with_failures(&self.armory)
             // write lock released here
         };
 
-        if cleanup_actions.is_empty() {
+        if cleanup_actions.is_empty() && failures.is_empty() {
             info!("no cleanup actions to run");
             return Ok(());
         }
@@ -224,17 +227,24 @@ impl AppState {
 
         // Cleanup ExecTtps are intentionally not registered in open_steps -
         // we track completion by polling execution_records instead.
+        let mut pending = cleanup_ids;
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
         for exec in cleanup_actions {
-            if let Err(e) = self.c2.send(exec).await {
-                warn!("failed to dispatch cleanup action: {}", e);
+            let id = exec.id.clone();
+            let result = tokio::time::timeout_at(deadline, self.c2.send(exec))
+                .await
+                .map_err(|_| "dispatch timed out".to_string())
+                .and_then(|result| result);
+            if let Err(error) = result {
+                pending.remove(&id);
+                failures.push(format!("{id}: cleanup dispatch failed: {error}"));
             }
         }
 
         // Wait for all cleanup results to be recorded by the C2 event processor.
-        // Poll with 200 ms intervals, 30 s deadline.
-        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
+        // Poll with 200 ms intervals, sharing the dispatch deadline.
         loop {
-            let completed: std::collections::HashSet<String> = {
+            let completed = {
                 let guard = self
                     .campaign
                     .read()
@@ -242,25 +252,37 @@ impl AppState {
                 guard
                     .get_execution_records()
                     .iter()
-                    .filter(|r| r.is_cleanup)
-                    .map(|r| r.id.clone())
-                    .collect()
+                    .filter(|r| r.is_cleanup && pending.contains(&r.id))
+                    .map(|r| (r.id.clone(), r.success && !r.partial, r.fail_reason.clone()))
+                    .collect::<Vec<_>>()
             };
-            if cleanup_ids.is_subset(&completed) {
-                info!("all cleanup actions completed");
+            for (id, success, reason) in completed {
+                pending.remove(&id);
+                if !success {
+                    failures.push(format!("{id}: cleanup failed or incomplete: {reason}"));
+                }
+            }
+            if pending.is_empty() {
+                info!("cleanup results collected");
                 break;
             }
             if tokio::time::Instant::now() >= deadline {
-                warn!(
-                    remaining = cleanup_ids.difference(&completed).count(),
-                    "cleanup timed out after 30s"
-                );
+                let mut ids: Vec<_> = pending.into_iter().collect();
+                ids.sort();
+                failures.push(format!("cleanup timed out after 30s: {}", ids.join(", ")));
                 break;
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         }
 
-        Ok(())
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(ApiError::internal(format!(
+                "cleanup incomplete: {}",
+                failures.join("; ")
+            )))
+        }
     }
 
     async fn register_captured_k8s_client(
@@ -459,8 +481,51 @@ impl ApiService for AppState {
     }
 
     async fn reset_campaign(&self) -> Result<(), ApiError> {
-        // Phase 1: run cleanup actions for everything executed so far.
-        self.run_cleanup().await?;
+        let _operations = self.campaign_operations.write().await;
+        let quiesce_result = self.c2.quiesce().await;
+        let quiesce_failure = match quiesce_result {
+            Ok(report) => {
+                let mut campaign = self
+                    .campaign
+                    .write()
+                    .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
+                for id in report.unstarted {
+                    campaign.skip_cleanup_for_unstarted(&id);
+                }
+                if report.interrupted.is_empty() {
+                    None
+                } else {
+                    Some(format!(
+                        "actions interrupted during reset: {}",
+                        report.interrupted.join(", ")
+                    ))
+                }
+            }
+            Err(error) => Some(error),
+        };
+        // Keep diagnostics on failure, but always attempt transport teardown.
+        let cleanup_result = self.run_cleanup().await;
+        let _events = self.c2.campaign_event_gate().write_owned().await;
+        let teardown_result = self.c2.reset().await;
+        match (cleanup_result, teardown_result, quiesce_failure) {
+            (Ok(()), Ok(()), None) => {}
+            (cleanup, teardown, quiesce) => {
+                let mut failures = Vec::new();
+                if let Some(error) = quiesce {
+                    failures.push(error);
+                }
+                if let Err(error) = cleanup {
+                    failures.push(error.body.error);
+                }
+                if let Err(error) = teardown {
+                    failures.push(format!("C2 teardown incomplete: {error}"));
+                }
+                return Err(ApiError::internal(format!(
+                    "campaign reset incomplete; campaign retained: {}",
+                    failures.join("; ")
+                )));
+            }
+        }
 
         // -----------------------------------------------------------------------
         // Phase 2: wipe campaign state
@@ -482,6 +547,17 @@ impl ApiService for AppState {
         &self,
         cmd: ExecuteActionRequest,
     ) -> Result<ExecuteActionResult, ApiError> {
+        let permit = self.c2.reserve().await.map_err(ApiError::internal)?;
+        // Never hold reserved capacity while waiting for reset: its cleanup
+        // commands need that capacity too. Requests racing reset can retry.
+        let _operations = self.campaign_operations.try_read().map_err(|_| {
+            ApiError::internal("campaign reset in progress; retry the action after reset")
+        })?;
+        if !permit.is_current() {
+            return Err(ApiError::internal(
+                "campaign changed while waiting to dispatch action",
+            ));
+        }
         if let Err(error) = self.stage_live_initial_access_target(&cmd).await {
             return Err(self.record_preparation_error(&cmd, error));
         }
@@ -545,7 +621,7 @@ impl ApiService for AppState {
 
         publish_ttp_dispatched(&exec);
 
-        self.c2.send(exec.clone()).await.map_err(|message| {
+        permit.send(exec.clone()).map_err(|message| {
             error!("failed to enqueue exec_ttp command: {}", message);
             ApiError::internal(message)
         })?;
