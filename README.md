@@ -5,7 +5,7 @@
 <h1 align="center">Ran</h1>
 
 <p align="center">
-  <strong>Adversary emulation tool for Kubernetes clusters</strong><br/>
+  <strong>Adversary emulation for Kubernetes clusters</strong><br/>
   <sub>Named after Rán - Norse goddess of the sea, whose net ensnares the unwary into the depths</sub>
 </p>
 
@@ -17,12 +17,6 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License"/></a>
 </p>
 
-> [!CAUTION]
-> This tool is intended for **educational and authorized demonstration purposes only**. Any other usage is not endorsed by the authors.
-
-> [!WARNING]
-> Ran is early-stage and highly experimental. Use at your own risk. See [Milestones](./Milestones.md) for the planned roadmap.
-
 <p align="center">
   <img src="./docs/ui_example.png" alt="Ran UI" width="800"/>
 </p>
@@ -31,10 +25,13 @@
 
 ## What is Ran?
 
-Ran is an adversary emulation platform for modern Kubernetes environments with two core objectives:
+Ran is an **adversary emulation platform for Kubernetes clusters**. It helps operators explore an environment from an adversary's perspective and execute controlled, multi-step campaigns using MITRE ATT&CK-mapped techniques.
 
-- **Realistic TTP emulation** - execute predefined adversary techniques mapped to the MITRE ATT&CK framework against your own cluster
-- **Living knowledge base** - a curated armory of known Kubernetes attack vectors, ready to run
+- **Controlled action space** - actions are defined in an explicit armory of TTPs, with execution procedures, parameters, and preconditions. Operators choose which techniques to run against which targets.
+- **Campaign knowledge graph** - discovered entities, relationships, access, and permissions form a structured model of what is known during a campaign. Action results update that model and inform subsequent choices.
+- **Traceable execution** - a campaign trail records executed actions and their results for review, reporting, and replay.
+
+Ran separates action selection from execution. This also makes it a natural foundation for an **Autonomous Offensive Framework (AOF)**: an external harness can drive it through MCP, or a planner could be added within Ran. Autonomous decision-making is an extension, not a requirement for using the platform.
 
 Ran covers the full MITRE ATT&CK tactic spectrum for Kubernetes: from *Initial Access* and *Discovery* through *Privilege Escalation*, *Lateral Movement*, and *Impact*.
 
@@ -47,7 +44,7 @@ This holds for Initial Access - but the dynamic flips afterwards. Post-IA, defen
 
 Ran encourages **micro-emulation**: multi-step sequences where a simulated adversary discovers and adapts to your environment, surfacing detection gaps that atomic tests miss entirely.
 
-#### For defenders
+### For defenders
 
 - View your cluster through an adversary's lens to find gaps in visibility and detection coverage
 - Record and replay attacker step sequences to validate detection logic
@@ -143,6 +140,18 @@ Open `http://localhost:8080` to explore and execute techniques from the armory.
 | `--plan` | - | Execute a YAML campaign plan on startup |
 | `--cleanup` | `false` | Automatically clean up after a launch-time plan |
 
+### Connect an external agent through MCP
+
+With `ran emulate` running, point a Streamable HTTP MCP client at:
+
+```text
+http://127.0.0.1:8080/mcp
+```
+
+The MCP tools let an agent inspect the knowledge graph and campaign state, find applicable TTPs, execute actions, wait for results, and check access or RBAC goals. See the [MCP tool inventory](./crates/api/src/mcp.rs) for the available tools.
+
+The connected agent controls its own planning loop. MCP access includes real action execution against the configured targets, so only connect trusted clients and keep campaigns within your authorized scope.
+
 ### Atomic testing (single TTP)
 
 Run a single TTP directly from the command line without the UI:
@@ -189,7 +198,13 @@ Ran is built around two major components:
 | Component | Responsibility |
 |---|---|
 | **Actuator** | Executes TTPs against the cluster, tracks results, and builds the audit trail |
-| **Planner / Reasoner** | Decides which actions to run and in what order |
+| **Planner / Reasoner** | Selects actions and their order, currently through a human operator or predefined plan; external agents can use MCP |
+
+### Campaign knowledge graph
+
+The knowledge graph represents the campaign's discovered environment, rather than assuming complete knowledge of the cluster. It connects entities and their relationships with known access and permissions. Ran uses this state to assess technique applicability and ground actions in concrete targets.
+
+This is a symbolic representation that supports explicit reasoning about the campaign: what is known, which actions are applicable, and what changed after execution. It provides a basis for symbolic planning without requiring an autonomous reasoner or an LLM.
 
 ### Armory
 
@@ -268,14 +283,16 @@ armory/TTPs/
 
 ### Planner approaches
 
-Ran is designed to support progressively more autonomous planning:
+Action selection is separate from execution. Human operation and predefined plans are available today; autonomous planning can be supplied by an external harness or developed within Ran:
 
 | Mode | Status | Description |
 |---|---|---|
 | **Human operator** | ✅ Available | Manually select and invoke individual TTPs |
-| **Imperative plan** | ✅ Available | Follow a pre-defined YAML campaign runbook |
-| **Classical AI** | 🗺️ Planned | Behavior Trees, HTN, GOAP |
-| **Modern AI** | 🔭 Future | Reinforcement learning, Active Inference |
+| **Imperative plan** | ✅ Available | Follow a predefined YAML campaign runbook |
+| **External agent via MCP** | ✅ Interface available | An external agent reads state, selects actions, and evaluates results through Ran's tools |
+| **Utility-based ranking** | ✅ Available | Score applicable actions to support selection; ranking alone is not an autonomous planner |
+| **Goal-driven planning** | 🗺️ Planned | Behavior Trees, HTN, GOAP |
+| **Research directions** | 🔭 Future | Reinforcement learning, Active Inference |
 
 *Planning approaches are inspired by [📖 Artificial Intelligence: A Modern Approach](https://aima.cs.berkeley.edu/) and motivated by MITRE's [📄 Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf).*
 
@@ -310,7 +327,6 @@ See [Milestones.md](./Milestones.md) for the full roadmap. Key upcoming work:
 | [kdigger](https://github.com/quarkslab/kdigger) | In-cluster context discovery |
 | [red-kube](https://github.com/lightspin-tech/red-kube) | Kubernetes red team scripts |
 | [MKAT](https://github.com/DataDog/managed-kubernetes-auditing-toolkit/) | Managed Kubernetes auditing |
-| [clusterfuck](https://bsssq.xyz/posts/kube/) | Kubernetes exploitation |
 
 For a detailed feature comparison see [docs/tool_comparison.md](docs/tool_comparison.md).
 
@@ -333,3 +349,6 @@ Contributions are welcome - especially new TTPs in the armory, bug reports, and 
 ## License
 
 Ran is released under the [Apache 2.0 License](LICENSE).
+
+> [!CAUTION]
+> This tool is intended for **educational and authorized demonstration purposes only**. Any other usage is not endorsed by the authors.
